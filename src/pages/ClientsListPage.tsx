@@ -13,6 +13,7 @@ import {
   Filter,
   Trash2,
   Calendar,
+  Sparkles,
 } from 'lucide-react'
 import { clientsService } from '@/services/clients'
 import { settingsService } from '@/services/settings'
@@ -32,6 +33,7 @@ import {
 } from '@/components/ui/select'
 import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 import ClientFormModal from '@/components/ClientFormModal'
+import StartWhatsAppConversationModal from '@/components/StartWhatsAppConversationModal'
 import { toast } from '@/hooks/use-toast'
 
 export default function ClientsListPage() {
@@ -49,6 +51,8 @@ export default function ClientsListPage() {
   // Selected client for Drawer & Modal
   const [selectedClientForChat, setSelectedClientForChat] = useState<Client | null>(null)
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
+  const [startChatModalOpen, setStartChatModalOpen] = useState(false)
+  const [clientForStartChat, setClientForStartChat] = useState<Client | null>(null)
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -284,16 +288,28 @@ export default function ClientsListPage() {
                         <div className="flex items-center justify-end gap-1.5">
                           <Button
                             size="sm"
+                            onClick={() => {
+                              setClientForStartChat(client)
+                              setStartChatModalOpen(true)
+                            }}
+                            className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                            title="Iniciar conversa no WhatsApp com template oficial"
+                          >
+                            <Sparkles className="h-3.5 w-3.5 mr-1" />
+                            Iniciar conversa no WhatsApp
+                          </Button>
+                          <Button
+                            size="sm"
                             variant="outline"
                             onClick={() => {
                               setSelectedClientForChat(client)
                               setChatDrawerOpen(true)
                             }}
-                            className="h-8 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200"
-                            title="Conversar no WhatsApp e ver histórico"
+                            className="h-8 text-xs text-slate-700 hover:text-emerald-700 hover:bg-slate-50 border-slate-200"
+                            title="Ver histórico de mensagens e tarefas"
                           >
-                            <MessageSquare className="h-3.5 w-3.5 mr-1" />
-                            WhatsApp
+                            <MessageSquare className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                            Histórico
                           </Button>
                           <Button
                             size="sm"
@@ -336,6 +352,17 @@ export default function ClientsListPage() {
         }}
         onSaved={() => loadClients()}
         clientToEdit={clientToEdit}
+      />
+
+      {/* Start WhatsApp Conversation Modal */}
+      <StartWhatsAppConversationModal
+        isOpen={startChatModalOpen}
+        onClose={() => {
+          setStartChatModalOpen(false)
+          setClientForStartChat(null)
+        }}
+        client={clientForStartChat}
+        onSuccess={() => loadClients()}
       />
     </div>
   )

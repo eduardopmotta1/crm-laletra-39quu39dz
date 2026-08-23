@@ -17,6 +17,7 @@ import {
   Plus,
   Search,
   Bell,
+  FileText,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
@@ -151,6 +152,12 @@ export default function AppLayout() {
       to: '/clientes',
       label: 'Clientes & Atendimentos',
       icon: Users,
+      badge: null,
+    },
+    {
+      to: '/templates',
+      label: 'Templates do WhatsApp',
+      icon: FileText,
       badge: null,
     },
     {

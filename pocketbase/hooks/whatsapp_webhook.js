@@ -53,11 +53,11 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
   const nowIso = new Date().toISOString()
 
   if (!clientRecord) {
-    // Create new client
+    // Create new client in "Precisa responder"
     clientRecord = new Record(clientsCol)
     clientRecord.set('name', senderName || 'Cliente WhatsApp (' + cleanPhone.slice(-4) + ')')
     clientRecord.set('phone', phone)
-    clientRecord.set('stage', 'Novo contato')
+    clientRecord.set('stage', 'Precisa responder')
     clientRecord.set('priority', 'media')
     clientRecord.set('last_message_at', nowIso)
     clientRecord.set('last_message_direction', 'inbound')
@@ -66,9 +66,16 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
     clientRecord.set('next_action', 'Atender novo contato e verificar demanda')
     $app.save(clientRecord)
   } else {
-    // Update existing client: if was not closed, move to "Precisa responder" if inbound
+    // Update existing client:
+    // Requirement 6: Quando uma mensagem for recebida via webhook de um cliente que estava em "Contato iniciado" ou "Aguardando cliente", o status deve mudar automaticamente para "Precisa responder".
+    // Also if not closed (Venda fechada / Não fechou), move to "Precisa responder"
     const currentStage = clientRecord.getString('stage')
-    if (currentStage !== 'Venda fechada' && currentStage !== 'Não fechou') {
+    if (
+      currentStage === 'Contato iniciado' ||
+      currentStage === 'Aguardando cliente' ||
+      currentStage === 'Novo contato' ||
+      (currentStage !== 'Venda fechada' && currentStage !== 'Não fechou')
+    ) {
       clientRecord.set('stage', 'Precisa responder')
     }
     clientRecord.set('last_message_at', nowIso)

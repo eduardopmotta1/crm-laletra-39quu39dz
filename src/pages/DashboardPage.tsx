@@ -105,6 +105,11 @@ export default function DashboardPage() {
       color: 'bg-blue-500',
     },
     {
+      stage: 'Contato iniciado',
+      count: clients.filter((c) => c.stage === 'Contato iniciado').length,
+      color: 'bg-cyan-500',
+    },
+    {
       stage: 'Precisa responder',
       count: clients.filter((c) => c.stage === 'Precisa responder').length,
       color: 'bg-rose-500',

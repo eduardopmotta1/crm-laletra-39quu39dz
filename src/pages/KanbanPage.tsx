@@ -140,6 +140,8 @@ export default function KanbanPage() {
   const stageColorBadges: Record<KanbanStage, string> = {
     'Novo contato':
       'border-blue-500/30 text-blue-700 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300',
+    'Contato iniciado':
+      'border-cyan-500/30 text-cyan-700 bg-cyan-50 dark:bg-cyan-950/40 dark:text-cyan-300',
     'Precisa responder':
       'border-rose-500/30 text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300',
     'Em atendimento':
@@ -155,7 +157,8 @@ export default function KanbanPage() {
   }
 
   const stageDescriptions: Record<KanbanStage, string> = {
-    'Novo contato': 'Novas mensagens ou leads recebidos',
+    'Novo contato': 'Novas mensagens ou leads cadastrados',
+    'Contato iniciado': 'Template WhatsApp enviado ao cliente',
     'Precisa responder': 'Clientes aguardando nossa resposta (SLA ativo)',
     'Em atendimento': 'Briefing e especificações técnicas',
     'Orçamento enviado': 'Proposta de preços encaminhada',
@@ -163,6 +166,9 @@ export default function KanbanPage() {
     'Venda fechada': 'PIX/Pagamento aprovado & em produção',
     'Não fechou': 'Orçamento recusado ou adiado',
   }
+
+  // Count clients for badge counters
+  const contactInitiatedCount = clients.filter((c) => c.stage === 'Contato iniciado').length
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -229,7 +235,7 @@ export default function KanbanPage() {
 
       {/* Kanban Board Horizontal Scroll Container */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
-        <div className="flex items-start gap-4 min-w-[1720px] h-full">
+        <div className="flex items-start gap-4 min-w-[1960px] h-full">
           {KANBAN_STAGES.map((stage) => {
             const stageItems = filteredClients.filter((c) => c.stage === stage)
             const totalStageValue = stageItems.reduce((sum, c) => sum + (c.quote_value || 0), 0)

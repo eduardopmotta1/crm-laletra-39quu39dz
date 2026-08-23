@@ -1,6 +1,16 @@
 import pb from '@/lib/pocketbase/client'
 import type { Message, User } from '@/types/crm'
 
+export interface SendWhatsAppParams {
+  clientId: string
+  messageText?: string
+  templateName?: string
+  templateLanguage?: string
+  templateVariables?: Record<string, string>
+  changeStageTo?: string
+  enforce24hWindow?: boolean
+}
+
 export const whatsappService = {
   async getMessages(clientId: string): Promise<Message[]> {
     try {
@@ -16,29 +26,78 @@ export const whatsappService = {
   },
 
   /**
-   * Send WhatsApp message through backend hook / Cloud API
+   * Send WhatsApp message (text or template) through backend hook / Cloud API
    */
   async sendMessage(
     clientId: string,
     messageText: string,
-  ): Promise<{ success: boolean; api_dispatched?: boolean; error?: string }> {
+    options?: {
+      templateName?: string
+      templateLanguage?: string
+      templateVariables?: Record<string, string>
+      changeStageTo?: string
+      enforce24hWindow?: boolean
+    },
+  ): Promise<{
+    success: boolean
+    api_dispatched?: boolean
+    message_id?: string
+    template_used?: string
+    client?: any
+    error?: string
+  }> {
     try {
       const response = await pb.send<{
         success: boolean
         api_dispatched?: boolean
         message_id?: string
+        template_used?: string
+        client?: any
       }>('/api/crm/whatsapp-send', {
         method: 'POST',
         body: {
           client_id: clientId,
           message_text: messageText,
+          template_name: options?.templateName,
+          template_language: options?.templateLanguage || 'pt_BR',
+          template_variables: options?.templateVariables,
+          change_stage_to: options?.changeStageTo,
+          enforce_24h_window: options?.enforce24hWindow,
         },
       })
       return response
     } catch (error: any) {
       console.error('Error sending WhatsApp message:', error)
-      return { success: false, error: error?.message || 'Falha ao enviar mensagem' }
+      return {
+        success: false,
+        error: error?.data?.error || error?.message || 'Falha ao enviar mensagem',
+      }
     }
+  },
+
+  /**
+   * Send WhatsApp approved template explicitly (for starting new conversations)
+   */
+  async sendTemplateMessage(params: {
+    clientId: string
+    templateName: string
+    templateLanguage?: string
+    templateVariables?: Record<string, string>
+    renderedText?: string
+    changeStageTo?: string
+  }): Promise<{
+    success: boolean
+    api_dispatched?: boolean
+    message_id?: string
+    client?: any
+    error?: string
+  }> {
+    return this.sendMessage(params.clientId, params.renderedText || '', {
+      templateName: params.templateName,
+      templateLanguage: params.templateLanguage || 'pt_BR',
+      templateVariables: params.templateVariables,
+      changeStageTo: params.changeStageTo || 'Contato iniciado',
+    })
   },
 
   /**

@@ -1,5 +1,6 @@
 export type KanbanStage =
   | 'Novo contato'
+  | 'Contato iniciado'
   | 'Precisa responder'
   | 'Em atendimento'
   | 'Orçamento enviado'
@@ -9,6 +10,7 @@ export type KanbanStage =
 
 export const KANBAN_STAGES: KanbanStage[] = [
   'Novo contato',
+  'Contato iniciado',
   'Precisa responder',
   'Em atendimento',
   'Orçamento enviado',
@@ -81,6 +83,19 @@ export interface Message {
   updated: string
 }
 
+export interface WhatsAppTemplate {
+  id: string
+  name: string
+  category: 'MARKETING' | 'UTILITY' | 'AUTHENTICATION'
+  language: string
+  status: 'APPROVED' | 'PENDING' | 'REJECTED'
+  body: string
+  variables?: string[]
+  meta_template_id?: string
+  created: string
+  updated: string
+}
+
 export interface SystemSetting {
   id: string
   setting_key: string
@@ -111,4 +126,21 @@ export interface SlaInfo {
   colorBorderClass: string
   colorBgClass: string
   colorTextClass: string
+}
+
+/**
+ * Checks if a client is within the Meta 24-hour service window
+ * (Customer sent an inbound message less than 24h ago).
+ */
+export function isWithin24HourWindow(
+  lastMessageAt?: string,
+  lastMessageDirection?: 'inbound' | 'outbound',
+): boolean {
+  if (!lastMessageAt || lastMessageDirection !== 'inbound') {
+    return false
+  }
+  const messageTime = new Date(lastMessageAt).getTime()
+  const now = Date.now()
+  const diffHours = (now - messageTime) / (1000 * 60 * 60)
+  return diffHours <= 24
 }

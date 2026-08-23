@@ -26,14 +26,18 @@ import {
   CheckCircle2,
   Calendar,
   Sparkles,
+  FileText,
+  ShieldAlert,
 } from 'lucide-react'
 import type { Client, Message, Task, SlaConfig } from '@/types/crm'
+import { isWithin24HourWindow } from '@/types/crm'
 import { whatsappService } from '@/services/whatsapp'
 import { tasksService } from '@/services/tasks'
 import { clientsService } from '@/services/clients'
 import { calculateSlaInfo, formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
+import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
 
 interface WhatsAppChatDrawerProps {
   isOpen: boolean
@@ -62,6 +66,9 @@ export default function WhatsAppChatDrawer({
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
   const [isAddingTask, setIsAddingTask] = useState(false)
+
+  // Template Start Modal trigger
+  const [startModalOpen, setStartModalOpen] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -201,6 +208,11 @@ export default function WhatsAppChatDrawer({
     slaConfig,
   )
 
+  const within24h = isWithin24HourWindow(
+    currentClient.last_message_at,
+    currentClient.last_message_direction,
+  )
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-white dark:bg-slate-900">
@@ -235,11 +247,19 @@ export default function WhatsAppChatDrawer({
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => setStartModalOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-sm flex items-center gap-1.5 font-semibold"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Iniciar conversa no WhatsApp
+            </Button>
             <a
               href={getWhatsAppDirectUrl(currentClient.phone, inputMessage || undefined)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors"
               title="Abrir diretamente no WhatsApp Web"
             >
               <ExternalLink className="h-3.5 w-3.5" />
@@ -306,8 +326,33 @@ export default function WhatsAppChatDrawer({
               <div ref={messagesEndRef} />
             </div>
 
+            {/* 24-hour window status alert banner */}
+            {!within24h && (
+              <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-t border-b border-amber-200 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 gap-2">
+                <div className="flex items-center gap-1.5">
+                  <ShieldAlert className="h-4 w-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>Fora da janela de 24h:</strong> Envie um template aprovado para reabrir
+                    a conversa.
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setStartModalOpen(true)}
+                  className="h-7 text-xs bg-white dark:bg-slate-900 border-amber-300 text-amber-900 dark:text-amber-200 font-semibold hover:bg-amber-100"
+                >
+                  <FileText className="h-3 w-3 mr-1" />
+                  Escolher Template
+                </Button>
+              </div>
+            )}
+
             {/* Quick response snippets */}
-            <div className="px-3 py-2 bg-white/80 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 overflow-x-auto flex gap-1.5 scrollbar-none">
+            <div className="px-3 py-2 bg-white/80 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 overflow-x-auto flex gap-1.5 scrollbar-none items-center">
+              <span className="text-[10px] text-slate-400 font-medium shrink-0">
+                Respostas rápidas:
+              </span>
               {quickTemplates.map((tpl, i) => (
                 <button
                   key={i}
@@ -315,7 +360,7 @@ export default function WhatsAppChatDrawer({
                   onClick={() => setInputMessage(tpl)}
                   className="whitespace-nowrap text-[11px] px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors"
                 >
-                  ⚡ {tpl.slice(0, 32)}...
+                  ⚡ {tpl.slice(0, 28)}...
                 </button>
               ))}
             </div>
@@ -328,7 +373,11 @@ export default function WhatsAppChatDrawer({
               <Input
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
-                placeholder="Escreva a resposta para o cliente no WhatsApp..."
+                placeholder={
+                  within24h
+                    ? 'Escreva a resposta para o cliente no WhatsApp...'
+                    : 'Dentro da janela 24h: texto livre. Fora: use template aprovado.'
+                }
                 className="flex-1 bg-slate-50 dark:bg-slate-800 text-sm"
               />
               <Button
@@ -472,6 +521,20 @@ export default function WhatsAppChatDrawer({
           </div>
         </div>
       </DialogContent>
+
+      {/* Start WhatsApp Conversation Modal */}
+      <StartWhatsAppConversationModal
+        isOpen={startModalOpen}
+        onClose={() => setStartModalOpen(false)}
+        client={currentClient}
+        onSuccess={(fresh) => {
+          setCurrentClient(fresh)
+          if (onClientUpdated) {
+            onClientUpdated(fresh)
+          }
+          loadClientData(fresh.id)
+        }}
+      />
     </Dialog>
   )
 }
