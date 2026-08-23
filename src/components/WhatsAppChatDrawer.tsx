@@ -23,13 +23,29 @@ import {
   GitCommit,
   XCircle,
   History,
+  Star,
+  Heart,
+  DollarSign as DollarSignIcon,
+  ShoppingCart,
+  ShieldCheck as ShieldCheckIcon,
 } from 'lucide-react'
-import type { Client, Message, Task, SlaConfig, ArchivedDeal, StageTransition } from '@/types/crm'
+import type {
+  Client,
+  Message,
+  Task,
+  SlaConfig,
+  ArchivedDeal,
+  StageTransition,
+  Evaluation,
+  PostSale,
+} from '@/types/crm'
 import { isWithin24HourWindow } from '@/types/crm'
 import { whatsappService } from '@/services/whatsapp'
 import { tasksService } from '@/services/tasks'
 import { clientsService } from '@/services/clients'
 import { dealsService } from '@/services/deals'
+import { evaluationsService } from '@/services/evaluations'
+import { postSalesService } from '@/services/postSales'
 import { calculateSlaInfo, formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
@@ -59,6 +75,8 @@ export default function WhatsAppChatDrawer({
   const [tasks, setTasks] = useState<Task[]>([])
   const [archivedDeals, setArchivedDeals] = useState<ArchivedDeal[]>([])
   const [stageTransitions, setStageTransitions] = useState<StageTransition[]>([])
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([])
+  const [postSales, setPostSales] = useState<PostSale[]>([])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [inputMessage, setInputMessage] = useState('')
@@ -74,7 +92,7 @@ export default function WhatsAppChatDrawer({
   const [archiveModalOpen, setArchiveModalOpen] = useState(false)
 
   // Right sidebar tab
-  const [rightTab, setRightTab] = useState<'info' | 'history'>('info')
+  const [rightTab, setRightTab] = useState<'info' | 'relationship' | 'history'>('info')
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -94,18 +112,23 @@ export default function WhatsAppChatDrawer({
   const loadClientData = async (clientId: string) => {
     setLoading(true)
     try {
-      const [msgList, taskList, freshClient, pastDeals, transitions] = await Promise.all([
-        whatsappService.getMessages(clientId),
-        tasksService.getByClientId(clientId),
-        clientsService.getById(clientId),
-        dealsService.getByClientId(clientId),
-        dealsService.getStageTransitions(clientId),
-      ])
+      const [msgList, taskList, freshClient, pastDeals, transitions, evals, psList] =
+        await Promise.all([
+          whatsappService.getMessages(clientId),
+          tasksService.getByClientId(clientId),
+          clientsService.getById(clientId),
+          dealsService.getByClientId(clientId),
+          dealsService.getStageTransitions(clientId),
+          evaluationsService.getByClientId(clientId),
+          postSalesService.getByClientId(clientId),
+        ])
       setMessages(msgList)
       setTasks(taskList)
       if (freshClient) setCurrentClient(freshClient)
       setArchivedDeals(pastDeals)
       setStageTransitions(transitions)
+      setEvaluations(evals)
+      setPostSales(psList)
     } catch (err) {
       console.error('Error loading chat drawer data:', err)
     } finally {
@@ -481,7 +504,7 @@ export default function WhatsAppChatDrawer({
                 <button
                   type="button"
                   onClick={() => setRightTab('info')}
-                  className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                  className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
                     rightTab === 'info'
                       ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
@@ -493,8 +516,21 @@ export default function WhatsAppChatDrawer({
 
                 <button
                   type="button"
+                  onClick={() => setRightTab('relationship')}
+                  className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                    rightTab === 'relationship'
+                      ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <Star className="h-3.5 w-3.5 text-amber-500" />
+                  Relacionamento
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setRightTab('history')}
-                  className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                  className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
                     rightTab === 'history'
                       ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
@@ -670,6 +706,258 @@ export default function WhatsAppChatDrawer({
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* TAB CONTENT: RELACIONAMENTO & HISTÓRICO COMPLETO DO CLIENTE */}
+              {rightTab === 'relationship' && (
+                <div className="p-4 space-y-5">
+                  {/* Relationship Status Badge */}
+                  {(() => {
+                    const status = displayClient.relationship_status || 'neutral'
+                    const wonDeals = archivedDeals.filter((d) => d.result === 'Venda fechada')
+                    const totalPurchases = displayClient.total_purchases || wonDeals.length
+                    const totalValue =
+                      displayClient.total_purchase_value ||
+                      wonDeals.reduce((acc, d) => acc + (d.quote_value || 0), 0)
+
+                    const completedEvals = evaluations.filter((e) => e.overall_rating > 0)
+                    const avgRating =
+                      completedEvals.length > 0
+                        ? (
+                            completedEvals.reduce((acc, e) => acc + e.overall_rating, 0) /
+                            completedEvals.length
+                          ).toFixed(1)
+                        : null
+
+                    const lastEval = completedEvals[0]
+                    const complaints = evaluations.filter((e) => e.overall_rating <= 3)
+
+                    // First & Last purchase dates
+                    const sortedDates = wonDeals
+                      .map((d) => d.closed_at)
+                      .filter(Boolean)
+                      .sort()
+                    const firstDate = displayClient.first_purchase_date || sortedDates[0]
+                    const lastDate =
+                      displayClient.last_purchase_date || sortedDates[sortedDates.length - 1]
+
+                    return (
+                      <>
+                        {/* Status banner */}
+                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                              Status do Relacionamento
+                            </span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span
+                                className={`font-bold text-xs px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                                  status === 'satisfied'
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                    : status === 'dissatisfied'
+                                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                      : status === 'in_recovery'
+                                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                        : status === 'recovered'
+                                          ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
+                                          : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {status === 'satisfied' && '⭐ Satisfeito'}
+                                {status === 'dissatisfied' && '⚠️ Insatisfeito'}
+                                {status === 'in_recovery' && '🔄 Em recuperação'}
+                                {status === 'recovered' && '✓ Recuperado'}
+                                {status === 'neutral' && '⚪ Neutro'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {avgRating && (
+                            <div className="text-right">
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                                Média de Notas
+                              </span>
+                              <div className="flex items-center justify-end gap-1 text-sm font-extrabold text-amber-500">
+                                <span>{avgRating}</span>
+                                <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Customer purchase statistics (Single customer record) */}
+                        <div className="grid grid-cols-2 gap-2.5 text-xs">
+                          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                            <span className="text-[10px] text-slate-400 block uppercase font-semibold">
+                              Total de Compras
+                            </span>
+                            <span className="text-base font-bold text-slate-900 dark:text-white">
+                              {totalPurchases} {totalPurchases === 1 ? 'venda' : 'vendas'}
+                            </span>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                            <span className="text-[10px] text-slate-400 block uppercase font-semibold">
+                              Valor Total Comprado
+                            </span>
+                            <span className="text-base font-bold text-emerald-600 dark:text-emerald-400">
+                              {formatCurrency(totalValue)}
+                            </span>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                            <span className="text-[10px] text-slate-400 block uppercase font-semibold">
+                              Primeira Compra
+                            </span>
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              {firstDate ? new Date(firstDate).toLocaleDateString('pt-BR') : '-'}
+                            </span>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                            <span className="text-[10px] text-slate-400 block uppercase font-semibold">
+                              Última Compra
+                            </span>
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              {lastDate ? new Date(lastDate).toLocaleDateString('pt-BR') : '-'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs flex items-center justify-between">
+                          <span className="text-slate-500 font-medium">
+                            Quantidade de Atendimentos Totais:
+                          </span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {archivedDeals.length + 1}
+                          </span>
+                        </div>
+
+                        {/* Evaluations Received */}
+                        <div className="space-y-2.5">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                            <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+                            Avaliações Recebidas ({completedEvals.length})
+                          </h4>
+
+                          {completedEvals.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic py-1">
+                              Nenhuma avaliação de satisfação registrada para este cliente.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {completedEvals.map((ev) => (
+                                <div
+                                  key={ev.id}
+                                  className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs space-y-1.5"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1 text-amber-400">
+                                      {[1, 2, 3, 4, 5].map((s) => (
+                                        <Star
+                                          key={s}
+                                          className={`h-3 w-3 ${
+                                            s <= ev.overall_rating
+                                              ? 'fill-amber-400 text-amber-400'
+                                              : 'text-slate-200 dark:text-slate-700'
+                                          }`}
+                                        />
+                                      ))}
+                                      <span className="font-bold ml-1 text-slate-800 dark:text-slate-200 text-[11px]">
+                                        {ev.overall_rating} Estrela(s)
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400">
+                                      {formatDateTime(ev.created)}
+                                    </span>
+                                  </div>
+
+                                  {ev.comment && (
+                                    <p className="text-[11px] text-slate-600 dark:text-slate-300 italic">
+                                      "{ev.comment}"
+                                    </p>
+                                  )}
+
+                                  {ev.overall_rating <= 3 && (
+                                    <div className="pt-1 text-[10px] font-semibold">
+                                      {ev.resolved ? (
+                                        <span className="text-emerald-600">
+                                          ✓ Reclamação solucionada
+                                        </span>
+                                      ) : (
+                                        <span className="text-rose-600">
+                                          ⚠️ Reclamação aguardando solução
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Post-Sales Routines History */}
+                        <div className="space-y-2.5">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                            <Clock className="h-3.5 w-3.5 text-emerald-600" />
+                            Histórico de Pós-Vendas ({postSales.length})
+                          </h4>
+
+                          {postSales.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic py-1">
+                              Nenhuma rotina de pós-venda registrada.
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {postSales.map((ps) => (
+                                <div
+                                  key={ps.id}
+                                  className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between text-xs"
+                                >
+                                  <div>
+                                    <span className="font-semibold text-slate-800 dark:text-slate-200 block">
+                                      Agendamento para{' '}
+                                      {new Date(ps.scheduled_date).toLocaleDateString('pt-BR')}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">
+                                      {ps.notes || 'Rotina automática'}
+                                    </span>
+                                  </div>
+                                  <Badge
+                                    variant={ps.status === 'completed' ? 'secondary' : 'outline'}
+                                    className="text-[10px] px-1.5 py-0"
+                                  >
+                                    {ps.status}
+                                  </Badge>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Complaints & Problems Registered */}
+                        {complaints.length > 0 && (
+                          <div className="p-3.5 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/60 text-xs space-y-2">
+                            <h4 className="font-bold text-rose-900 dark:text-rose-200 flex items-center gap-1.5 text-xs">
+                              <AlertTriangle className="h-4 w-4 text-rose-600" />
+                              Problemas / Reclamações Registradas ({complaints.length})
+                            </h4>
+                            <div className="space-y-1 text-[11px] text-rose-800 dark:text-rose-300">
+                              {complaints.map((c) => (
+                                <div key={c.id} className="p-2 rounded bg-white dark:bg-slate-900">
+                                  <strong>{c.overall_rating}★</strong>:{' '}
+                                  {c.comment || 'Sem comentário'} (
+                                  {c.resolved ? 'Resolvido' : 'Pendente'})
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               )}
 

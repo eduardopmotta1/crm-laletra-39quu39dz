@@ -16,6 +16,9 @@ import TasksPage from '@/pages/TasksPage'
 import SettingsPage from '@/pages/SettingsPage'
 import WhatsAppTemplatesPage from '@/pages/WhatsAppTemplatesPage'
 import ArchivedDealsPage from '@/pages/ArchivedDealsPage'
+import PostSalesDashboardPage from '@/pages/PostSalesDashboardPage'
+import CustomerRecoveryPage from '@/pages/CustomerRecoveryPage'
+import PublicEvaluationPage from '@/pages/PublicEvaluationPage'
 import NotFound from '@/pages/NotFound'
 
 const App = () => (
@@ -29,6 +32,9 @@ const App = () => (
           <Route path="/login" element={<LoginPage />} />
           <Route path="/registro" element={<RegisterPage />} />
 
+          {/* Public Customer Evaluation Route (No Auth Required) */}
+          <Route path="/avaliacao/:token" element={<PublicEvaluationPage />} />
+
           {/* Protected CRM App Routes */}
           <Route
             element={
@@ -37,16 +43,17 @@ const App = () => (
               </ProtectedRoute>
             }
           >
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/" element={<Navigate to="/kanban" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/kanban" element={<KanbanPage />} />
             <Route path="/clientes" element={<ClientsListPage />} />
             <Route path="/arquivados" element={<ArchivedDealsPage />} />
+            <Route path="/pos-venda" element={<PostSalesDashboardPage />} />
+            <Route path="/recuperacao" element={<CustomerRecoveryPage />} />
             <Route path="/templates" element={<WhatsAppTemplatesPage />} />
             <Route path="/tarefas" element={<TasksPage />} />
             <Route path="/configuracoes" element={<SettingsPage />} />
           </Route>
-
           {/* 404 Catch All */}
           <Route path="*" element={<NotFound />} />
         </Routes>

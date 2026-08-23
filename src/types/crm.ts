@@ -48,6 +48,13 @@ export interface User {
   updated: string
 }
 
+export type RelationshipStatus =
+  | 'satisfied'
+  | 'dissatisfied'
+  | 'in_recovery'
+  | 'recovered'
+  | 'neutral'
+
 export interface Client {
   id: string
   name: string
@@ -67,6 +74,11 @@ export interface Client {
   reopened_at?: string
   closed_at?: string
   last_archived_deal_id?: string
+  relationship_status?: RelationshipStatus
+  total_purchases?: number
+  total_purchase_value?: number
+  first_purchase_date?: string
+  last_purchase_date?: string
   last_message_at?: string
   last_message_direction?: 'inbound' | 'outbound'
   last_message_text?: string
@@ -75,6 +87,63 @@ export interface Client {
   next_action_date?: string
   created: string
   updated: string
+}
+
+export type EvaluationStatus = 'pending_contact' | 'in_recovery' | 'resolved' | 'satisfied'
+
+export interface Evaluation {
+  id: string
+  token: string
+  client_id: string
+  attendance_id?: string
+  attendance_deal_id?: string
+  overall_rating: number
+  service_rating?: number
+  quality_rating?: number
+  delivery_rating?: number
+  comment?: string
+  status?: EvaluationStatus
+  resolved?: boolean
+  resolved_at?: string
+  resolved_notes?: string
+  resolved_by?: string
+  expand?: {
+    client_id?: Client
+    attendance_id?: ArchivedDeal
+    resolved_by?: User
+  }
+  created: string
+  updated: string
+}
+
+export type PostSaleStatus = 'pending' | 'sent' | 'completed' | 'cancelled'
+
+export interface PostSale {
+  id: string
+  client_id: string
+  attendance_id?: string
+  scheduled_date: string
+  sent_date?: string
+  status: PostSaleStatus
+  task_id?: string
+  evaluation_token?: string
+  channel?: string
+  notes?: string
+  expand?: {
+    client_id?: Client
+    attendance_id?: ArchivedDeal
+    task_id?: Task
+  }
+  created: string
+  updated: string
+}
+
+export interface PostSaleConfig {
+  enabled: boolean
+  delayDays: number // 1, 3, 7 or custom
+  autoTask: boolean
+  whatsappTemplate: string
+  customMessage: string
 }
 
 export type DealResult = 'Venda fechada' | 'Venda perdida'

@@ -19,10 +19,14 @@ import {
   Search,
   Bell,
   FileText,
+  Star,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
 import { settingsService } from '@/services/settings'
+import { evaluationsService } from '@/services/evaluations'
 import { calculateSlaInfo } from '@/lib/sla'
 import type { Client, SlaConfig } from '@/types/crm'
 import { Button } from '@/components/ui/button'
@@ -49,6 +53,8 @@ export default function AppLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [urgentCount, setUrgentCount] = useState(0)
   const [warningCount, setWarningCount] = useState(0)
+  const [dissatisfiedCount, setDissatisfiedCount] = useState(0)
+  const [postSaleSubMenuOpen, setPostSaleSubMenuOpen] = useState(true)
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
     urgentMinutes: 1440,
     warningMinutes: 720,
@@ -69,12 +75,14 @@ export default function AppLayout() {
 
   const loadSlaAlerts = async () => {
     try {
-      const [cfg, autoArchiveCfg, clients] = await Promise.all([
+      const [cfg, autoArchiveCfg, clients, evals] = await Promise.all([
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
         clientsService.getAll(),
+        evaluationsService.getAll('overall_rating <= 3 && overall_rating > 0 && resolved = false'),
       ])
       setSlaConfig(cfg)
+      setDissatisfiedCount(evals.length)
 
       // Run automatic archiving check if enabled
       if (autoArchiveCfg.enabled) {
@@ -166,6 +174,24 @@ export default function AppLayout() {
       label: 'Atendimentos Arquivados',
       icon: Archive,
       badge: null,
+    },
+    {
+      to: '/pos-venda',
+      label: 'Pós-Venda & Avaliações',
+      icon: Star,
+      badge: dissatisfiedCount > 0 ? `${dissatisfiedCount} ⚠️` : null,
+      badgeVariant: 'destructive',
+      subItems: [
+        {
+          to: '/pos-venda',
+          label: 'Dashboard de Pós-Venda',
+        },
+        {
+          to: '/recuperacao',
+          label: 'Recuperação de Clientes',
+          badge: dissatisfiedCount > 0 ? dissatisfiedCount : null,
+        },
+      ],
     },
     {
       to: '/templates',
@@ -308,6 +334,71 @@ export default function AppLayout() {
           <nav className="px-3 py-3 space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon
+              const hasSub = !!item.subItems
+              const isSubActive = hasSub && item.subItems?.some((s) => location.pathname === s.to)
+
+              if (hasSub && item.subItems) {
+                return (
+                  <div key={item.label} className="space-y-1">
+                    <div
+                      onClick={() => setPostSaleSubMenuOpen(!postSaleSubMenuOpen)}
+                      className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+                        isSubActive
+                          ? 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <Icon className="h-4 w-4 shrink-0 text-amber-500 fill-amber-500" />
+                        <span>{item.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {dissatisfiedCount > 0 && (
+                          <Badge
+                            variant="destructive"
+                            className="text-[10px] px-1.5 py-0 font-bold uppercase tracking-wider animate-pulse"
+                          >
+                            {dissatisfiedCount} ⚠️
+                          </Badge>
+                        )}
+                        {postSaleSubMenuOpen ? (
+                          <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                        )}
+                      </div>
+                    </div>
+
+                    {postSaleSubMenuOpen && (
+                      <div className="pl-7 pr-1 space-y-1 border-l-2 border-slate-100 dark:border-slate-800 ml-5 py-1">
+                        {item.subItems.map((sub) => {
+                          const subActive = location.pathname === sub.to
+                          return (
+                            <NavLink
+                              key={sub.to}
+                              to={sub.to}
+                              onClick={() => setMobileMenuOpen(false)}
+                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                                subActive
+                                  ? 'bg-slate-900 text-white dark:bg-slate-800 font-semibold'
+                                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/40'
+                              }`}
+                            >
+                              <span>{sub.label}</span>
+                              {sub.badge && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-rose-500 text-white">
+                                  {sub.badge}
+                                </span>
+                              )}
+                            </NavLink>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
               return (
                 <NavLink
                   key={item.to}

@@ -18,8 +18,10 @@ import {
 import { clientsService } from '@/services/clients'
 import { tasksService } from '@/services/tasks'
 import { settingsService } from '@/services/settings'
+import { evaluationsService } from '@/services/evaluations'
 import { calculateSlaInfo, formatCurrency, formatDateTime } from '@/lib/sla'
-import type { Client, Task, SlaConfig } from '@/types/crm'
+import type { Client, Task, SlaConfig, Evaluation } from '@/types/crm'
+import { ShieldAlert } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,6 +32,7 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const [clients, setClients] = useState<Client[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [dissatisfiedEvaluations, setDissatisfiedEvaluations] = useState<Evaluation[]>([])
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
     urgentMinutes: 1440,
     warningMinutes: 720,
@@ -44,15 +47,17 @@ export default function DashboardPage() {
 
   const loadData = async () => {
     try {
-      const [cls, tks, cfg, autoArchiveCfg] = await Promise.all([
+      const [cls, tks, cfg, autoArchiveCfg, evals] = await Promise.all([
         clientsService.getAll(undefined, '-last_message_at', { includeArchived: true }),
         tasksService.getAll(),
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
+        evaluationsService.getAll('overall_rating <= 3 && overall_rating > 0 && resolved = false'),
       ])
       setClients(cls)
       setTasks(tks)
       setSlaConfig(cfg)
+      setDissatisfiedEvaluations(evals)
 
       if (autoArchiveCfg.enabled) {
         await clientsService.runAutoArchiveCheck(autoArchiveCfg.wonHours, autoArchiveCfg.lostHours)
@@ -175,9 +180,41 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Dissatisfied Clients Recovery Alert */}
+      {dissatisfiedEvaluations.length > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-50/90 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm animate-pulse">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-rose-600 text-white rounded-xl">
+              <ShieldAlert className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-rose-900 dark:text-rose-200 text-sm">
+                ⚠️ Alerta de Pós-Venda: {dissatisfiedEvaluations.length}{' '}
+                {dissatisfiedEvaluations.length === 1
+                  ? 'cliente insatisfeito aguardando contato'
+                  : 'clientes insatisfeitos aguardando contato'}
+                !
+              </h3>
+              <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                Avaliações de 1 a 3 estrelas foram registradas e necessitam de ação da equipe na
+                área de recuperação.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => navigate('/recuperacao')}
+            className="bg-rose-600 hover:bg-rose-700 text-white text-xs shrink-0 self-start sm:self-auto font-semibold"
+          >
+            Recuperação de Clientes
+            <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+        </div>
+      )}
+
       {/* Critical SLA Alert Box if any */}
       {urgentClients.length > 0 && (
-        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm animate-pulse">
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="p-2 bg-rose-500 text-white rounded-xl">
               <AlertTriangle className="h-5 w-5" />

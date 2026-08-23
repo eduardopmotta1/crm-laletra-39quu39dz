@@ -230,7 +230,7 @@ export default function ClientsListPage() {
                     >
                       {/* Name & Phone */}
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-slate-900 dark:text-white text-sm">
                             {client.name}
                           </span>
@@ -247,6 +247,26 @@ export default function ClientsListPage() {
                             >
                               <Archive className="h-2.5 w-2.5 mr-0.5" />
                               Arquivado
+                            </Badge>
+                          )}
+                          {client.relationship_status === 'dissatisfied' && (
+                            <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 text-[9px] px-1.5 py-0 font-bold animate-pulse">
+                              ⚠️ Insatisfeito
+                            </Badge>
+                          )}
+                          {client.relationship_status === 'in_recovery' && (
+                            <Badge className="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0 font-bold">
+                              🔄 Em Recuperação
+                            </Badge>
+                          )}
+                          {client.relationship_status === 'recovered' && (
+                            <Badge className="bg-purple-100 text-purple-800 text-[9px] px-1.5 py-0 font-bold">
+                              ✓ Recuperado
+                            </Badge>
+                          )}
+                          {client.relationship_status === 'satisfied' && (
+                            <Badge className="bg-emerald-50 text-emerald-800 text-[9px] px-1.5 py-0 font-bold">
+                              ⭐ Satisfeito
                             </Badge>
                           )}
                         </div>

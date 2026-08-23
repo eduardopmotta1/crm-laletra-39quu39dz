@@ -1,5 +1,5 @@
 import pb from '@/lib/pocketbase/client'
-import type { SystemSetting, SlaConfig, AutoArchiveConfig } from '@/types/crm'
+import type { SystemSetting, SlaConfig, AutoArchiveConfig, PostSaleConfig } from '@/types/crm'
 import { DEFAULT_SLA_CONFIG } from '@/lib/sla'
 
 export const settingsService = {
@@ -106,18 +106,67 @@ export const settingsService = {
     await Promise.all([
       this.setKey(
         'auto_archive_enabled',
-        config.enabled ? 'true' : 'false',
+        String(config.enabled),
         'Habilita arquivamento automático de atendimentos finalizados',
       ),
       this.setKey(
         'auto_archive_won_hours',
-        String(config.wonHours || 24),
-        'Horas para arquivar vendas fechadas',
+        String(config.wonHours),
+        'Horas após fechamento para arquivar venda fechada',
       ),
       this.setKey(
         'auto_archive_lost_hours',
-        String(config.lostHours || 24),
-        'Horas para arquivar vendas perdidas',
+        String(config.lostHours),
+        'Horas após encerramento para arquivar venda perdida',
+      ),
+    ])
+  },
+
+  /**
+   * Get post sale configuration
+   */
+  async getPostSaleConfig(): Promise<PostSaleConfig> {
+    const map = await this.getMap()
+    return {
+      enabled: map['post_sale_enabled'] !== 'false',
+      delayDays: Number(map['post_sale_delay_days']) || 3,
+      autoTask: map['post_sale_auto_task'] !== 'false',
+      whatsappTemplate: map['post_sale_whatsapp_template'] || 'avaliacao_atendimento',
+      customMessage:
+        map['post_sale_custom_message'] ||
+        'Olá {{nome}}! Seu pedido foi entregue recentemente pela Laletra. Poderia avaliar sua experiência conosco no link: {{link_avaliacao}} ? Agradecemos muito!',
+    }
+  },
+
+  /**
+   * Save post sale configuration
+   */
+  async savePostSaleConfig(config: PostSaleConfig): Promise<void> {
+    await Promise.all([
+      this.setKey(
+        'post_sale_enabled',
+        String(config.enabled),
+        'Habilita a rotina e agendamento automático de pós-venda',
+      ),
+      this.setKey(
+        'post_sale_delay_days',
+        String(config.delayDays),
+        'Dias após conclusão da venda para realizar o pós-venda',
+      ),
+      this.setKey(
+        'post_sale_auto_task',
+        String(config.autoTask),
+        'Cria automaticamente uma tarefa no CRM na data agendada do pós-venda',
+      ),
+      this.setKey(
+        'post_sale_whatsapp_template',
+        config.whatsappTemplate,
+        'Template padrão de WhatsApp para convite de avaliação',
+      ),
+      this.setKey(
+        'post_sale_custom_message',
+        config.customMessage,
+        'Mensagem de pós-venda padrão com link dinâmico de avaliação',
       ),
     ])
   },

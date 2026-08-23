@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-23T19:08:38.003Z",
+  "generatedAt": "2026-08-23T23:49:00.325Z",
   "collections": [
     {
       "name": "users",
@@ -193,6 +193,37 @@
         {
           "name": "last_archived_deal_id",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "relationship_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["satisfied", "dissatisfied", "in_recovery", "recovered", "neutral"]
+        },
+        {
+          "name": "total_purchases",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_purchase_value",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "first_purchase_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_purchase_date",
+          "type": "date",
           "required": false,
           "system": false
         }
@@ -759,6 +790,219 @@
       "indexes": [
         "CREATE INDEX idx_stage_trans_client ON stage_transitions (client_id, created DESC)",
         "CREATE INDEX idx_stage_trans_user ON stage_transitions (user_id)"
+      ]
+    },
+    {
+      "name": "evaluations",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "token",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "client_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clients"
+        },
+        {
+          "name": "attendance_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "archived_deals"
+        },
+        {
+          "name": "attendance_deal_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "overall_rating",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "service_rating",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quality_rating",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "delivery_rating",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "comment",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pending_contact", "in_recovery", "resolved", "satisfied"]
+        },
+        {
+          "name": "resolved",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolved_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolved_notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolved_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_evaluations_token ON evaluations (token)",
+        "CREATE INDEX idx_evaluations_client ON evaluations (client_id)",
+        "CREATE INDEX idx_evaluations_attendance ON evaluations (attendance_id)",
+        "CREATE INDEX idx_evaluations_created ON evaluations (created DESC)",
+        "CREATE INDEX idx_evaluations_rating ON evaluations (overall_rating)"
+      ]
+    },
+    {
+      "name": "post_sales",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "client_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clients"
+        },
+        {
+          "name": "attendance_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "archived_deals"
+        },
+        {
+          "name": "scheduled_date",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "sent_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "sent", "completed", "cancelled"]
+        },
+        {
+          "name": "task_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tasks"
+        },
+        {
+          "name": "evaluation_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "channel",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_postsales_client ON post_sales (client_id)",
+        "CREATE INDEX idx_postsales_attendance ON post_sales (attendance_id)",
+        "CREATE INDEX idx_postsales_status ON post_sales (status)",
+        "CREATE INDEX idx_postsales_scheduled ON post_sales (scheduled_date)"
       ]
     }
   ]

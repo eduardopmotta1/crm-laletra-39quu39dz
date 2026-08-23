@@ -17,15 +17,27 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
+  Star,
+  Sparkles,
 } from 'lucide-react'
 import { settingsService } from '@/services/settings'
 import { columnsService } from '@/services/columns'
-import type { SlaConfig, AutoArchiveConfig, KanbanColumn } from '@/types/crm'
+import type { SlaConfig, AutoArchiveConfig, KanbanColumn, PostSaleConfig } from '@/types/crm'
 import EditColumnModal from '@/components/EditColumnModal'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { toast } from '@/hooks/use-toast'
 
@@ -50,6 +62,16 @@ export default function SettingsPage() {
     lostHours: 24,
   })
 
+  // Post-Sale configuration
+  const [postSaleConfig, setPostSaleConfig] = useState<PostSaleConfig>({
+    enabled: true,
+    delayDays: 3,
+    autoTask: true,
+    whatsappTemplate: 'avaliacao_atendimento',
+    customMessage:
+      'Olá {{nome}}! Seu pedido foi entregue recentemente pela Laletra. Poderia avaliar sua experiência conosco no link: {{link_avaliacao}} ? Agradecemos muito!',
+  })
+
   // Kanban Columns Management
   const [columns, setColumns] = useState<KanbanColumn[]>([])
   const [editColumnModalOpen, setEditColumnModalOpen] = useState(false)
@@ -66,10 +88,11 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const [map, sla, autoArch, cols] = await Promise.all([
+      const [map, sla, autoArch, psCfg, cols] = await Promise.all([
         settingsService.getMap(),
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
+        settingsService.getPostSaleConfig(),
         columnsService.getAll(),
       ])
 
@@ -91,6 +114,7 @@ export default function SettingsPage() {
       )
 
       setAutoArchive(autoArch)
+      setPostSaleConfig(psCfg)
       setColumns(cols)
     } catch (err) {
       console.error('Error loading settings:', err)
@@ -128,6 +152,26 @@ export default function SettingsPage() {
     } catch (err) {
       toast({
         title: 'Erro ao salvar configurações',
+        variant: 'destructive',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSavePostSale = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      await settingsService.savePostSaleConfig(postSaleConfig)
+      toast({
+        title: 'Configurações de Pós-Venda salvas!',
+        description: 'As regras de pós-venda automático e avaliação foram atualizadas com sucesso.',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar configurações de pós-venda',
+        description: err?.message,
         variant: 'destructive',
       })
     } finally {
@@ -183,10 +227,14 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="kanban" className="w-full">
-        <TabsList className="grid w-full grid-cols-5 max-w-2xl mb-6">
+        <TabsList className="grid w-full grid-cols-6 max-w-3xl mb-6">
           <TabsTrigger value="kanban" className="flex items-center gap-1.5 text-xs">
             <Layers className="h-4 w-4" />
             <span>Colunas</span>
+          </TabsTrigger>
+          <TabsTrigger value="postsale" className="flex items-center gap-1.5 text-xs">
+            <Star className="h-4 w-4 text-amber-500" />
+            <span>Pós-Venda</span>
           </TabsTrigger>
           <TabsTrigger value="autoarchive" className="flex items-center gap-1.5 text-xs">
             <Archive className="h-4 w-4" />
@@ -205,6 +253,143 @@ export default function SettingsPage() {
             <span>Empresa</span>
           </TabsTrigger>
         </TabsList>
+
+        {/* TAB: PÓS-VENDA & AVALIAÇÃO DO CLIENTE */}
+        <TabsContent value="postsale" className="space-y-6">
+          <form onSubmit={handleSavePostSale} className="space-y-6">
+            <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
+                      Pós-Venda Automático & Convite de Avaliação
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Configure o agendamento de rotinas de pós-venda quando um atendimento for
+                      concluído na etapa "Venda fechada".
+                    </CardDescription>
+                  </div>
+                  <Switch
+                    checked={postSaleConfig.enabled}
+                    onCheckedChange={(checked) =>
+                      setPostSaleConfig({ ...postSaleConfig, enabled: checked })
+                    }
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Delay Option */}
+                <div className="space-y-3">
+                  <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Definir quanto tempo após a conclusão da venda o pós-venda será realizado:
+                  </Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      { label: '1 dia após', days: 1 },
+                      { label: '3 dias após (Recomendado)', days: 3 },
+                      { label: '7 dias após', days: 7 },
+                      { label: '15 dias após', days: 15 },
+                    ].map((opt) => (
+                      <button
+                        key={opt.days}
+                        type="button"
+                        onClick={() =>
+                          setPostSaleConfig({ ...postSaleConfig, delayDays: opt.days })
+                        }
+                        className={`p-3 rounded-xl border text-xs font-semibold text-center transition-all ${
+                          postSaleConfig.delayDays === opt.days
+                            ? 'bg-emerald-50 border-emerald-500 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 shadow-sm font-bold'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <Label className="text-xs text-slate-500">
+                      Ou informe em dias personalizados:
+                    </Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={postSaleConfig.delayDays}
+                      onChange={(e) =>
+                        setPostSaleConfig({
+                          ...postSaleConfig,
+                          delayDays: Math.max(1, parseInt(e.target.value) || 1),
+                        })
+                      }
+                      className="w-24 text-xs h-8"
+                    />
+                    <span className="text-xs text-slate-400">dia(s) após fechamento</span>
+                  </div>
+                </div>
+
+                {/* Auto Task Switch */}
+                <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700">
+                  <div className="space-y-0.5">
+                    <Label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      Criar automaticamente uma tarefa no CRM
+                    </Label>
+                    <p className="text-[11px] text-slate-500">
+                      O sistema cria automaticamente uma tarefa de pós-venda para aquele cliente
+                      após o tempo configurado, com o link exclusivo de avaliação.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={postSaleConfig.autoTask}
+                    onCheckedChange={(checked) =>
+                      setPostSaleConfig({ ...postSaleConfig, autoTask: checked })
+                    }
+                  />
+                </div>
+
+                {/* WhatsApp Integration & Templates Info */}
+                <div className="space-y-3 pt-2">
+                  <Label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center justify-between">
+                    <span>Mensagem Padrão de Pós-Venda (WhatsApp)</span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] text-emerald-600 border-emerald-300"
+                    >
+                      API Oficial WhatsApp Business (Janela de 24h)
+                    </Badge>
+                  </Label>
+                  <Textarea
+                    value={postSaleConfig.customMessage}
+                    onChange={(e) =>
+                      setPostSaleConfig({ ...postSaleConfig, customMessage: e.target.value })
+                    }
+                    rows={3}
+                    className="text-xs font-mono resize-none bg-slate-50 dark:bg-slate-800"
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    💡 Variáveis dinâmicas:{' '}
+                    <code className="text-emerald-600 font-bold">{'{{nome}}'}</code> e{' '}
+                    <code className="text-emerald-600 font-bold">{'{{link_avaliacao}}'}</code>.
+                    Quando fora da janela de 24h, o WhatsApp Business utiliza o template aprovado
+                    pela Meta.
+                  </p>
+                </div>
+              </CardContent>
+
+              <CardFooter className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                >
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  {saving ? 'Gravando...' : 'Salvar Regras de Pós-Venda'}
+                </Button>
+              </CardFooter>
+            </Card>
+          </form>
+        </TabsContent>
 
         {/* TAB 1: KANBAN COLUMNS */}
         <TabsContent value="kanban" className="space-y-6">
