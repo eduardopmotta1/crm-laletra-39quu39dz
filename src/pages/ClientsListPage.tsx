@@ -14,9 +14,12 @@ import {
   Trash2,
   Calendar,
   Sparkles,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 import { clientsService } from '@/services/clients'
 import { settingsService } from '@/services/settings'
+import { dealsService } from '@/services/deals'
 import { calculateSlaInfo, formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
 import type { Client, KanbanStage, SlaConfig } from '@/types/crm'
 import { KANBAN_STAGES } from '@/types/crm'
@@ -56,10 +59,12 @@ export default function ClientsListPage() {
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
+  const [showArchived, setShowArchived] = useState(false)
+
   const loadClients = async () => {
     try {
       const [cls, cfg] = await Promise.all([
-        clientsService.getAll(),
+        clientsService.getAll(undefined, '-last_message_at', { includeArchived: true }),
         settingsService.getSlaConfig(),
       ])
       setClients(cls)
@@ -70,7 +75,6 @@ export default function ClientsListPage() {
       setLoading(false)
     }
   }
-
   useEffect(() => {
     loadClients()
     const handleUpdate = () => loadClients()
@@ -85,10 +89,11 @@ export default function ClientsListPage() {
       (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (c.product_interest && c.product_interest.toLowerCase().includes(searchTerm.toLowerCase()))
 
+    const matchesArchived = showArchived || !c.is_archived
     const matchesStage = stageFilter === 'all' || c.stage === stageFilter
     const matchesPriority = priorityFilter === 'all' || c.priority === priorityFilter
 
-    return matchesSearch && matchesStage && matchesPriority
+    return matchesSearch && matchesArchived && matchesStage && matchesPriority
   })
 
   const handleDeleteClient = async (id: string, name: string) => {
@@ -225,8 +230,25 @@ export default function ClientsListPage() {
                     >
                       {/* Name & Phone */}
                       <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-900 dark:text-white text-sm">
-                          {client.name}
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-900 dark:text-white text-sm">
+                            {client.name}
+                          </span>
+                          {client.has_returned && (
+                            <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0 flex items-center gap-0.5 font-bold">
+                              <RotateCcw className="h-2.5 w-2.5" />
+                              Retornou
+                            </Badge>
+                          )}
+                          {client.is_archived && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] border-amber-300 text-amber-800 bg-amber-50"
+                            >
+                              <Archive className="h-2.5 w-2.5 mr-0.5" />
+                              Arquivado
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-slate-500 text-[11px] mt-0.5">
                           <span className="flex items-center gap-1">
@@ -234,14 +256,13 @@ export default function ClientsListPage() {
                             {client.phone}
                           </span>
                           {client.email && (
-                            <span className="flex items-center gap-1 truncate max-w-[150px]">
+                            <span className="flex items-center gap-1 truncate max-w-[140px]">
                               <Mail className="h-3 w-3 text-slate-400" />
                               {client.email}
                             </span>
                           )}
                         </div>
                       </td>
-
                       {/* Stage Badge */}
                       <td className="py-3 px-4">
                         <Badge

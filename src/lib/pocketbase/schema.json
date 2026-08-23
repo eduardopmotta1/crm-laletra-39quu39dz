@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-23T18:43:40.936Z",
+  "generatedAt": "2026-08-23T19:08:38.003Z",
   "collections": [
     {
       "name": "users",
@@ -165,13 +165,44 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "is_archived",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "has_returned",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reopened_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "closed_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_archived_deal_id",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
         "CREATE INDEX idx_clients_stage ON clients (stage)",
         "CREATE INDEX idx_clients_phone ON clients (phone)",
         "CREATE INDEX idx_clients_assigned ON clients (assigned_to)",
-        "CREATE INDEX idx_clients_last_msg ON clients (last_message_at DESC)"
+        "CREATE INDEX idx_clients_last_msg ON clients (last_message_at DESC)",
+        "CREATE INDEX `idx_clients_is_archived` ON `clients` (is_archived)"
       ]
     },
     {
@@ -445,6 +476,289 @@
       "indexes": [
         "CREATE UNIQUE INDEX idx_wa_tpl_name ON whatsapp_templates (name)",
         "CREATE INDEX idx_wa_tpl_status ON whatsapp_templates (status)"
+      ]
+    },
+    {
+      "name": "kanban_columns",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "internal_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "color",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "order_index",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_visible",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "stage_type",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["initial", "intermediate", "final"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_kanban_col_internal ON kanban_columns (internal_id)",
+        "CREATE INDEX idx_kanban_col_order ON kanban_columns (order_index ASC)"
+      ]
+    },
+    {
+      "name": "archived_deals",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "client_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clients"
+        },
+        {
+          "name": "client_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "client_phone",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "client_email",
+          "type": "email",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "result",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Venda fechada", "Venda perdida"]
+        },
+        {
+          "name": "loss_reason",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "loss_category",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "product_interest",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quote_value",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "closed_at",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "assigned_to",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "closed_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "final_notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "duration_days",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_archived_client ON archived_deals (client_id)",
+        "CREATE INDEX idx_archived_result ON archived_deals (result)",
+        "CREATE INDEX idx_archived_closed_at ON archived_deals (closed_at DESC)",
+        "CREATE INDEX idx_archived_assigned ON archived_deals (assigned_to)"
+      ]
+    },
+    {
+      "name": "stage_transitions",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "client_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clients"
+        },
+        {
+          "name": "from_stage",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "to_stage",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "from_stage_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "to_stage_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "change_type",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["manual", "automatic"]
+        },
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "user_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_stage_trans_client ON stage_transitions (client_id, created DESC)",
+        "CREATE INDEX idx_stage_trans_user ON stage_transitions (user_id)"
       ]
     }
   ]

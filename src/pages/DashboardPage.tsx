@@ -44,21 +44,25 @@ export default function DashboardPage() {
 
   const loadData = async () => {
     try {
-      const [cls, tks, cfg] = await Promise.all([
-        clientsService.getAll(),
-        tasksService.getAll('status = "pendente"'),
+      const [cls, tks, cfg, autoArchiveCfg] = await Promise.all([
+        clientsService.getAll(undefined, '-last_message_at', { includeArchived: true }),
+        tasksService.getAll(),
         settingsService.getSlaConfig(),
+        settingsService.getAutoArchiveConfig(),
       ])
       setClients(cls)
       setTasks(tks)
       setSlaConfig(cfg)
+
+      if (autoArchiveCfg.enabled) {
+        await clientsService.runAutoArchiveCheck(autoArchiveCfg.wonHours, autoArchiveCfg.lostHours)
+      }
     } catch (err) {
       console.error('Error loading dashboard data:', err)
     } finally {
       setLoading(false)
     }
   }
-
   useEffect(() => {
     loadData()
     const handleUpdate = () => loadData()

@@ -51,6 +51,8 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
   } catch (_) {}
 
   const nowIso = new Date().toISOString()
+  let isReopened = false
+  let oldStage = ''
 
   if (!clientRecord) {
     // Create new client in "Precisa responder"
@@ -59,29 +61,83 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
     clientRecord.set('phone', phone)
     clientRecord.set('stage', 'Precisa responder')
     clientRecord.set('priority', 'media')
+    clientRecord.set('is_archived', false)
+    clientRecord.set('has_returned', false)
     clientRecord.set('last_message_at', nowIso)
     clientRecord.set('last_message_direction', 'inbound')
     clientRecord.set('last_message_text', messageText)
     clientRecord.set('notes', 'Criado automaticamente via mensagem do WhatsApp Cloud API.')
     clientRecord.set('next_action', 'Atender novo contato e verificar demanda')
     $app.save(clientRecord)
+
+    // Record stage transition
+    try {
+      const transCol = $app.findCollectionByNameOrId('stage_transitions')
+      const transRec = new Record(transCol)
+      transRec.set('client_id', clientRecord.id)
+      transRec.set('from_stage', '')
+      transRec.set('to_stage', 'Precisa responder')
+      transRec.set('to_stage_id', 'needs_response')
+      transRec.set('change_type', 'automatic')
+      transRec.set('user_name', 'Automação WhatsApp Webhook')
+      transRec.set('notes', 'Criação inicial via mensagem recebida')
+      $app.save(transRec)
+    } catch (_) {}
   } else {
-    // Update existing client:
-    // Requirement 6: Quando uma mensagem for recebida via webhook de um cliente que estava em "Contato iniciado" ou "Aguardando cliente", o status deve mudar automaticamente para "Precisa responder".
-    // Also if not closed (Venda fechada / Não fechou), move to "Precisa responder"
-    const currentStage = clientRecord.getString('stage')
+    // Existing client
+    oldStage = clientRecord.getString('stage') || ''
+    const wasArchived = clientRecord.getBool('is_archived')
+
+    // If archived or closed or in waiting stage, reopen & move to "Precisa responder"
     if (
-      currentStage === 'Contato iniciado' ||
-      currentStage === 'Aguardando cliente' ||
-      currentStage === 'Novo contato' ||
-      (currentStage !== 'Venda fechada' && currentStage !== 'Não fechou')
+      wasArchived ||
+      oldStage === 'Venda fechada' ||
+      oldStage === 'Não fechou' ||
+      oldStage === 'Contato iniciado' ||
+      oldStage === 'Aguardando cliente' ||
+      oldStage === 'Novo contato'
     ) {
+      if (wasArchived || oldStage === 'Venda fechada' || oldStage === 'Não fechou') {
+        isReopened = true
+        clientRecord.set('has_returned', true)
+        clientRecord.set('reopened_at', nowIso)
+      }
+      clientRecord.set('is_archived', false)
       clientRecord.set('stage', 'Precisa responder')
     }
+
     clientRecord.set('last_message_at', nowIso)
     clientRecord.set('last_message_direction', 'inbound')
     clientRecord.set('last_message_text', messageText)
+    if (
+      senderName &&
+      (!clientRecord.getString('name') ||
+        clientRecord.getString('name').startsWith('Cliente WhatsApp'))
+    ) {
+      clientRecord.set('name', senderName)
+    }
     $app.save(clientRecord)
+
+    // Log stage transition if stage changed or reopened
+    if (oldStage !== 'Precisa responder' || wasArchived) {
+      try {
+        const transCol = $app.findCollectionByNameOrId('stage_transitions')
+        const transRec = new Record(transCol)
+        transRec.set('client_id', clientRecord.id)
+        transRec.set('from_stage', oldStage + (wasArchived ? ' (Arquivado)' : ''))
+        transRec.set('to_stage', 'Precisa responder')
+        transRec.set('to_stage_id', 'needs_response')
+        transRec.set('change_type', 'automatic')
+        transRec.set('user_name', 'Automação WhatsApp Webhook')
+        transRec.set(
+          'notes',
+          wasArchived
+            ? 'Cliente retornou contato! Atendimento desarquivado e reaberto automaticamente.'
+            : 'Mensagem recebida no WhatsApp, movido para Precisa responder.',
+        )
+        $app.save(transRec)
+      } catch (_) {}
+    }
   }
 
   // Record message in history
@@ -105,6 +161,8 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
     client_id: clientRecord.id,
     client_name: clientRecord.getString('name'),
     stage: clientRecord.getString('stage'),
+    is_reopened: isReopened,
+    has_returned: clientRecord.getBool('has_returned'),
   })
 })
 

@@ -1,50 +1,62 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Settings,
+  Save,
   MessageSquare,
   Clock,
-  ShieldCheck,
-  Key,
-  Building,
-  Save,
+  Building2,
+  ShieldAlert,
+  Info,
   Check,
   Copy,
   ExternalLink,
   AlertCircle,
+  Archive,
+  Layers,
+  Plus,
+  Edit2,
+  Eye,
+  EyeOff,
+  CheckCircle2,
 } from 'lucide-react'
 import { settingsService } from '@/services/settings'
-import type { SlaConfig } from '@/types/crm'
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-} from '@/components/ui/card'
+import { columnsService } from '@/services/columns'
+import type { SlaConfig, AutoArchiveConfig, KanbanColumn } from '@/types/crm'
+import EditColumnModal from '@/components/EditColumnModal'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { toast } from '@/hooks/use-toast'
-import { useAuth } from '@/context/AuthContext'
 
 export default function SettingsPage() {
-  const { user } = useAuth()
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  // Settings State
-  const [companyName, setCompanyName] = useState('Gráfica & Print Express')
-  const [displayPhone, setDisplayPhone] = useState('+55 (11) 98765-4321')
+  // WhatsApp Settings
+  const [companyName, setCompanyName] = useState('Laletra Gráfica Rápida')
+  const [displayPhone, setDisplayPhone] = useState('+55 11 99999-0000')
   const [phoneNumberId, setPhoneNumberId] = useState('')
   const [wabaId, setWabaId] = useState('')
   const [accessToken, setAccessToken] = useState('')
-  const [slaConfig, setSlaConfig] = useState<SlaConfig>({
-    urgentMinutes: 1440,
-    warningMinutes: 720,
-    noticeMinutes: 360,
+  const [verifyToken, setVerifyToken] = useState('laletra_crm_secret_token_2025')
+
+  // SLA Settings (in hours)
+  const [slaNoticeHours, setSlaNoticeHours] = useState(6)
+  const [slaWarningHours, setSlaWarningHours] = useState(12)
+  const [slaUrgentHours, setSlaUrgentHours] = useState(24)
+
+  // Auto-Archive configuration
+  const [autoArchive, setAutoArchive] = useState<AutoArchiveConfig>({
+    enabled: true,
+    wonHours: 24,
+    lostHours: 24,
   })
+
+  // Kanban Columns Management
+  const [columns, setColumns] = useState<KanbanColumn[]>([])
+  const [editColumnModalOpen, setEditColumnModalOpen] = useState(false)
+  const [columnToEdit, setColumnToEdit] = useState<KanbanColumn | null>(null)
+
+  const [saving, setSaving] = useState(false)
+  const [copiedWebhook, setCopiedWebhook] = useState(false)
 
   const webhookUrl = `${window.location.origin}/api/crm/whatsapp-webhook`
 
@@ -54,19 +66,34 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const map = await settingsService.getMap()
+      const [map, sla, autoArch, cols] = await Promise.all([
+        settingsService.getMap(),
+        settingsService.getSlaConfig(),
+        settingsService.getAutoArchiveConfig(),
+        columnsService.getAll(),
+      ])
+
       if (map['company_name']) setCompanyName(map['company_name'])
       if (map['whatsapp_display_phone']) setDisplayPhone(map['whatsapp_display_phone'])
       if (map['whatsapp_phone_number_id']) setPhoneNumberId(map['whatsapp_phone_number_id'])
       if (map['whatsapp_business_account_id']) setWabaId(map['whatsapp_business_account_id'])
       if (map['whatsapp_access_token']) setAccessToken(map['whatsapp_access_token'])
+      if (map['whatsapp_verify_token']) setVerifyToken(map['whatsapp_verify_token'])
 
-      const sla = await settingsService.getSlaConfig()
-      setSlaConfig(sla)
+      setSlaNoticeHours(
+        sla.noticeHours || (sla.noticeMinutes ? Math.round(sla.noticeMinutes / 60) : 6),
+      )
+      setSlaWarningHours(
+        sla.warningHours || (sla.warningMinutes ? Math.round(sla.warningMinutes / 60) : 12),
+      )
+      setSlaUrgentHours(
+        sla.urgentHours || (sla.urgentMinutes ? Math.round(sla.urgentMinutes / 60) : 24),
+      )
+
+      setAutoArchive(autoArch)
+      setColumns(cols)
     } catch (err) {
       console.error('Error loading settings:', err)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -75,32 +102,32 @@ export default function SettingsPage() {
     setSaving(true)
     try {
       await Promise.all([
-        settingsService.setKey(
-          'whatsapp_phone_number_id',
-          phoneNumberId.trim(),
-          'Phone Number ID da Meta API',
-        ),
+        settingsService.setKey('company_name', companyName, 'Nome fantasia da gráfica'),
+        settingsService.setKey('whatsapp_display_phone', displayPhone, 'Número WhatsApp visível'),
+        settingsService.setKey('whatsapp_phone_number_id', phoneNumberId, 'Meta Phone Number ID'),
         settingsService.setKey(
           'whatsapp_business_account_id',
-          wabaId.trim(),
-          'WhatsApp Business Account ID',
+          wabaId,
+          'Meta WhatsApp Business Account ID',
         ),
         settingsService.setKey(
           'whatsapp_access_token',
-          accessToken.trim(),
-          'Token Permanente Meta Graph API',
+          accessToken,
+          'Token de Acesso Permanente Meta Cloud API',
         ),
-        settingsService.setKey('whatsapp_display_phone', displayPhone.trim(), 'Número exibido'),
-        settingsService.setKey('company_name', companyName.trim(), 'Nome da Gráfica'),
+        settingsService.setKey(
+          'whatsapp_verify_token',
+          verifyToken,
+          'Token de verificação do Webhook Meta',
+        ),
       ])
       toast({
-        title: 'Configurações Salvas!',
-        description: 'Parâmetros da Meta Cloud API e Gráfica atualizados com sucesso.',
+        title: 'Configurações do WhatsApp salvas!',
+        description: 'Credenciais da Meta Cloud API atualizadas com sucesso.',
       })
-    } catch (err: any) {
+    } catch (err) {
       toast({
-        title: 'Erro ao salvar',
-        description: err?.message || 'Falha ao gravar configurações.',
+        title: 'Erro ao salvar configurações',
         variant: 'destructive',
       })
     } finally {
@@ -112,16 +139,21 @@ export default function SettingsPage() {
     e.preventDefault()
     setSaving(true)
     try {
-      await settingsService.saveSlaConfig(slaConfig)
-      toast({
-        title: 'SLAs de Atendimento Salvos!',
-        description: 'Os novos limites de tempo já estão ativos no funil Kanban e Dashboard.',
+      await settingsService.saveSlaConfig({
+        noticeMinutes: slaNoticeHours * 60,
+        warningMinutes: slaWarningHours * 60,
+        urgentMinutes: slaUrgentHours * 60,
+        noticeHours: slaNoticeHours,
+        warningHours: slaWarningHours,
+        urgentHours: slaUrgentHours,
       })
-      window.dispatchEvent(new CustomEvent('crm-client-updated'))
-    } catch (err: any) {
+      toast({
+        title: 'Regras de SLA salvas!',
+        description: 'Prazos de tempo de resposta da equipe atualizados com sucesso.',
+      })
+    } catch (err) {
       toast({
         title: 'Erro ao salvar SLA',
-        description: err?.message || 'Falha ao gravar tempos de SLA.',
         variant: 'destructive',
       })
     } finally {
@@ -129,342 +161,565 @@ export default function SettingsPage() {
     }
   }
 
-  const handleCopyWebhook = () => {
-    navigator.clipboard.writeText(webhookUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedWebhook(true)
+    setTimeout(() => setCopiedWebhook(false), 2000)
     toast({
-      title: 'Copiado!',
-      description: 'URL do Webhook copiada para a área de transferência.',
+      title: 'Copiado para a área de transferência',
     })
   }
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Header */}
+    <div className="max-w-5xl mx-auto space-y-6 pb-12">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-          <Settings className="h-6 w-6 text-emerald-600" />
-          Configurações do Sistema & Integrações
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+          Configurações do CRM Laletra
         </h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Conecte sua conta do WhatsApp Business Cloud API, ajuste limites de SLA e perfil.
+        <p className="text-sm text-slate-500">
+          Gerencie colunas do Kanban, arquivamento automático, WhatsApp Cloud API e SLAs de
+          atendimento.
         </p>
       </div>
 
-      <Tabs defaultValue="whatsapp" className="space-y-6">
-        <TabsList className="bg-slate-200/70 dark:bg-slate-800 p-1">
-          <TabsTrigger value="whatsapp" className="flex items-center gap-2 text-xs">
-            <MessageSquare className="h-4 w-4 text-emerald-600" />
-            WhatsApp Cloud API
+      <Tabs defaultValue="kanban" className="w-full">
+        <TabsList className="grid w-full grid-cols-5 max-w-2xl mb-6">
+          <TabsTrigger value="kanban" className="flex items-center gap-1.5 text-xs">
+            <Layers className="h-4 w-4" />
+            <span>Colunas</span>
           </TabsTrigger>
-          <TabsTrigger value="sla" className="flex items-center gap-2 text-xs">
-            <Clock className="h-4 w-4 text-amber-600" />
-            Alertas de SLA
+          <TabsTrigger value="autoarchive" className="flex items-center gap-1.5 text-xs">
+            <Archive className="h-4 w-4" />
+            <span>Arquivamento</span>
           </TabsTrigger>
-          <TabsTrigger value="company" className="flex items-center gap-2 text-xs">
-            <Building className="h-4 w-4 text-blue-600" />
-            Dados da Gráfica & Equipe
+          <TabsTrigger value="whatsapp" className="flex items-center gap-1.5 text-xs">
+            <MessageSquare className="h-4 w-4" />
+            <span>WhatsApp API</span>
+          </TabsTrigger>
+          <TabsTrigger value="sla" className="flex items-center gap-1.5 text-xs">
+            <Clock className="h-4 w-4" />
+            <span>SLA</span>
+          </TabsTrigger>
+          <TabsTrigger value="company" className="flex items-center gap-1.5 text-xs">
+            <Building2 className="h-4 w-4" />
+            <span>Empresa</span>
           </TabsTrigger>
         </TabsList>
 
-        {/* TAB 1: WhatsApp Cloud API */}
-        <TabsContent value="whatsapp" className="space-y-6">
-          <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+        {/* TAB 1: KANBAN COLUMNS */}
+        <TabsContent value="kanban" className="space-y-6">
+          <Card className="border-slate-200 dark:border-slate-800">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Layers className="h-5 w-5 text-emerald-600" />
+                  Personalização das Colunas do Kanban
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Adicione e edite o nome, cor, ordem e tipo de cada etapa. As automações e disparos
+                  utilizam o identificador permanente seguro (ex: `needs_response`).
+                </CardDescription>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setColumnToEdit(null)
+                  setEditColumnModalOpen(true)
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 font-semibold"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Nova Coluna
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 uppercase font-semibold">
+                    <tr>
+                      <th className="py-3 px-4">Nome Visível</th>
+                      <th className="py-3 px-4">ID Interno Seguro</th>
+                      <th className="py-3 px-4">Tipo</th>
+                      <th className="py-3 px-4">Cor</th>
+                      <th className="py-3 px-4">Visibilidade</th>
+                      <th className="py-3 px-4 text-right">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {columns.map((col) => (
+                      <tr key={col.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-slate-900 dark:text-white text-sm">
+                            {col.name}
+                          </div>
+                          <div className="text-[11px] text-slate-500">{col.description || '-'}</div>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border">
+                            {col.internal_id}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                              col.stage_type === 'final'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : col.stage_type === 'initial'
+                                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                  : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {col.stage_type === 'final'
+                              ? '🏁 Final'
+                              : col.stage_type === 'initial'
+                                ? '🚀 Inicial'
+                                : '⚡ Intermediária'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium">
+                            <span
+                              className={`h-3 w-3 rounded-full ${
+                                col.color === 'emerald'
+                                  ? 'bg-emerald-500'
+                                  : col.color === 'rose'
+                                    ? 'bg-rose-500'
+                                    : col.color === 'amber'
+                                      ? 'bg-amber-500'
+                                      : col.color === 'purple'
+                                        ? 'bg-purple-500'
+                                        : col.color === 'indigo'
+                                          ? 'bg-indigo-500'
+                                          : col.color === 'cyan'
+                                            ? 'bg-cyan-500'
+                                            : col.color === 'slate'
+                                              ? 'bg-slate-500'
+                                              : 'bg-blue-500'
+                              }`}
+                            />
+                            {col.color || 'blue'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          {col.is_visible !== false ? (
+                            <span className="text-emerald-600 font-medium flex items-center gap-1">
+                              <Eye className="h-3.5 w-3.5" />
+                              Visível
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-medium flex items-center gap-1">
+                              <EyeOff className="h-3.5 w-3.5" />
+                              Oculta
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setColumnToEdit(col)
+                              setEditColumnModalOpen(true)
+                            }}
+                            className="h-8 text-xs font-semibold text-slate-600 hover:text-emerald-700"
+                          >
+                            <Edit2 className="h-3.5 w-3.5 mr-1" />
+                            Editar
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 2: AUTO-ARCHIVE SETTINGS */}
+        <TabsContent value="autoarchive" className="space-y-6">
+          <Card className="border-slate-200 dark:border-slate-800">
             <CardHeader>
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-emerald-600" />
-                Meta WhatsApp Business Cloud API (Oficial)
+              <CardTitle className="text-base flex items-center gap-2">
+                <Archive className="h-5 w-5 text-emerald-600" />
+                Regras de Arquivamento Automático
               </CardTitle>
-              <CardDescription>
-                Integre diretamente com a Graph API da Meta para envio e recebimento de mensagens
-                instantâneas sem risco de bloqueio.
+              <CardDescription className="text-xs">
+                Defina o tempo limite para que atendimentos finalizados sejam arquivados
+                automaticamente, limpando o Kanban principal sem perder dados históricos do cliente.
               </CardDescription>
             </CardHeader>
-            <form onSubmit={handleSaveWhatsApp}>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Venda Fechada */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-900/50">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-lg bg-emerald-100 text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-900 dark:text-white">
+                        Venda Fechada (Won)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Tempo de permanência no Kanban antes de arquivar
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Arquivar após (em Horas):</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="720"
+                        value={autoArchive.wonHours}
+                        onChange={(e) =>
+                          setAutoArchive({
+                            ...autoArchive,
+                            wonHours: Number(e.target.value) || 24,
+                          })
+                        }
+                        className="w-32 font-bold text-sm"
+                      />
+                      <span className="text-xs text-slate-500">horas (ex: 24h = 1 dia)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Venda Perdida */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-900/50">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-lg bg-rose-100 text-rose-700">
+                      <Archive className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-900 dark:text-white">
+                        Não Fechou / Venda Perdida
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Tempo de permanência no Kanban antes de arquivar
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Arquivar após (em Horas):</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="720"
+                        value={autoArchive.lostHours}
+                        onChange={(e) =>
+                          setAutoArchive({
+                            ...autoArchive,
+                            lostHours: Number(e.target.value) || 24,
+                          })
+                        }
+                        className="w-32 font-bold text-sm"
+                      />
+                      <span className="text-xs text-slate-500">horas (ex: 24h = 1 dia)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      await settingsService.saveAutoArchiveConfig(autoArchive)
+                      toast({
+                        title: 'Configuração salva!',
+                        description: 'Regras de arquivamento automático atualizadas com sucesso.',
+                      })
+                    } catch (err: any) {
+                      toast({
+                        title: 'Erro ao salvar',
+                        description: err?.message,
+                        variant: 'destructive',
+                      })
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                  disabled={saving}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 px-4 font-semibold"
+                >
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  {saving ? 'Gravando...' : 'Salvar Regras de Arquivamento'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 3: WHATSAPP API */}
+        <TabsContent value="whatsapp" className="space-y-6">
+          <form onSubmit={handleSaveWhatsApp} className="space-y-6">
+            <Card className="border-slate-200 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ShieldAlert className="h-5 w-5 text-emerald-600" />
+                  Credenciais Meta Cloud API
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Insira as credenciais do seu aplicativo Meta for Developers para envio oficial do
+                  WhatsApp Business.
+                </CardDescription>
+              </CardHeader>
               <CardContent className="space-y-4">
-                {/* Webhook Endpoint display */}
-                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      URL de Webhook (Cole no Painel Meta Developers):
-                    </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="phoneId" className="text-xs">
+                      Phone Number ID *
+                    </Label>
+                    <Input
+                      id="phoneId"
+                      value={phoneNumberId}
+                      onChange={(e) => setPhoneNumberId(e.target.value)}
+                      placeholder="Ex: 109876543210987"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="wabaId" className="text-xs">
+                      WhatsApp Business Account ID (WABA ID)
+                    </Label>
+                    <Input
+                      id="wabaId"
+                      value={wabaId}
+                      onChange={(e) => setWabaId(e.target.value)}
+                      placeholder="Ex: 987654321098765"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="accessToken" className="text-xs">
+                    Access Token Permanente (System User Token) *
+                  </Label>
+                  <Input
+                    id="accessToken"
+                    type="password"
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    placeholder="EAA..."
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Gere um token de longa duração no Meta Business Manager com permissões{' '}
+                    <code>whatsapp_business_messaging</code> e{' '}
+                    <code>whatsapp_business_management</code>.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Webhook Settings Box */}
+            <Card className="border-slate-200 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ExternalLink className="h-5 w-5 text-emerald-600" />
+                  Configuração de Webhook (Recebimento de Mensagens)
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Cadastre esta URL e Token no painel do Meta for Developers para receber mensagens
+                  em tempo real.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-xs">URL de Retorno (Callback URL)</Label>
+                  <div className="flex gap-2">
+                    <Input value={webhookUrl} readOnly className="font-mono text-xs bg-slate-50" />
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={handleCopyWebhook}
-                      className="h-7 text-xs"
+                      onClick={() => copyToClipboard(webhookUrl)}
+                      className="shrink-0"
                     >
-                      {copied ? (
-                        <Check className="h-3.5 w-3.5 text-emerald-600 mr-1" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5 mr-1" />
-                      )}
-                      {copied ? 'Copiado!' : 'Copiar URL'}
+                      {copiedWebhook ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                     </Button>
                   </div>
-                  <div className="p-2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono text-emerald-700 dark:text-emerald-400 break-all">
-                    {webhookUrl}
-                  </div>
-                  <p className="text-[11px] text-slate-500">
-                    Inscreva-se no campo <span className="font-semibold">messages</span> para
-                    receber contatos em tempo real.
-                  </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Phone Number ID *
-                    </label>
-                    <Input
-                      value={phoneNumberId}
-                      onChange={(e) => setPhoneNumberId(e.target.value)}
-                      placeholder="Ex: 109283746592019"
-                      className="mt-1 font-mono text-xs"
-                    />
-                    <span className="text-[10px] text-slate-400">
-                      Encontrado no painel da Meta Cloud API
-                    </span>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      WhatsApp Business Account ID (WABA)
-                    </label>
-                    <Input
-                      value={wabaId}
-                      onChange={(e) => setWabaId(e.target.value)}
-                      placeholder="Ex: 982736154820931"
-                      className="mt-1 font-mono text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Token de Acesso Permanente (System User Token) *
-                  </label>
+                <div className="space-y-2">
+                  <Label htmlFor="verifyToken" className="text-xs">
+                    Token de Verificação (Verify Token)
+                  </Label>
                   <Input
-                    type="password"
-                    value={accessToken}
-                    onChange={(e) => setAccessToken(e.target.value)}
-                    placeholder="EAAX..."
-                    className="mt-1 font-mono text-xs"
+                    id="verifyToken"
+                    value={verifyToken}
+                    onChange={(e) => setVerifyToken(e.target.value)}
+                    className="font-mono text-xs"
                   />
-                  <span className="text-[10px] text-slate-400">
-                    Token de sistema com permissões{' '}
-                    <code className="font-mono">whatsapp_business_messaging</code> e{' '}
-                    <code className="font-mono">whatsapp_business_management</code>.
-                  </span>
                 </div>
               </CardContent>
-              <CardFooter className="flex justify-end border-t border-slate-100 dark:border-slate-800 pt-4">
-                <Button
-                  type="submit"
-                  disabled={saving}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
-                >
-                  <Save className="h-4 w-4 mr-1.5" />
-                  {saving ? 'Gravando...' : 'Salvar Credenciais WhatsApp'}
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
+            </Card>
+
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                disabled={saving}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-9 px-4"
+              >
+                <Save className="h-3.5 w-3.5 mr-1.5" />
+                {saving ? 'Salvando...' : 'Salvar Credenciais WhatsApp'}
+              </Button>
+            </div>
+          </form>
         </TabsContent>
 
-        {/* TAB 2: Alertas de SLA */}
+        {/* TAB 4: SLA RULES */}
         <TabsContent value="sla" className="space-y-6">
-          <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <Clock className="h-5 w-5 text-amber-600" />
-                Tempos de Resposta & Alertas de SLA
-              </CardTitle>
-              <CardDescription>
-                Configure quanto tempo um cliente da gráfica pode ficar sem resposta antes de mudar
-                de cor no Kanban e gerar alertas no painel.
-              </CardDescription>
-            </CardHeader>
-            <form onSubmit={handleSaveSla}>
-              <CardContent className="space-y-5">
-                {/* Red - Urgent SLA */}
-                <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/50 dark:bg-rose-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full bg-rose-500 animate-pulse" />
-                      <h4 className="font-bold text-xs text-rose-900 dark:text-rose-200 uppercase tracking-wide">
-                        Nível Crítico (Vermelho) - Estourado
-                      </h4>
+          <form onSubmit={handleSaveSla} className="space-y-6">
+            <Card className="border-slate-200 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-emerald-600" />
+                  Prazos e Alertas de SLA para Atendimento
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Controle os prazos máximos para a equipe responder aos clientes aguardando no
+                  WhatsApp.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Notice (Amarelo) */}
+                  <div className="p-4 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 space-y-2">
+                    <div className="flex items-center gap-2 text-amber-700 font-bold text-xs uppercase">
+                      <span className="h-2 w-2 rounded-full bg-amber-500" />
+                      Atenção (Amarelo)
                     </div>
-                    <p className="text-xs text-rose-700 dark:text-rose-300">
-                      Destaca o card em vermelho vibrante e adiciona badge de alerta na barra de
-                      navegação.
-                    </p>
+                    <Label className="text-xs text-slate-600">Tempo de espera:</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="168"
+                        value={slaNoticeHours}
+                        onChange={(e) => setSlaNoticeHours(Number(e.target.value))}
+                        className="font-bold text-sm bg-white"
+                      />
+                      <span className="text-xs text-slate-500">horas</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Input
-                      type="number"
-                      min="1"
-                      value={slaConfig.urgentMinutes ?? 1440}
-                      onChange={(e) =>
-                        setSlaConfig({ ...slaConfig, urgentMinutes: Number(e.target.value) })
-                      }
-                      placeholder="1440"
-                      className="w-28 bg-white text-xs font-bold"
-                      required
-                    />
-                    <span className="text-xs font-semibold text-rose-900 dark:text-rose-200">
-                      minutos
-                    </span>
-                  </div>
-                </div>
 
-                {/* Orange - Warning SLA */}
-                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full bg-amber-500" />
-                      <h4 className="font-bold text-xs text-amber-900 dark:text-amber-200 uppercase tracking-wide">
-                        Nível Alerta (Laranja)
-                      </h4>
+                  {/* Warning (Laranja) */}
+                  <div className="p-4 rounded-xl bg-orange-50/50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900 space-y-2">
+                    <div className="flex items-center gap-2 text-orange-700 font-bold text-xs uppercase">
+                      <span className="h-2 w-2 rounded-full bg-orange-500" />
+                      Alerta (Laranja)
                     </div>
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Sinaliza que o cliente está aguardando retorno e o tempo limite está próximo.
-                    </p>
+                    <Label className="text-xs text-slate-600">Tempo de espera:</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="168"
+                        value={slaWarningHours}
+                        onChange={(e) => setSlaWarningHours(Number(e.target.value))}
+                        className="font-bold text-sm bg-white"
+                      />
+                      <span className="text-xs text-slate-500">horas</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Input
-                      type="number"
-                      min="1"
-                      value={slaConfig.warningMinutes ?? 720}
-                      onChange={(e) =>
-                        setSlaConfig({ ...slaConfig, warningMinutes: Number(e.target.value) })
-                      }
-                      placeholder="720"
-                      className="w-28 bg-white text-xs font-bold"
-                      required
-                    />
-                    <span className="text-xs font-semibold text-amber-900 dark:text-amber-200">
-                      minutos
-                    </span>
-                  </div>
-                </div>
 
-                {/* Yellow - Notice SLA */}
-                <div className="p-4 rounded-xl border border-yellow-200 bg-yellow-50/50 dark:bg-yellow-950/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full bg-yellow-400" />
-                      <h4 className="font-bold text-xs text-yellow-900 dark:text-yellow-200 uppercase tracking-wide">
-                        Nível Atenção (Amarelo)
-                      </h4>
+                  {/* Urgent (Vermelho) */}
+                  <div className="p-4 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900 space-y-2">
+                    <div className="flex items-center gap-2 text-rose-700 font-bold text-xs uppercase">
+                      <span className="h-2 w-2 rounded-full bg-rose-500" />
+                      Crítico (Vermelho)
                     </div>
-                    <p className="text-xs text-yellow-800 dark:text-yellow-300">
-                      Início da fila de prioridade para a equipe responder.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Input
-                      type="number"
-                      min="1"
-                      value={slaConfig.noticeMinutes ?? 360}
-                      onChange={(e) =>
-                        setSlaConfig({ ...slaConfig, noticeMinutes: Number(e.target.value) })
-                      }
-                      placeholder="360"
-                      className="w-28 bg-white text-xs font-bold"
-                      required
-                    />
-                    <span className="text-xs font-semibold text-yellow-900 dark:text-yellow-200">
-                      minutos
-                    </span>
+                    <Label className="text-xs text-slate-600">Tempo de espera:</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="168"
+                        value={slaUrgentHours}
+                        onChange={(e) => setSlaUrgentHours(Number(e.target.value))}
+                        className="font-bold text-sm bg-white"
+                      />
+                      <span className="text-xs text-slate-500">horas</span>
+                    </div>
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="flex justify-end border-t border-slate-100 dark:border-slate-800 pt-4">
-                <Button
-                  type="submit"
-                  disabled={saving}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
-                >
-                  <Save className="h-4 w-4 mr-1.5" />
-                  {saving ? 'Gravando...' : 'Salvar Prazos de SLA'}
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
+            </Card>
+
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                disabled={saving}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-9 px-4"
+              >
+                <Save className="h-3.5 w-3.5 mr-1.5" />
+                {saving ? 'Salvando...' : 'Salvar Regras de SLA'}
+              </Button>
+            </div>
+          </form>
         </TabsContent>
 
-        {/* TAB 3: Dados da Gráfica */}
+        {/* TAB 5: COMPANY INFO */}
         <TabsContent value="company" className="space-y-6">
-          <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+          <Card className="border-slate-200 dark:border-slate-800">
             <CardHeader>
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <Building className="h-5 w-5 text-blue-600" />
-                Dados da Gráfica & Atendimento
+              <CardTitle className="text-base flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-emerald-600" />
+                Dados Cadastrais da Gráfica
               </CardTitle>
-              <CardDescription>
-                Informações exibidas no cabeçalho e nos links de compartilhamento.
-              </CardDescription>
             </CardHeader>
-            <form onSubmit={handleSaveWhatsApp}>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Nome Fantasia da Gráfica
-                    </label>
-                    <Input
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      placeholder="Ex: Gráfica & Print Express"
-                      className="mt-1 text-xs"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      WhatsApp Comercial de Atendimento
-                    </label>
-                    <Input
-                      value={displayPhone}
-                      onChange={(e) => setDisplayPhone(e.target.value)}
-                      placeholder="+55 (11) 98765-4321"
-                      className="mt-1 text-xs"
-                      required
-                    />
-                  </div>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="companyName" className="text-xs">
+                    Nome da Empresa
+                  </Label>
+                  <Input
+                    id="companyName"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    className="text-xs"
+                  />
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    Seu Usuário Logado:
-                  </span>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">
-                    <span className="font-semibold text-slate-900 dark:text-white">
-                      {user?.name}
-                    </span>{' '}
-                    ({user?.email})
-                  </p>
+                <div className="space-y-2">
+                  <Label htmlFor="displayPhone" className="text-xs">
+                    Telefone WhatsApp Principal
+                  </Label>
+                  <Input
+                    id="displayPhone"
+                    value={displayPhone}
+                    onChange={(e) => setDisplayPhone(e.target.value)}
+                    className="text-xs"
+                  />
                 </div>
-              </CardContent>
-              <CardFooter className="flex justify-end border-t border-slate-100 dark:border-slate-800 pt-4">
-                <Button
-                  type="submit"
-                  disabled={saving}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
-                >
-                  <Save className="h-4 w-4 mr-1.5" />
-                  {saving ? 'Gravando...' : 'Salvar Dados'}
-                </Button>
-              </CardFooter>
-            </form>
+              </div>
+            </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Edit Column Modal */}
+      <EditColumnModal
+        isOpen={editColumnModalOpen}
+        onClose={() => {
+          setEditColumnModalOpen(false)
+          setColumnToEdit(null)
+        }}
+        column={columnToEdit}
+        allColumns={columns}
+        onSaved={() => loadSettings()}
+      />
     </div>
   )
 }

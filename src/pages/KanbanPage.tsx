@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react'
-import { KANBAN_STAGES, type Client, type KanbanStage, type SlaConfig } from '@/types/crm'
+import type { Client, KanbanColumn, SlaConfig } from '@/types/crm'
 import { clientsService } from '@/services/clients'
+import { columnsService } from '@/services/columns'
 import { settingsService } from '@/services/settings'
 import { calculateSlaInfo, formatCurrency } from '@/lib/sla'
 import KanbanCard from '@/components/KanbanCard'
 import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 import ClientFormModal from '@/components/ClientFormModal'
+import EditColumnModal from '@/components/EditColumnModal'
+import CompleteAndArchiveModal from '@/components/CompleteAndArchiveModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -18,10 +21,18 @@ import {
   Clock,
   Sparkles,
   RefreshCw,
+  Edit2,
+  Archive,
+  RotateCcw,
+  SlidersHorizontal,
+  ChevronRight,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { useNavigate } from 'react-router-dom'
 
 export default function KanbanPage() {
+  const navigate = useNavigate()
+  const [columns, setColumns] = useState<KanbanColumn[]>([])
   const [clients, setClients] = useState<Client[]>([])
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
     urgentMinutes: 1440,
@@ -32,37 +43,64 @@ export default function KanbanPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [slaFilterOnly, setSlaFilterOnly] = useState(false)
+  const [returnedFilterOnly, setReturnedFilterOnly] = useState(false)
 
   // Drag & drop state
   const [draggedClientId, setDraggedClientId] = useState<string | null>(null)
-  const [dragOverStage, setDragOverStage] = useState<KanbanStage | null>(null)
+  const [dragOverStageName, setDragOverStageName] = useState<string | null>(null)
 
   // Modals state
   const [selectedClientForChat, setSelectedClientForChat] = useState<Client | null>(null)
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
-  const [newClientStage, setNewClientStage] = useState<KanbanStage>('Novo contato')
+  const [newClientStage, setNewClientStage] = useState<string>('Novo contato')
   const [newClientModalOpen, setNewClientModalOpen] = useState(false)
 
-  const loadClients = async () => {
+  // Edit Column Modal
+  const [editColumnModalOpen, setEditColumnModalOpen] = useState(false)
+  const [columnToEdit, setColumnToEdit] = useState<KanbanColumn | null>(null)
+
+  // Complete & Archive Modal
+  const [archiveModalOpen, setArchiveModalOpen] = useState(false)
+  const [clientToArchive, setClientToArchive] = useState<Client | null>(null)
+
+  const loadData = async () => {
     try {
-      const [list, cfg] = await Promise.all([
-        clientsService.getAll(),
+      const [cols, cls, cfg, autoArchiveCfg] = await Promise.all([
+        columnsService.getVisible(),
+        clientsService.getAll(undefined, '-last_message_at', { includeArchived: false }),
         settingsService.getSlaConfig(),
+        settingsService.getAutoArchiveConfig(),
       ])
-      setClients(list)
+      setColumns(cols)
+      setClients(cls)
       setSlaConfig(cfg)
+
+      // Auto-archive check if configured
+      if (autoArchiveCfg.enabled) {
+        const archivedCount = await clientsService.runAutoArchiveCheck(
+          autoArchiveCfg.wonHours,
+          autoArchiveCfg.lostHours,
+        )
+        if (archivedCount > 0) {
+          // Re-fetch active clients if any were auto-archived
+          const refreshedClients = await clientsService.getAll(undefined, '-last_message_at', {
+            includeArchived: false,
+          })
+          setClients(refreshedClients)
+        }
+      }
     } catch (err) {
-      console.error('Error loading kanban clients:', err)
+      console.error('Error loading kanban board:', err)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadClients()
-    const handleUpdate = () => loadClients()
+    loadData()
+    const handleUpdate = () => loadData()
     window.addEventListener('crm-client-updated', handleUpdate)
     return () => window.removeEventListener('crm-client-updated', handleUpdate)
   }, [])
@@ -77,6 +115,8 @@ export default function KanbanPage() {
     const matchesPriority = priorityFilter === 'all' || c.priority === priorityFilter
 
     if (!matchesSearch || !matchesPriority) return false
+
+    if (returnedFilterOnly && !c.has_returned) return false
 
     if (slaFilterOnly) {
       if (c.stage === 'Venda fechada' || c.stage === 'Não fechou') return false
@@ -93,36 +133,41 @@ export default function KanbanPage() {
     setDraggedClientId(clientId)
   }
 
-  const handleDragOver = (e: React.DragEvent, stage: KanbanStage) => {
+  const handleDragOver = (e: React.DragEvent, stageName: string) => {
     e.preventDefault()
-    if (dragOverStage !== stage) {
-      setDragOverStage(stage)
+    if (dragOverStageName !== stageName) {
+      setDragOverStageName(stageName)
     }
   }
 
   const handleDragLeave = () => {
-    setDragOverStage(null)
+    setDragOverStageName(null)
   }
 
-  const handleDrop = async (e: React.DragEvent, targetStage: KanbanStage) => {
+  const handleDrop = async (e: React.DragEvent, targetStageName: string) => {
     e.preventDefault()
-    setDragOverStage(null)
+    setDragOverStageName(null)
     const clientId = e.dataTransfer.getData('text/plain') || draggedClientId
     if (!clientId) return
 
     const currentClient = clients.find((c) => c.id === clientId)
-    if (!currentClient || currentClient.stage === targetStage) return
+    if (!currentClient || currentClient.stage === targetStageName) return
 
     // Optimistic UI update
-    setClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, stage: targetStage } : c)))
+    setClients((prev) =>
+      prev.map((c) => (c.id === clientId ? { ...c, stage: targetStageName } : c)),
+    )
 
     try {
-      await clientsService.updateStage(clientId, targetStage)
+      await clientsService.updateStage(clientId, targetStageName, {
+        changeType: 'manual',
+        fromStage: currentClient.stage,
+        notes: `Card arrastado manualmente de "${currentClient.stage}" para "${targetStageName}".`,
+      })
       toast({
         title: 'Etapa atualizada',
-        description: `Cliente "${currentClient.name}" movido para "${targetStage}".`,
+        description: `Cliente "${currentClient.name}" movido para "${targetStageName}".`,
       })
-      // trigger global update for badge counters
       window.dispatchEvent(new CustomEvent('crm-client-updated'))
     } catch (err) {
       console.error('Error updating stage:', err)
@@ -131,44 +176,35 @@ export default function KanbanPage() {
         description: 'Não foi possível atualizar a etapa.',
         variant: 'destructive',
       })
-      loadClients()
+      loadData()
     } finally {
       setDraggedClientId(null)
     }
   }
 
-  const stageColorBadges: Record<KanbanStage, string> = {
-    'Novo contato':
-      'border-blue-500/30 text-blue-700 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300',
-    'Contato iniciado':
-      'border-cyan-500/30 text-cyan-700 bg-cyan-50 dark:bg-cyan-950/40 dark:text-cyan-300',
-    'Precisa responder':
-      'border-rose-500/30 text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300',
-    'Em atendimento':
-      'border-amber-500/30 text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300',
-    'Orçamento enviado':
-      'border-purple-500/30 text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300',
-    'Aguardando cliente':
-      'border-indigo-500/30 text-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 dark:text-indigo-300',
-    'Venda fechada':
-      'border-emerald-500/30 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300',
-    'Não fechou':
-      'border-slate-500/30 text-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-slate-300',
+  const getColumnBadgeColor = (colorName?: string) => {
+    switch (colorName) {
+      case 'cyan':
+        return 'border-cyan-500/30 text-cyan-700 bg-cyan-50 dark:bg-cyan-950/40 dark:text-cyan-300'
+      case 'rose':
+        return 'border-rose-500/30 text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300'
+      case 'amber':
+        return 'border-amber-500/30 text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300'
+      case 'purple':
+        return 'border-purple-500/30 text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300'
+      case 'indigo':
+        return 'border-indigo-500/30 text-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 dark:text-indigo-300'
+      case 'emerald':
+        return 'border-emerald-500/30 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300'
+      case 'slate':
+        return 'border-slate-500/30 text-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-slate-300'
+      case 'blue':
+      default:
+        return 'border-blue-500/30 text-blue-700 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300'
+    }
   }
 
-  const stageDescriptions: Record<KanbanStage, string> = {
-    'Novo contato': 'Novas mensagens ou leads cadastrados',
-    'Contato iniciado': 'Template WhatsApp enviado ao cliente',
-    'Precisa responder': 'Clientes aguardando nossa resposta (SLA ativo)',
-    'Em atendimento': 'Briefing e especificações técnicas',
-    'Orçamento enviado': 'Proposta de preços encaminhada',
-    'Aguardando cliente': 'Aguardando aprovação ou arte final',
-    'Venda fechada': 'PIX/Pagamento aprovado & em produção',
-    'Não fechou': 'Orçamento recusado ou adiado',
-  }
-
-  // Count clients for badge counters
-  const contactInitiatedCount = clients.filter((c) => c.stage === 'Contato iniciado').length
+  const returnedClientsCount = clients.filter((c) => c.has_returned).length
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -179,11 +215,16 @@ export default function KanbanPage() {
             <Layers className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">
-              Funil de Atendimentos WhatsApp
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+                Funil de Atendimentos WhatsApp
+              </h1>
+              <Badge variant="secondary" className="text-xs font-semibold">
+                {clients.length} ativos
+              </Badge>
+            </div>
             <p className="text-xs text-slate-500">
-              Arraste os cards entre as colunas para atualizar o status do cliente.
+              Apenas atendimentos em andamento. Clientes finalizados vão para o arquivo histórico.
             </p>
           </div>
         </div>
@@ -207,13 +248,54 @@ export default function KanbanPage() {
             className="text-xs h-9"
           >
             <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
-            Apenas SLAs Críticos
+            SLAs Críticos
+          </Button>
+
+          {returnedClientsCount > 0 && (
+            <Button
+              variant={returnedFilterOnly ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setReturnedFilterOnly(!returnedFilterOnly)}
+              className={`text-xs h-9 ${
+                returnedFilterOnly
+                  ? 'bg-emerald-600 text-white'
+                  : 'border-emerald-200 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40'
+              }`}
+            >
+              <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+              Retornaram ({returnedClientsCount})
+            </Button>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/arquivados')}
+            title="Ver atendimentos encerrados e arquivados"
+            className="text-xs h-9 text-slate-600 dark:text-slate-300"
+          >
+            <Archive className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
+            Arquivados
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            onClick={loadClients}
+            onClick={() => {
+              setColumnToEdit(null)
+              setEditColumnModalOpen(true)
+            }}
+            title="Adicionar ou editar colunas do funil"
+            className="text-xs h-9 text-slate-600"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5 text-slate-500" />
+            Nova Coluna
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadData}
             title="Recarregar dados"
             className="h-9 px-2.5"
           >
@@ -222,7 +304,7 @@ export default function KanbanPage() {
 
           <Button
             onClick={() => {
-              setNewClientStage('Novo contato')
+              setNewClientStage(columns[0]?.name || 'Novo contato')
               setNewClientModalOpen(true)
             }}
             className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 shadow-sm"
@@ -235,19 +317,34 @@ export default function KanbanPage() {
 
       {/* Kanban Board Horizontal Scroll Container */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
-        <div className="flex items-start gap-4 min-w-[1960px] h-full">
-          {KANBAN_STAGES.map((stage) => {
-            const stageItems = filteredClients.filter((c) => c.stage === stage)
-            const totalStageValue = stageItems.reduce((sum, c) => sum + (c.quote_value || 0), 0)
-            const isTarget = dragOverStage === stage
+        <div
+          className="flex items-start gap-4 h-full"
+          style={{ minWidth: `${Math.max(columns.length * 270, 1200)}px` }}
+        >
+          {columns.map((column) => {
+            const stageName = column.name
+            const stageItems = filteredClients.filter(
+              (c) =>
+                c.stage === stageName ||
+                (column.internal_id === 'new_contact' &&
+                  (c.stage === 'Novo contato' || c.stage === stageName)) ||
+                (column.internal_id === 'won' &&
+                  (c.stage === 'Venda fechada' || c.stage === stageName)) ||
+                (column.internal_id === 'lost' &&
+                  (c.stage === 'Não fechou' || c.stage === stageName)),
+            )
 
-            // Check if stage has urgent clients
+            const totalStageValue = stageItems.reduce((sum, c) => sum + (c.quote_value || 0), 0)
+            const isTarget = dragOverStageName === stageName
+            const isFinalStage = column.stage_type === 'final'
+
+            // Check if column has urgent clients
             const urgentInStage = stageItems.filter((c) => {
-              if (stage === 'Venda fechada' || stage === 'Não fechou') return false
+              if (isFinalStage) return false
               const sla = calculateSlaInfo(
                 c.last_message_at,
                 c.last_message_direction,
-                stage,
+                c.stage,
                 slaConfig,
               )
               return sla.status === 'urgent'
@@ -255,10 +352,10 @@ export default function KanbanPage() {
 
             return (
               <div
-                key={stage}
-                onDragOver={(e) => handleDragOver(e, stage)}
+                key={column.id}
+                onDragOver={(e) => handleDragOver(e, stageName)}
                 onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, stage)}
+                onDrop={(e) => handleDrop(e, stageName)}
                 className={`w-64 shrink-0 flex flex-col max-h-[calc(100vh-210px)] rounded-2xl bg-slate-100/70 dark:bg-slate-900/60 border transition-all duration-200 ${
                   isTarget
                     ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/40 dark:bg-emerald-950/20'
@@ -268,27 +365,47 @@ export default function KanbanPage() {
                 {/* Column Header */}
                 <div className="p-3.5 border-b border-slate-200/80 dark:border-slate-800 flex flex-col gap-1">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-xs text-slate-900 dark:text-white">
-                        {stage}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                        {stageName}
                       </span>
                       {urgentInStage > 0 && (
                         <span
-                          className="h-2 w-2 rounded-full bg-rose-500 animate-ping"
+                          className="h-2 w-2 rounded-full bg-rose-500 animate-ping shrink-0"
                           title={`${urgentInStage} com SLA estourado`}
                         />
                       )}
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] font-bold px-1.5 py-0 ${stageColorBadges[stage]}`}
-                    >
-                      {stageItems.length}
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-bold px-1.5 py-0 ${getColumnBadgeColor(
+                          column.color,
+                        )}`}
+                      >
+                        {stageItems.length}
+                      </Badge>
+
+                      {/* Edit Column trigger button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setColumnToEdit(column)
+                          setEditColumnModalOpen(true)
+                        }}
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                        title="Editar nome, cor ou regras desta coluna"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                    <span className="truncate text-[10px]">{stageDescriptions[stage]}</span>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                    <span className="truncate text-[10px]" title={column.description}>
+                      {column.description ||
+                        (isFinalStage ? 'Etapa final do funil' : 'Etapa de atendimento')}
+                    </span>
                   </div>
 
                   {totalStageValue > 0 && (
@@ -303,7 +420,7 @@ export default function KanbanPage() {
                   {stageItems.length === 0 ? (
                     <div
                       onClick={() => {
-                        setNewClientStage(stage)
+                        setNewClientStage(stageName)
                         setNewClientModalOpen(true)
                       }}
                       className="h-24 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl flex flex-col items-center justify-center text-center p-3 cursor-pointer hover:bg-white dark:hover:bg-slate-800/50 transition-colors"
@@ -316,6 +433,7 @@ export default function KanbanPage() {
                       <KanbanCard
                         key={client.id}
                         client={client}
+                        column={column}
                         slaConfig={slaConfig}
                         onDragStart={(e) => handleDragStart(e, client.id)}
                         onClick={() => {
@@ -327,18 +445,22 @@ export default function KanbanPage() {
                           setSelectedClientForChat(client)
                           setChatDrawerOpen(true)
                         }}
+                        onCompleteAndArchive={(c) => {
+                          setClientToArchive(c)
+                          setArchiveModalOpen(true)
+                        }}
                       />
                     ))
                   )}
                 </div>
 
                 {/* Column Footer: Quick Add Card */}
-                <div className="p-2 border-t border-slate-200/60 dark:border-slate-800">
+                <div className="p-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between">
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      setNewClientStage(stage)
+                      setNewClientStage(stageName)
                       setNewClientModalOpen(true)
                     }}
                     className="w-full text-xs text-slate-500 hover:text-emerald-600 hover:bg-white dark:hover:bg-slate-800 h-8 justify-start"
@@ -359,7 +481,7 @@ export default function KanbanPage() {
         onClose={() => setChatDrawerOpen(false)}
         client={selectedClientForChat}
         slaConfig={slaConfig}
-        onClientUpdated={() => loadClients()}
+        onClientUpdated={() => loadData()}
       />
 
       {/* Edit Client Modal */}
@@ -369,7 +491,7 @@ export default function KanbanPage() {
           setEditModalOpen(false)
           setClientToEdit(null)
         }}
-        onSaved={() => loadClients()}
+        onSaved={() => loadData()}
         clientToEdit={clientToEdit}
       />
 
@@ -377,8 +499,31 @@ export default function KanbanPage() {
       <ClientFormModal
         isOpen={newClientModalOpen}
         onClose={() => setNewClientModalOpen(false)}
-        onSaved={() => loadClients()}
+        onSaved={() => loadData()}
         initialStage={newClientStage}
+      />
+
+      {/* Edit Column Modal */}
+      <EditColumnModal
+        isOpen={editColumnModalOpen}
+        onClose={() => {
+          setEditColumnModalOpen(false)
+          setColumnToEdit(null)
+        }}
+        column={columnToEdit}
+        allColumns={columns}
+        onSaved={() => loadData()}
+      />
+
+      {/* Complete & Archive Modal */}
+      <CompleteAndArchiveModal
+        isOpen={archiveModalOpen}
+        onClose={() => {
+          setArchiveModalOpen(false)
+          setClientToArchive(null)
+        }}
+        client={clientToArchive}
+        onSuccess={() => loadData()}
       />
     </div>
   )

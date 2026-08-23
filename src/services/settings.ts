@@ -1,5 +1,5 @@
 import pb from '@/lib/pocketbase/client'
-import type { SystemSetting, SlaConfig } from '@/types/crm'
+import type { SystemSetting, SlaConfig, AutoArchiveConfig } from '@/types/crm'
 import { DEFAULT_SLA_CONFIG } from '@/lib/sla'
 
 export const settingsService = {
@@ -82,6 +82,43 @@ export const settingsService = {
       this.setKey('sla_urgent_minutes', String(urgentVal), 'Minutos para SLA Crítico (Vermelho)'),
       this.setKey('sla_warning_minutes', String(warningVal), 'Minutos para SLA Alerta (Laranja)'),
       this.setKey('sla_notice_minutes', String(noticeVal), 'Minutos para SLA Atenção (Amarelo)'),
+    ])
+  },
+
+  async getAutoArchiveConfig(): Promise<AutoArchiveConfig> {
+    try {
+      const map = await this.getMap()
+      return {
+        enabled: map['auto_archive_enabled'] !== 'false',
+        wonHours: Number(map['auto_archive_won_hours']) || 24,
+        lostHours: Number(map['auto_archive_lost_hours']) || 24,
+      }
+    } catch {
+      return {
+        enabled: true,
+        wonHours: 24,
+        lostHours: 24,
+      }
+    }
+  },
+
+  async saveAutoArchiveConfig(config: AutoArchiveConfig): Promise<void> {
+    await Promise.all([
+      this.setKey(
+        'auto_archive_enabled',
+        config.enabled ? 'true' : 'false',
+        'Habilita arquivamento automático de atendimentos finalizados',
+      ),
+      this.setKey(
+        'auto_archive_won_hours',
+        String(config.wonHours || 24),
+        'Horas para arquivar vendas fechadas',
+      ),
+      this.setKey(
+        'auto_archive_lost_hours',
+        String(config.lostHours || 24),
+        'Horas para arquivar vendas perdidas',
+      ),
     ])
   },
 }

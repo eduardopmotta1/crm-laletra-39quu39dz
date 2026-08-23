@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Kanban,
   Users,
+  Archive,
   CheckSquare,
   Settings,
   LogOut,
@@ -68,11 +69,17 @@ export default function AppLayout() {
 
   const loadSlaAlerts = async () => {
     try {
-      const [cfg, clients] = await Promise.all([
+      const [cfg, autoArchiveCfg, clients] = await Promise.all([
         settingsService.getSlaConfig(),
+        settingsService.getAutoArchiveConfig(),
         clientsService.getAll(),
       ])
       setSlaConfig(cfg)
+
+      // Run automatic archiving check if enabled
+      if (autoArchiveCfg.enabled) {
+        await clientsService.runAutoArchiveCheck(autoArchiveCfg.wonHours, autoArchiveCfg.lostHours)
+      }
 
       let urgent = 0
       let warning = 0
@@ -152,6 +159,12 @@ export default function AppLayout() {
       to: '/clientes',
       label: 'Clientes & Atendimentos',
       icon: Users,
+      badge: null,
+    },
+    {
+      to: '/arquivados',
+      label: 'Atendimentos Arquivados',
+      icon: Archive,
       badge: null,
     },
     {

@@ -15,6 +15,7 @@ import ClientsListPage from '@/pages/ClientsListPage'
 import TasksPage from '@/pages/TasksPage'
 import SettingsPage from '@/pages/SettingsPage'
 import WhatsAppTemplatesPage from '@/pages/WhatsAppTemplatesPage'
+import ArchivedDealsPage from '@/pages/ArchivedDealsPage'
 import NotFound from '@/pages/NotFound'
 
 const App = () => (
@@ -40,6 +41,7 @@ const App = () => (
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/kanban" element={<KanbanPage />} />
             <Route path="/clientes" element={<ClientsListPage />} />
+            <Route path="/arquivados" element={<ArchivedDealsPage />} />
             <Route path="/templates" element={<WhatsAppTemplatesPage />} />
             <Route path="/tarefas" element={<TasksPage />} />
             <Route path="/configuracoes" element={<SettingsPage />} />

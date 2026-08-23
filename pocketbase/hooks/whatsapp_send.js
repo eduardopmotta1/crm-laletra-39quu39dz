@@ -10,6 +10,7 @@ routerAdd('POST', '/api/crm/whatsapp-send', (e) => {
   const changeStageTo = body.change_stage_to || '' // optional stage override e.g. "Contato iniciado"
   const isTemplateSend = Boolean(templateName)
   const userId = e.auth ? e.auth.id : null
+  const userName = e.auth ? e.auth.getString('name') || e.auth.getString('email') : 'Equipe Gráfica'
 
   if (!clientId || (!messageText && !templateName)) {
     return e.json(400, { error: 'client_id and (message_text or template_name) are required' })
@@ -36,7 +37,6 @@ routerAdd('POST', '/api/crm/whatsapp-send', (e) => {
   }
 
   // If not a template send and outside 24h window, optionally flag or restrict
-  // If force template is required:
   if (!isTemplateSend && !isWithin24hWindow && body.enforce_24h_window) {
     return e.json(403, {
       error:
@@ -150,25 +150,46 @@ routerAdd('POST', '/api/crm/whatsapp-send', (e) => {
   }
 
   const nowIso = new Date().toISOString()
+  const oldStage = clientRecord.getString('stage') || ''
 
   // Update client: update last message, and stage according to rules
   clientRecord.set('last_message_at', nowIso)
   clientRecord.set('last_message_direction', 'outbound')
   clientRecord.set('last_message_text', messageText)
 
+  let newStage = oldStage
   if (changeStageTo) {
+    newStage = changeStageTo
     clientRecord.set('stage', changeStageTo)
-  } else if (
-    isTemplateSend &&
-    (clientRecord.getString('stage') === 'Novo contato' || !clientRecord.getString('stage'))
-  ) {
+  } else if (isTemplateSend && (oldStage === 'Novo contato' || !oldStage)) {
     // Starting conversation changes stage to "Contato iniciado"
+    newStage = 'Contato iniciado'
     clientRecord.set('stage', 'Contato iniciado')
-  } else if (clientRecord.getString('stage') === 'Precisa responder') {
+  } else if (oldStage === 'Precisa responder') {
+    newStage = 'Em atendimento'
     clientRecord.set('stage', 'Em atendimento')
   }
 
   $app.save(clientRecord)
+
+  // Record stage transition if changed
+  if (newStage && newStage !== oldStage) {
+    try {
+      const transCol = $app.findCollectionByNameOrId('stage_transitions')
+      const transRec = new Record(transCol)
+      transRec.set('client_id', clientRecord.id)
+      transRec.set('from_stage', oldStage)
+      transRec.set('to_stage', newStage)
+      transRec.set('change_type', 'automatic')
+      if (userId) transRec.set('user_id', userId)
+      transRec.set('user_name', userName)
+      transRec.set(
+        'notes',
+        isTemplateSend ? 'Disparo de template WhatsApp' : 'Envio de mensagem WhatsApp',
+      )
+      $app.save(transRec)
+    } catch (_) {}
+  }
 
   // Record message in history
   try {
@@ -177,10 +198,7 @@ routerAdd('POST', '/api/crm/whatsapp-send', (e) => {
     msgRecord.set('client_id', clientId)
     msgRecord.set('direction', 'outbound')
     msgRecord.set('message_text', messageText)
-    msgRecord.set(
-      'sender_name',
-      e.auth ? e.auth.getString('name') || e.auth.getString('email') : 'Equipe Gráfica',
-    )
+    msgRecord.set('sender_name', userName)
     if (userId) {
       msgRecord.set('sent_by_user', userId)
     }
