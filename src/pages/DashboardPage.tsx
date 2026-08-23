@@ -31,9 +31,9 @@ export default function DashboardPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
-    urgentHours: 24,
-    warningHours: 12,
-    noticeHours: 6,
+    urgentMinutes: 1440,
+    warningMinutes: 720,
+    noticeMinutes: 360,
   })
   const [loading, setLoading] = useState(true)
 
@@ -177,7 +177,7 @@ export default function DashboardPage() {
               <h3 className="font-bold text-rose-900 dark:text-rose-200 text-sm">
                 Atenção: {urgentClients.length}{' '}
                 {urgentClients.length === 1 ? 'cliente estourou' : 'clientes estouraram'} o SLA de{' '}
-                {slaConfig.urgentHours}h!
+                {slaConfig.urgentMinutes ?? 1440}min!
               </h3>
               <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
                 Mensagens de WhatsApp sem resposta podem resultar em perda de orçamentos para
@@ -266,7 +266,7 @@ export default function DashboardPage() {
         <Card className="border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              SLA Atrasado (&gt;{slaConfig.urgentHours}h)
+              SLA Atrasado (&gt;{slaConfig.urgentMinutes ?? 1440}min)
             </CardTitle>
             <div className="h-8 w-8 rounded-lg bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center">
               <AlertTriangle className="h-4 w-4" />
@@ -391,7 +391,7 @@ export default function DashboardPage() {
 
                     <div className="flex flex-col items-end shrink-0 gap-1">
                       <Badge className={`text-[10px] px-1.5 py-0 ${sla.colorBadgeClass}`}>
-                        {sla.hoursElapsed}h
+                        {sla.minutesElapsed}min
                       </Badge>
                       <span className="text-[10px] text-emerald-600 font-semibold flex items-center">
                         Responder <ChevronRight className="h-3 w-3" />

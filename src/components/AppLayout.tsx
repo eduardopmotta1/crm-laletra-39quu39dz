@@ -48,9 +48,9 @@ export default function AppLayout() {
   const [urgentCount, setUrgentCount] = useState(0)
   const [warningCount, setWarningCount] = useState(0)
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
-    urgentHours: 24,
-    warningHours: 12,
-    noticeHours: 6,
+    urgentMinutes: 1440,
+    warningMinutes: 720,
+    noticeMinutes: 360,
   })
 
   // Quick Simulate Inbound WhatsApp Dialog
@@ -258,7 +258,7 @@ export default function AppLayout() {
                   {urgentCount === 1 ? 'cliente sem resposta' : 'clientes sem resposta'}!
                 </span>
                 <p className="text-rose-700 dark:text-rose-300 text-[11px] mt-0.5">
-                  SLA estourado ({slaConfig.urgentHours}h). Priorize respostas agora.
+                  SLA estourado ({slaConfig.urgentMinutes ?? 1440}min). Priorize respostas agora.
                 </p>
               </div>
             </div>

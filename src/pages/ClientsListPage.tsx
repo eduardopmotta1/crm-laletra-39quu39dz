@@ -37,9 +37,9 @@ import { toast } from '@/hooks/use-toast'
 export default function ClientsListPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
-    urgentHours: 24,
-    warningHours: 12,
-    noticeHours: 6,
+    urgentMinutes: 1440,
+    warningMinutes: 720,
+    noticeMinutes: 360,
   })
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')

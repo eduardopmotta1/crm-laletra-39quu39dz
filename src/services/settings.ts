@@ -42,10 +42,30 @@ export const settingsService = {
   async getSlaConfig(): Promise<SlaConfig> {
     try {
       const map = await this.getMap()
+      // Support new minute keys as priority, fallback to old hour keys * 60 if present
+      const urgentMinutes =
+        Number(map['sla_urgent_minutes']) ||
+        (map['sla_urgent_hours']
+          ? Number(map['sla_urgent_hours']) * 60
+          : DEFAULT_SLA_CONFIG.urgentMinutes)
+      const warningMinutes =
+        Number(map['sla_warning_minutes']) ||
+        (map['sla_warning_hours']
+          ? Number(map['sla_warning_hours']) * 60
+          : DEFAULT_SLA_CONFIG.warningMinutes)
+      const noticeMinutes =
+        Number(map['sla_notice_minutes']) ||
+        (map['sla_notice_hours']
+          ? Number(map['sla_notice_hours']) * 60
+          : DEFAULT_SLA_CONFIG.noticeMinutes)
+
       return {
-        urgentHours: Number(map['sla_urgent_hours']) || DEFAULT_SLA_CONFIG.urgentHours,
-        warningHours: Number(map['sla_warning_hours']) || DEFAULT_SLA_CONFIG.warningHours,
-        noticeHours: Number(map['sla_notice_hours']) || DEFAULT_SLA_CONFIG.noticeHours,
+        urgentMinutes,
+        warningMinutes,
+        noticeMinutes,
+        urgentHours: Math.round(urgentMinutes / 60),
+        warningHours: Math.round(warningMinutes / 60),
+        noticeHours: Math.round(noticeMinutes / 60),
       }
     } catch {
       return DEFAULT_SLA_CONFIG
@@ -53,22 +73,15 @@ export const settingsService = {
   },
 
   async saveSlaConfig(config: SlaConfig): Promise<void> {
+    const urgentVal = config.urgentMinutes ?? (config.urgentHours ? config.urgentHours * 60 : 1440)
+    const warningVal =
+      config.warningMinutes ?? (config.warningHours ? config.warningHours * 60 : 720)
+    const noticeVal = config.noticeMinutes ?? (config.noticeHours ? config.noticeHours * 60 : 360)
+
     await Promise.all([
-      this.setKey(
-        'sla_urgent_hours',
-        String(config.urgentHours),
-        'Horas para SLA Crítico (Vermelho)',
-      ),
-      this.setKey(
-        'sla_warning_hours',
-        String(config.warningHours),
-        'Horas para SLA Alerta (Laranja)',
-      ),
-      this.setKey(
-        'sla_notice_hours',
-        String(config.noticeHours),
-        'Horas para SLA Atenção (Amarelo)',
-      ),
+      this.setKey('sla_urgent_minutes', String(urgentVal), 'Minutos para SLA Crítico (Vermelho)'),
+      this.setKey('sla_warning_minutes', String(warningVal), 'Minutos para SLA Alerta (Laranja)'),
+      this.setKey('sla_notice_minutes', String(noticeVal), 'Minutos para SLA Atenção (Amarelo)'),
     ])
   },
 }

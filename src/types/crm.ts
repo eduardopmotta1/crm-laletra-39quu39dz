@@ -91,16 +91,21 @@ export interface SystemSetting {
 }
 
 export interface SlaConfig {
-  urgentHours: number // default 24
-  warningHours: number // default 12
-  noticeHours: number // default 6
+  urgentMinutes: number // default 1440 (24h)
+  warningMinutes: number // default 720 (12h)
+  noticeMinutes: number // default 360 (6h)
+  /** Backward-compatibility aliases if needed */
+  urgentHours?: number
+  warningHours?: number
+  noticeHours?: number
 }
 
 export type SlaStatus = 'normal' | 'notice' | 'warning' | 'urgent'
 
 export interface SlaInfo {
   status: SlaStatus
-  hoursElapsed: number
+  minutesElapsed: number
+  hoursElapsed?: number
   label: string
   colorBadgeClass: string
   colorBorderClass: string

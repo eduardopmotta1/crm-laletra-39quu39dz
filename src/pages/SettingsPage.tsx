@@ -41,9 +41,9 @@ export default function SettingsPage() {
   const [wabaId, setWabaId] = useState('')
   const [accessToken, setAccessToken] = useState('')
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
-    urgentHours: 24,
-    warningHours: 12,
-    noticeHours: 6,
+    urgentMinutes: 1440,
+    warningMinutes: 720,
+    noticeMinutes: 360,
   })
 
   const webhookUrl = `${window.location.origin}/api/crm/whatsapp-webhook`
@@ -307,15 +307,16 @@ export default function SettingsPage() {
                     <Input
                       type="number"
                       min="1"
-                      value={slaConfig.urgentHours}
+                      value={slaConfig.urgentMinutes ?? 1440}
                       onChange={(e) =>
-                        setSlaConfig({ ...slaConfig, urgentHours: Number(e.target.value) })
+                        setSlaConfig({ ...slaConfig, urgentMinutes: Number(e.target.value) })
                       }
-                      className="w-24 bg-white text-xs font-bold"
+                      placeholder="1440"
+                      className="w-28 bg-white text-xs font-bold"
                       required
                     />
                     <span className="text-xs font-semibold text-rose-900 dark:text-rose-200">
-                      horas
+                      minutos
                     </span>
                   </div>
                 </div>
@@ -330,23 +331,23 @@ export default function SettingsPage() {
                       </h4>
                     </div>
                     <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Sinaliza que o cliente está aguardando retorno há mais da metade do tempo
-                      limite.
+                      Sinaliza que o cliente está aguardando retorno e o tempo limite está próximo.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Input
                       type="number"
                       min="1"
-                      value={slaConfig.warningHours}
+                      value={slaConfig.warningMinutes ?? 720}
                       onChange={(e) =>
-                        setSlaConfig({ ...slaConfig, warningHours: Number(e.target.value) })
+                        setSlaConfig({ ...slaConfig, warningMinutes: Number(e.target.value) })
                       }
-                      className="w-24 bg-white text-xs font-bold"
+                      placeholder="720"
+                      className="w-28 bg-white text-xs font-bold"
                       required
                     />
                     <span className="text-xs font-semibold text-amber-900 dark:text-amber-200">
-                      horas
+                      minutos
                     </span>
                   </div>
                 </div>
@@ -368,15 +369,16 @@ export default function SettingsPage() {
                     <Input
                       type="number"
                       min="1"
-                      value={slaConfig.noticeHours}
+                      value={slaConfig.noticeMinutes ?? 360}
                       onChange={(e) =>
-                        setSlaConfig({ ...slaConfig, noticeHours: Number(e.target.value) })
+                        setSlaConfig({ ...slaConfig, noticeMinutes: Number(e.target.value) })
                       }
-                      className="w-24 bg-white text-xs font-bold"
+                      placeholder="360"
+                      className="w-28 bg-white text-xs font-bold"
                       required
                     />
                     <span className="text-xs font-semibold text-yellow-900 dark:text-yellow-200">
-                      horas
+                      minutos
                     </span>
                   </div>
                 </div>

@@ -13,7 +13,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { Client, SlaConfig } from '@/types/crm'
-import { calculateSlaInfo, formatCurrency, formatHours, getWhatsAppDirectUrl } from '@/lib/sla'
+import { calculateSlaInfo, formatCurrency, formatMinutes, getWhatsAppDirectUrl } from '@/lib/sla'
 
 interface KanbanCardProps {
   client: Client
@@ -93,7 +93,7 @@ export default function KanbanCard({
           >
             <Clock className="h-3 w-3" />
             {client.last_message_direction === 'inbound'
-              ? `${sla.hoursElapsed}h aguardando`
+              ? `${sla.minutesElapsed}min aguardando`
               : 'Respondido'}
           </span>
         )}
