@@ -22,6 +22,7 @@ import {
   Star,
   ChevronDown,
   ChevronUp,
+  Package,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
@@ -158,10 +159,17 @@ export default function AppLayout() {
     },
     {
       to: '/kanban',
-      label: 'Funil Kanban',
+      label: 'Funil Comercial',
       icon: Kanban,
       badge: urgentCount > 0 ? `${urgentCount} SLA` : null,
       badgeVariant: 'destructive',
+    },
+    {
+      to: '/producao',
+      label: 'Produção',
+      icon: Package,
+      badge: null,
+      badgeVariant: 'secondary',
     },
     {
       to: '/clientes',

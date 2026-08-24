@@ -1,6 +1,5 @@
 export type KanbanStage =
   | 'Novo contato'
-  | 'Contato iniciado'
   | 'Precisa responder'
   | 'Em atendimento'
   | 'Orçamento enviado'
@@ -11,7 +10,6 @@ export type KanbanStage =
 
 export const DEFAULT_KANBAN_STAGES = [
   'Novo contato',
-  'Contato iniciado',
   'Precisa responder',
   'Em atendimento',
   'Orçamento enviado',
@@ -270,6 +268,132 @@ export interface SlaInfo {
   colorBorderClass: string
   colorBgClass: string
   colorTextClass: string
+}
+
+// ----------------------------------------------------
+// Production Module Types
+// ----------------------------------------------------
+
+export type ProductionStageInternalId =
+  | 'order_received'
+  | 'awaiting_info'
+  | 'art_preparation'
+  | 'awaiting_approval'
+  | 'approved'
+  | 'in_production'
+  | 'ready'
+  | 'shipped'
+  | 'completed'
+  | string
+
+export interface ProductionStage {
+  id: string
+  internal_id: ProductionStageInternalId
+  name: string
+  description?: string
+  color?: string
+  order_index: number
+  is_visible: boolean
+  auto_notify_whatsapp?: boolean
+  whatsapp_message_template?: string
+  created?: string
+  updated?: string
+}
+
+export type ProductionDeliveryType = 'retirada' | 'envio' | 'entrega_propria'
+
+export interface ProductionOrder {
+  id: string
+  order_number: string // e.g. #001842
+  tracking_token: string
+  client_id: string
+  client_name: string
+  client_phone: string
+  client_email?: string
+  deal_origin_id?: string
+  sale_date?: string
+  product: string
+  description?: string
+  quantity?: number
+  dimensions?: string
+  total_value?: number
+  sales_rep_id?: string
+  production_rep_id?: string
+  promised_deadline?: string
+  estimated_delivery_date?: string
+  completed_at?: string
+  delivery_type?: ProductionDeliveryType
+  tracking_code?: string
+  notes?: string
+  attachments?: string[]
+  art_approved?: boolean
+  art_approved_at?: string
+  stage_id?: string
+  stage_internal_id: ProductionStageInternalId
+  stage_name: string
+  priority?: Priority
+  is_completed?: boolean
+  is_archived?: boolean
+  expand?: {
+    client_id?: Client
+    deal_origin_id?: ArchivedDeal
+    sales_rep_id?: User
+    production_rep_id?: User
+    stage_id?: ProductionStage
+  }
+  created: string
+  updated: string
+}
+
+export interface ProductionLog {
+  id: string
+  order_id: string
+  from_stage_id?: string
+  from_stage_name?: string
+  to_stage_id: string
+  to_stage_name: string
+  user_id?: string
+  user_name?: string
+  change_type: 'manual' | 'automatic'
+  notes?: string
+  whatsapp_sent?: boolean
+  whatsapp_status?: 'nao_enviado' | 'enviado' | 'entregue' | 'falhou'
+  whatsapp_message?: string
+  expand?: {
+    order_id?: ProductionOrder
+    user_id?: User
+  }
+  created: string
+  updated: string
+}
+
+export interface ProductionProof {
+  id: string
+  order_id: string
+  version_number?: number
+  proof_url?: string
+  proof_file?: string[]
+  sent_at?: string
+  sent_by?: string
+  status: 'aguardando_aprovacao' | 'aprovado' | 'alteracao_solicitada'
+  feedback_notes?: string
+  client_comment?: string
+  approved_at?: string
+  approved_by_contact?: string
+  expand?: {
+    order_id?: ProductionOrder
+    sent_by?: User
+  }
+  created: string
+  updated: string
+}
+
+export interface ProductionDeadlineStatus {
+  status: 'normal' | 'due_today' | 'due_tomorrow' | 'overdue' | 'completed' | 'no_date'
+  daysRemaining?: number
+  label: string
+  badgeClass: string
+  cardBorderClass: string
 }
 
 /**

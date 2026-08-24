@@ -18,9 +18,10 @@ import WhatsAppTemplatesPage from '@/pages/WhatsAppTemplatesPage'
 import ArchivedDealsPage from '@/pages/ArchivedDealsPage'
 import PostSalesDashboardPage from '@/pages/PostSalesDashboardPage'
 import CustomerRecoveryPage from '@/pages/CustomerRecoveryPage'
+import ProductionKanbanPage from '@/pages/ProductionKanbanPage'
+import PublicTrackingPage from '@/pages/PublicTrackingPage'
 import PublicEvaluationPage from '@/pages/PublicEvaluationPage'
 import NotFound from '@/pages/NotFound'
-
 const App = () => (
   <BrowserRouter>
     <AuthProvider>
@@ -35,6 +36,9 @@ const App = () => (
           {/* Public Customer Evaluation Route (No Auth Required) */}
           <Route path="/avaliacao/:token" element={<PublicEvaluationPage />} />
 
+          {/* Public Production Order Tracking Route (No Auth Required) */}
+          <Route path="/acompanhar/:token" element={<PublicTrackingPage />} />
+
           {/* Protected CRM App Routes */}
           <Route
             element={
@@ -43,10 +47,11 @@ const App = () => (
               </ProtectedRoute>
             }
           >
-            <Route path="/" element={<Navigate to="/kanban" replace />} />
+            <Route path="/" element={<DashboardPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/kanban" element={<KanbanPage />} />
-            <Route path="/clientes" element={<ClientsListPage />} />
+            <Route path="/producao" element={<ProductionKanbanPage />} />
+            <Route path="/clientes" element={<ClientsListPage />} />{' '}
             <Route path="/arquivados" element={<ArchivedDealsPage />} />
             <Route path="/pos-venda" element={<PostSalesDashboardPage />} />
             <Route path="/recuperacao" element={<CustomerRecoveryPage />} />

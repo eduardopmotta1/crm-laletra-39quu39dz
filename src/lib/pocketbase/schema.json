@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-23T23:49:00.325Z",
+  "generatedAt": "2026-08-24T00:22:54.604Z",
   "collections": [
     {
       "name": "users",
@@ -1004,6 +1004,511 @@
         "CREATE INDEX idx_postsales_status ON post_sales (status)",
         "CREATE INDEX idx_postsales_scheduled ON post_sales (scheduled_date)"
       ]
+    },
+    {
+      "name": "production_stages",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "internal_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "color",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "order_index",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_visible",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "auto_notify_whatsapp",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "whatsapp_message_template",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_prod_stages_internal ON production_stages (internal_id)",
+        "CREATE INDEX idx_prod_stages_order ON production_stages (order_index)"
+      ]
+    },
+    {
+      "name": "production_orders",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "order_number",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "tracking_token",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "client_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "clients"
+        },
+        {
+          "name": "client_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "client_phone",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "client_email",
+          "type": "email",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "deal_origin_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "archived_deals"
+        },
+        {
+          "name": "sale_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "product",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dimensions",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_value",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sales_rep_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "production_rep_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "promised_deadline",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "estimated_delivery_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "completed_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "delivery_type",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["retirada", "envio", "entrega_propria"]
+        },
+        {
+          "name": "tracking_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "attachments",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "art_approved",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "art_approved_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "stage_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "production_stages"
+        },
+        {
+          "name": "stage_internal_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "stage_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "priority",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["baixa", "media", "alta", "urgente"]
+        },
+        {
+          "name": "is_completed",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_archived",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_prod_order_num ON production_orders (order_number)",
+        "CREATE UNIQUE INDEX idx_prod_order_token ON production_orders (tracking_token)",
+        "CREATE INDEX idx_prod_order_client ON production_orders (client_id)",
+        "CREATE INDEX idx_prod_order_stage ON production_orders (stage_internal_id)",
+        "CREATE INDEX idx_prod_order_completed ON production_orders (is_completed)",
+        "CREATE INDEX idx_prod_order_deadline ON production_orders (promised_deadline)"
+      ]
+    },
+    {
+      "name": "production_logs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "order_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "production_orders"
+        },
+        {
+          "name": "from_stage_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "from_stage_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "to_stage_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "to_stage_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "user_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "change_type",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["manual", "automatic"]
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "whatsapp_sent",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "whatsapp_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["nao_enviado", "enviado", "entregue", "falhou"]
+        },
+        {
+          "name": "whatsapp_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_prod_logs_order ON production_logs (order_id)",
+        "CREATE INDEX idx_prod_logs_created ON production_logs (created)"
+      ]
+    },
+    {
+      "name": "production_proofs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "order_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "production_orders"
+        },
+        {
+          "name": "version_number",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "proof_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "proof_file",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sent_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["aguardando_aprovacao", "aprovado", "alteracao_solicitada"]
+        },
+        {
+          "name": "feedback_notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_comment",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "approved_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "approved_by_contact",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_prod_proofs_order ON production_proofs (order_id)"]
     }
   ]
 }

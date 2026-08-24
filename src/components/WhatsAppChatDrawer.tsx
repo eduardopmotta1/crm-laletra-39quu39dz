@@ -28,6 +28,7 @@ import {
   DollarSign as DollarSignIcon,
   ShoppingCart,
   ShieldCheck as ShieldCheckIcon,
+  Package,
 } from 'lucide-react'
 import type {
   Client,
@@ -38,6 +39,7 @@ import type {
   StageTransition,
   Evaluation,
   PostSale,
+  ProductionOrder,
 } from '@/types/crm'
 import { isWithin24HourWindow } from '@/types/crm'
 import { whatsappService } from '@/services/whatsapp'
@@ -46,6 +48,8 @@ import { clientsService } from '@/services/clients'
 import { dealsService } from '@/services/deals'
 import { evaluationsService } from '@/services/evaluations'
 import { postSalesService } from '@/services/postSales'
+import { productionService } from '@/services/production'
+import ProductionOrderModal from './ProductionOrderModal'
 import { calculateSlaInfo, formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
@@ -77,10 +81,15 @@ export default function WhatsAppChatDrawer({
   const [stageTransitions, setStageTransitions] = useState<StageTransition[]>([])
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
   const [postSales, setPostSales] = useState<PostSale[]>([])
+  const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>([])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [inputMessage, setInputMessage] = useState('')
   const [currentClient, setCurrentClient] = useState<Client | null>(client)
+
+  // Production Order modal from drawer
+  const [orderModalOpen, setOrderModalOpen] = useState(false)
+  const [selectedOrderToEdit, setSelectedOrderToEdit] = useState<ProductionOrder | null>(null)
 
   // New task inline
   const [newTaskTitle, setNewTaskTitle] = useState('')
@@ -92,7 +101,7 @@ export default function WhatsAppChatDrawer({
   const [archiveModalOpen, setArchiveModalOpen] = useState(false)
 
   // Right sidebar tab
-  const [rightTab, setRightTab] = useState<'info' | 'relationship' | 'history'>('info')
+  const [rightTab, setRightTab] = useState<'info' | 'relationship' | 'orders' | 'history'>('info')
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -112,7 +121,7 @@ export default function WhatsAppChatDrawer({
   const loadClientData = async (clientId: string) => {
     setLoading(true)
     try {
-      const [msgList, taskList, freshClient, pastDeals, transitions, evals, psList] =
+      const [msgList, taskList, freshClient, pastDeals, transitions, evals, psList, ordersList] =
         await Promise.all([
           whatsappService.getMessages(clientId),
           tasksService.getByClientId(clientId),
@@ -121,11 +130,13 @@ export default function WhatsAppChatDrawer({
           dealsService.getStageTransitions(clientId),
           evaluationsService.getByClientId(clientId),
           postSalesService.getByClientId(clientId),
+          productionService.getByClientId(clientId),
         ])
       setMessages(msgList)
       setTasks(taskList)
       if (freshClient) setCurrentClient(freshClient)
       setArchivedDeals(pastDeals)
+      setProductionOrders(ordersList)
       setStageTransitions(transitions)
       setEvaluations(evals)
       setPostSales(psList)
@@ -517,7 +528,7 @@ export default function WhatsAppChatDrawer({
                 <button
                   type="button"
                   onClick={() => setRightTab('relationship')}
-                  className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                  className={`flex-1 py-1.5 px-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
                     rightTab === 'relationship'
                       ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
@@ -529,8 +540,21 @@ export default function WhatsAppChatDrawer({
 
                 <button
                   type="button"
+                  onClick={() => setRightTab('orders')}
+                  className={`flex-1 py-1.5 px-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                    rightTab === 'orders'
+                      ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <Package className="h-3.5 w-3.5 text-emerald-600" />
+                  Pedidos ({productionOrders.length})
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setRightTab('history')}
-                  className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                  className={`flex-1 py-1.5 px-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 ${
                     rightTab === 'history'
                       ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
@@ -961,6 +985,95 @@ export default function WhatsAppChatDrawer({
                 </div>
               )}
 
+              {/* TAB CONTENT: PEDIDOS DE PRODUÇÃO */}
+              {rightTab === 'orders' && (
+                <div className="p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                      <Package className="h-4 w-4 text-emerald-600" />
+                      Pedidos de Produção Vinculados ({productionOrders.length})
+                    </h4>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setSelectedOrderToEdit(null)
+                        setOrderModalOpen(true)
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 px-2"
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      Novo Pedido
+                    </Button>
+                  </div>
+
+                  {productionOrders.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                      Nenhum pedido de produção gerado para este cliente ainda.
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {productionOrders.map((ord) => (
+                        <div
+                          key={ord.id}
+                          onClick={() => {
+                            setSelectedOrderToEdit(ord)
+                            setOrderModalOpen(true)
+                          }}
+                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-xs space-y-2 cursor-pointer transition-all shadow-sm"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-extrabold font-mono text-slate-900 dark:text-white bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border text-[11px]">
+                                {ord.order_number}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] bg-emerald-50 text-emerald-800 border-emerald-200"
+                              >
+                                {ord.stage_name}
+                              </Badge>
+                            </div>
+                            <span className="font-bold text-emerald-600">
+                              {ord.total_value ? formatCurrency(ord.total_value) : 'R$ 0,00'}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className="font-semibold text-slate-900 dark:text-white block">
+                              {ord.product}
+                            </span>
+                            {ord.description && (
+                              <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                                {ord.description}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700">
+                            <span>
+                              Prazo:{' '}
+                              {ord.promised_deadline
+                                ? new Date(ord.promised_deadline).toLocaleDateString('pt-BR')
+                                : 'Sem prazo'}
+                            </span>
+                            <a
+                              href={`${window.location.origin}/acompanhar/${ord.tracking_token}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Rastreio Público
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* TAB CONTENT: HISTÓRICO DE ATENDIMENTOS E MUDANÇAS DE ETAPA */}
               {rightTab === 'history' && (
                 <div className="p-4 space-y-6">
@@ -1110,6 +1223,30 @@ export default function WhatsAppChatDrawer({
         onSuccess={() => {
           if (onClientUpdated) onClientUpdated()
           loadClientData(displayClient.id)
+        }}
+      />
+
+      {/* Production Order Create/Edit from Drawer */}
+      <ProductionOrderModal
+        isOpen={orderModalOpen}
+        onClose={() => {
+          setOrderModalOpen(false)
+          setSelectedOrderToEdit(null)
+        }}
+        onSaved={() => {
+          loadClientData(displayClient.id)
+          if (onClientUpdated) onClientUpdated()
+        }}
+        orderToEdit={selectedOrderToEdit}
+        initialClientId={displayClient.id}
+        prefillData={{
+          clientId: displayClient.id,
+          clientName: displayClient.name,
+          clientPhone: displayClient.phone,
+          clientEmail: displayClient.email,
+          product: displayClient.product_interest || '',
+          quoteValue: displayClient.quote_value,
+          notes: displayClient.notes,
         }}
       />
     </>
