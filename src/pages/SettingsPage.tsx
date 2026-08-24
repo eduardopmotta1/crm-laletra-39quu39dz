@@ -51,7 +51,7 @@ export default function SettingsPage() {
   const [phoneNumberId, setPhoneNumberId] = useState('')
   const [wabaId, setWabaId] = useState('')
   const [accessToken, setAccessToken] = useState('')
-  const [verifyToken, setVerifyToken] = useState('laletra_crm_secret_token_2025')
+  const [verifyToken, setVerifyToken] = useState('laletra_crm_webhook_2024')
 
   // SLA Settings (in hours)
   const [slaNoticeHours, setSlaNoticeHours] = useState(6)
@@ -84,7 +84,11 @@ export default function SettingsPage() {
   const [copiedWebhook, setCopiedWebhook] = useState(false)
 
   const { isAdmin, hasPermission } = useAuth()
-  const webhookUrl = `${window.location.origin}/api/crm/whatsapp-webhook`
+  const productionWebhookUrl =
+    'https://crm-grafica-whatsapp-7b1a5.goskip.app/api/crm/whatsapp-webhook'
+  const currentOriginWebhookUrl = `${window.location.origin}/api/crm/whatsapp-webhook`
+  const [useProductionUrl, setUseProductionUrl] = useState(true)
+  const webhookUrl = useProductionUrl ? productionWebhookUrl : currentOriginWebhookUrl
 
   const canManageUsers = isAdmin || hasPermission('settings_manage_users')
   const canManagePerms = isAdmin || hasPermission('settings_manage_permissions')
@@ -113,8 +117,11 @@ export default function SettingsPage() {
       if (map['whatsapp_phone_number_id']) setPhoneNumberId(map['whatsapp_phone_number_id'])
       if (map['whatsapp_business_account_id']) setWabaId(map['whatsapp_business_account_id'])
       if (map['whatsapp_access_token']) setAccessToken(map['whatsapp_access_token'])
-      if (map['whatsapp_verify_token']) setVerifyToken(map['whatsapp_verify_token'])
-
+      if (map['whatsapp_verify_token']) {
+        setVerifyToken(map['whatsapp_verify_token'])
+      } else {
+        setVerifyToken('laletra_crm_webhook_2024')
+      }
       setSlaNoticeHours(
         sla.noticeHours || (sla.noticeMinutes ? Math.round(sla.noticeMinutes / 60) : 6),
       )
@@ -763,15 +770,42 @@ export default function SettingsPage() {
                   Configuração de Webhook (Recebimento de Mensagens)
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Cadastre esta URL e Token no painel do Meta for Developers para receber mensagens
-                  em tempo real.
+                  Cadastre a <strong>URL de Retorno</strong> e o{' '}
+                  <strong>Token de Verificação</strong> no painel do{' '}
+                  <em>Meta for Developers (WhatsApp &gt; Configuração &gt; Webhook)</em> para
+                  validar e receber mensagens em tempo real.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>URL Permanente de Produção:</strong> A Meta exige uma URL pública
+                    estável. Utilize o endereço de produção abaixo para evitar falhas de validação.
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label className="text-xs">URL de Retorno (Callback URL)</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold">
+                      URL de Retorno (Callback URL) para a Meta
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => setUseProductionUrl(!useProductionUrl)}
+                      className="text-[11px] text-slate-500 hover:text-slate-800 underline"
+                    >
+                      {useProductionUrl
+                        ? 'Alternar para URL do navegador atual'
+                        : 'Alternar para URL de Produção'}
+                    </button>
+                  </div>
                   <div className="flex gap-2">
-                    <Input value={webhookUrl} readOnly className="font-mono text-xs bg-slate-50" />
+                    <Input
+                      value={webhookUrl}
+                      readOnly
+                      className="font-mono text-xs bg-slate-50 dark:bg-slate-900 font-semibold text-slate-800 dark:text-slate-200"
+                    />
                     <Button
                       type="button"
                       variant="outline"
@@ -779,25 +813,48 @@ export default function SettingsPage() {
                       onClick={() => copyToClipboard(webhookUrl)}
                       className="shrink-0"
                     >
-                      {copiedWebhook ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {copiedWebhook ? (
+                        <Check className="h-4 w-4 text-emerald-600" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
                     </Button>
                   </div>
+                  <p className="text-[11px] text-slate-400">
+                    Copie exatamente esta URL e cole no campo <strong>URL de retorno</strong> no
+                    painel de Webhooks da Meta.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="verifyToken" className="text-xs">
-                    Token de Verificação (Verify Token)
+                  <Label htmlFor="verifyToken" className="text-xs font-semibold">
+                    Token de Verificação (Verify Token) *
                   </Label>
-                  <Input
-                    id="verifyToken"
-                    value={verifyToken}
-                    onChange={(e) => setVerifyToken(e.target.value)}
-                    className="font-mono text-xs"
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="verifyToken"
+                      value={verifyToken}
+                      onChange={(e) => setVerifyToken(e.target.value)}
+                      placeholder="Ex: laletra_crm_webhook_2024"
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(verifyToken)}
+                      className="shrink-0"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Insira o mesmo valor no campo <strong>Token de verificação</strong> na Meta.
+                    Padrão recomendado: <code>laletra_crm_webhook_2024</code>.
+                  </p>
                 </div>
               </CardContent>
             </Card>
-
             <div className="flex justify-end">
               <Button
                 type="submit"

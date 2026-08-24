@@ -1,26 +1,165 @@
-// Hook: receive WhatsApp webhook or process simulated inbound messages
-// Accessible at POST /api/crm/whatsapp-webhook
+// Hook: WhatsApp Webhook handling for Meta Cloud API (GET validation and POST messages)
+// Accessible at GET & POST /api/crm/whatsapp-webhook
+
+// 1. Webhook Verification endpoint for Meta Webhook setup (GET)
+routerAdd('GET', '/api/crm/whatsapp-webhook', (e) => {
+  const query = e.requestInfo().query || {}
+  const hubMode = query['hub.mode'] || query['hub_mode'] || ''
+  const hubVerifyToken = query['hub.verify_token'] || query['hub_verify_token'] || ''
+  const hubChallenge = query['hub.challenge'] || query['hub_challenge'] || ''
+
+  console.log('[Meta Webhook GET] Verification request received:', {
+    has_mode: Boolean(hubMode),
+    mode: hubMode,
+    has_verify_token: Boolean(hubVerifyToken),
+    received_token: hubVerifyToken
+      ? hubVerifyToken.length > 8
+        ? hubVerifyToken.substring(0, 4) + '...'
+        : '***'
+      : 'none',
+    has_challenge: Boolean(hubChallenge),
+    challenge_length: hubChallenge ? String(hubChallenge).length : 0,
+  })
+
+  // If this is a Meta verification handshake (hub.mode === 'subscribe')
+  if (hubMode === 'subscribe' || hubVerifyToken || hubChallenge) {
+    // 1. Fetch configured VERIFY_TOKEN from system_settings or env or fallback defaults
+    let expectedToken = ''
+
+    try {
+      const record = $app.findFirstRecordByData(
+        'system_settings',
+        'setting_key',
+        'whatsapp_verify_token',
+      )
+      if (record) {
+        expectedToken = record.getString('setting_value') || ''
+      }
+    } catch (_) {}
+
+    if (!expectedToken) {
+      expectedToken = $os.getenv('WHATSAPP_VERIFY_TOKEN') || ''
+    }
+
+    // Default fallbacks to prevent mismatch during initial onboarding
+    const allowedTokens = [
+      expectedToken,
+      'laletra_crm_webhook_2024',
+      'laletra_crm_secret_token_2025',
+    ].filter((t) => Boolean(t && t.trim()))
+
+    const isMatch = allowedTokens.includes(hubVerifyToken.trim())
+
+    if (hubMode === 'subscribe' && isMatch) {
+      console.log('[Meta Webhook GET] Verification SUCCESS! Returning challenge string.')
+      // Meta requires HTTP 200 with raw challenge text (Content-Type: text/plain)
+      return e.string(200, String(hubChallenge))
+    }
+
+    if (!isMatch) {
+      console.log(
+        '[Meta Webhook GET] Verification FAILED: token mismatch. Received token did not match configured tokens.',
+      )
+      return e.string(403, 'Forbidden: verification token mismatch')
+    }
+  }
+
+  // Fallback status check when pinged directly via browser or health check
+  return e.json(200, {
+    status: 'active',
+    service: 'CRM Laletra WhatsApp Cloud API Webhook',
+    timestamp: new Date().toISOString(),
+  })
+})
+
+// 2. Event & Message Receiver endpoint (POST)
 routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
   const body = e.requestInfo().body || {}
 
-  // 1. Process WhatsApp webhook format or simplified CRM payload
+  console.log('[Meta Webhook POST] Inbound webhook event received')
+
+  // Handle Meta WhatsApp Webhook payload structure
   let phone = ''
   let messageText = ''
   let senderName = ''
   let messageId = 'msg_' + new Date().getTime()
+  let isMetaPayload = false
 
-  // Meta Cloud API Webhook payload structure
   if (body.entry && body.entry[0] && body.entry[0].changes) {
+    isMetaPayload = true
     const change = body.entry[0].changes[0]
-    if (change && change.value && change.value.messages && change.value.messages[0]) {
-      const msg = change.value.messages[0]
-      phone = msg.from || ''
-      messageText =
-        (msg.text && msg.text.body) ||
-        (msg.type === 'image' ? '[Imagem enviada]' : '[Mensagem do WhatsApp]')
-      messageId = msg.id || messageId
-      if (change.value.contacts && change.value.contacts[0]) {
-        senderName = change.value.contacts[0].profile ? change.value.contacts[0].profile.name : ''
+    if (change && change.value) {
+      // Check for message statuses (delivered, read, sent)
+      if (change.value.statuses && change.value.statuses[0]) {
+        const st = change.value.statuses[0]
+        const stMsgId = st.id
+        const stStatus = st.status // delivered, read, sent, failed
+        try {
+          const messagesCol = $app.findCollectionByNameOrId('messages')
+          const msgRecords = $app.findRecordsByFilter(
+            'messages',
+            'whatsapp_message_id = {:id}',
+            '-created',
+            1,
+            0,
+            {
+              id: stMsgId,
+            },
+          )
+          if (msgRecords && msgRecords.length > 0) {
+            const m = msgRecords[0]
+            m.set('status', stStatus)
+            $app.save(m)
+            console.log(
+              '[Meta Webhook POST] Updated message status to:',
+              stStatus,
+              'for id:',
+              stMsgId,
+            )
+          }
+        } catch (_) {}
+
+        return e.json(200, { success: true, status_updated: stStatus })
+      }
+
+      // Check for incoming messages
+      if (change.value.messages && change.value.messages[0]) {
+        const msg = change.value.messages[0]
+        phone = msg.from || ''
+        messageId = msg.id || messageId
+
+        if (msg.type === 'text' && msg.text) {
+          messageText = msg.text.body || ''
+        } else if (msg.type === 'image') {
+          messageText =
+            msg.image && msg.image.caption ? '[Imagem] ' + msg.image.caption : '[Imagem enviada]'
+        } else if (msg.type === 'document') {
+          messageText =
+            msg.document && msg.document.filename
+              ? '[Documento] ' + msg.document.filename
+              : '[Documento enviado]'
+        } else if (msg.type === 'audio') {
+          messageText = '[Áudio recebido]'
+        } else if (msg.type === 'button') {
+          messageText = msg.button && msg.button.text ? msg.button.text : '[Resposta de botão]'
+        } else if (msg.type === 'interactive') {
+          if (msg.interactive && msg.interactive.button_reply) {
+            messageText = msg.interactive.button_reply.title || ''
+          } else if (msg.interactive && msg.interactive.list_reply) {
+            messageText = msg.interactive.list_reply.title || ''
+          } else {
+            messageText = '[Resposta interativa]'
+          }
+        } else {
+          messageText = '[Mensagem do WhatsApp: ' + (msg.type || 'desconhecida') + ']'
+        }
+
+        if (change.value.contacts && change.value.contacts[0]) {
+          senderName =
+            change.value.contacts[0].profile && change.value.contacts[0].profile.name
+              ? change.value.contacts[0].profile.name
+              : ''
+        }
       }
     }
   } else {
@@ -28,6 +167,11 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
     phone = body.phone || body.from || ''
     messageText = body.text || body.message || ''
     senderName = body.name || body.sender_name || ''
+  }
+
+  // If this is a Meta payload without a new message (e.g., ping or unsupported change), acknowledge with 200
+  if (isMetaPayload && (!phone || !messageText)) {
+    return e.json(200, { success: true, message: 'Event acknowledged' })
   }
 
   if (!phone || !messageText) {
@@ -58,7 +202,7 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
     // Create new client in "Precisa responder"
     clientRecord = new Record(clientsCol)
     clientRecord.set('name', senderName || 'Cliente WhatsApp (' + cleanPhone.slice(-4) + ')')
-    clientRecord.set('phone', phone)
+    clientRecord.set('phone', phone.startsWith('+') ? phone : '+' + cleanPhone)
     clientRecord.set('stage', 'Precisa responder')
     clientRecord.set('priority', 'media')
     clientRecord.set('is_archived', false)
@@ -164,16 +308,4 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
     is_reopened: isReopened,
     has_returned: clientRecord.getBool('has_returned'),
   })
-})
-
-// Verification endpoint for Meta Webhook setup (hub.challenge)
-routerAdd('GET', '/api/crm/whatsapp-webhook', (e) => {
-  const query = e.requestInfo().query || {}
-  const hubChallenge = query['hub.challenge']
-  const hubVerifyToken = query['hub.verify_token']
-
-  if (hubChallenge) {
-    return e.string(200, hubChallenge)
-  }
-  return e.json(200, { status: 'WhatsApp Webhook endpoint is active.' })
 })
