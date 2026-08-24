@@ -1,3 +1,4 @@
+// Redeploy: 2025-05-18 - WhatsApp Cloud API Webhook Handshake and Events
 // Hook: WhatsApp Webhook handling for Meta Cloud API (GET validation and POST messages)
 // Accessible at GET & POST /api/crm/whatsapp-webhook
 
