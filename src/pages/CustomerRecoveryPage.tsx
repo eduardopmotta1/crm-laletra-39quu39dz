@@ -361,11 +361,28 @@ export default function CustomerRecoveryPage() {
                     <div className="flex items-center gap-2 shrink-0">
                       <Button
                         size="sm"
-                        onClick={() => handleContactWhatsApp(ev)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-8"
+                        onClick={() => {
+                          if (client) {
+                            setSelectedClientForChat(client)
+                            setChatDrawerOpen(true)
+                          }
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-8 shadow-xs"
+                        title="Abrir e responder conversa no CRM"
                       >
                         <MessageSquare className="h-3.5 w-3.5 mr-1" />
-                        Conversar no WhatsApp
+                        Responder no CRM
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleContactWhatsApp(ev)}
+                        className="text-xs h-8 text-slate-700 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200"
+                        title="Abrir no WhatsApp Web"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                        WhatsApp Web
                       </Button>
 
                       <Button

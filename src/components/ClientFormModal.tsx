@@ -257,10 +257,10 @@ export default function ClientFormModal({
                   </div>
                   <div>
                     <span className="font-bold text-xs text-emerald-950 dark:text-emerald-100 block">
-                      Iniciar conversa no WhatsApp com este cliente
+                      Iniciar conversa com este cliente
                     </span>
                     <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                      Dispare um template aprovado da Meta e mova para "Contato iniciado".
+                      Dispare um template aprovado da Meta ou use o chat interno do CRM.
                     </span>
                   </div>
                 </div>
@@ -270,7 +270,7 @@ export default function ClientFormModal({
                   className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-sm shrink-0 font-semibold"
                 >
                   <Sparkles className="h-3.5 w-3.5 mr-1" />
-                  Iniciar conversa no WhatsApp
+                  Iniciar com Template Oficial
                 </Button>
               </div>
             )}

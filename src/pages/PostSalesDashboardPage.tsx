@@ -512,22 +512,25 @@ export default function PostSalesDashboardPage() {
                     <div className="flex items-center gap-2 shrink-0">
                       <Button
                         size="sm"
-                        onClick={() => handleSendPostSaleWhatsApp(ps)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-2.5 font-semibold"
-                      >
-                        <Send className="h-3 w-3 mr-1" />
-                        Enviar WhatsApp
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
                         onClick={() => {
                           setSelectedClientForChat(client)
                           setChatDrawerOpen(true)
                         }}
-                        className="text-xs h-8 px-2"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-3 font-semibold shadow-xs"
+                        title="Responder no CRM e ver histórico"
                       >
-                        <MessageSquare className="h-3.5 w-3.5" />
+                        <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                        Responder no CRM
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSendPostSaleWhatsApp(ps)}
+                        className="text-xs h-8 px-2.5 text-slate-700 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200"
+                        title="Abrir no WhatsApp Web com link da pesquisa"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                        WhatsApp Web
                       </Button>
                     </div>
                   </div>

@@ -796,15 +796,16 @@ export default function PendingHubPage() {
 
                     {/* Right: Quick Inline Actions */}
                     <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800 justify-end flex-wrap">
-                      {/* WhatsApp Direct Action */}
+                      {/* Responder no CRM Direct Action */}
                       {item.clientPhone && (
                         <Button
                           size="sm"
                           onClick={() => handleOpenChat(item)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-3 shadow-sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-3 shadow-sm font-semibold"
+                          title="Abrir histórico e responder no CRM"
                         >
                           <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
-                          Responder WhatsApp
+                          Responder no CRM
                         </Button>
                       )}
 

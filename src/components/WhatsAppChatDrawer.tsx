@@ -85,7 +85,16 @@ export default function WhatsAppChatDrawer({
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [inputMessage, setInputMessage] = useState('')
+  const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null)
+  const [attachmentNote, setAttachmentNote] = useState('')
   const [currentClient, setCurrentClient] = useState<Client | null>(client)
+  const [apiStatus, setApiStatus] = useState<{
+    configured: boolean
+    hasToken: boolean
+    hasPhoneNumberId: boolean
+    isDemoToken: boolean
+  } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Production Order modal from drawer
   const [orderModalOpen, setOrderModalOpen] = useState(false)
@@ -121,17 +130,27 @@ export default function WhatsAppChatDrawer({
   const loadClientData = async (clientId: string) => {
     setLoading(true)
     try {
-      const [msgList, taskList, freshClient, pastDeals, transitions, evals, psList, ordersList] =
-        await Promise.all([
-          whatsappService.getMessages(clientId),
-          tasksService.getByClientId(clientId),
-          clientsService.getById(clientId),
-          dealsService.getByClientId(clientId),
-          dealsService.getStageTransitions(clientId),
-          evaluationsService.getByClientId(clientId),
-          postSalesService.getByClientId(clientId),
-          productionService.getByClientId(clientId),
-        ])
+      const [
+        msgList,
+        taskList,
+        freshClient,
+        pastDeals,
+        transitions,
+        evals,
+        psList,
+        ordersList,
+        status,
+      ] = await Promise.all([
+        whatsappService.getMessages(clientId),
+        tasksService.getByClientId(clientId),
+        clientsService.getById(clientId),
+        dealsService.getByClientId(clientId),
+        dealsService.getStageTransitions(clientId),
+        evaluationsService.getByClientId(clientId),
+        postSalesService.getByClientId(clientId),
+        productionService.getByClientId(clientId),
+        whatsappService.getApiStatus(),
+      ])
       setMessages(msgList)
       setTasks(taskList)
       if (freshClient) setCurrentClient(freshClient)
@@ -140,6 +159,7 @@ export default function WhatsAppChatDrawer({
       setStageTransitions(transitions)
       setEvaluations(evals)
       setPostSales(psList)
+      setApiStatus(status)
     } catch (err) {
       console.error('Error loading chat drawer data:', err)
     } finally {
@@ -163,22 +183,35 @@ export default function WhatsAppChatDrawer({
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!inputMessage.trim() || sending) return
+    const textToSend = inputMessage.trim()
+    if ((!textToSend && !selectedAttachment) || sending) return
 
     setSending(true)
     try {
-      const res = await whatsappService.sendMessage(displayClient.id, inputMessage.trim())
+      let finalMessage = textToSend
+      if (selectedAttachment) {
+        const fileInfo = `[📎 Anexo: ${selectedAttachment.name} (${(selectedAttachment.size / 1024).toFixed(1)} KB)]`
+        finalMessage = finalMessage ? `${finalMessage}\n${fileInfo}` : fileInfo
+      }
+
+      const res = await whatsappService.sendMessage(displayClient.id, finalMessage)
 
       if (res.error) {
         throw new Error(res.error)
       }
 
       setInputMessage('')
+      setSelectedAttachment(null)
+      setAttachmentNote('')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+
       await loadClientData(displayClient.id)
       if (onClientUpdated) onClientUpdated()
       toast({
-        title: 'Mensagem enviada',
-        description: 'Mensagem registrada e despachada com sucesso.',
+        title: 'Mensagem enviada no CRM',
+        description: res.api_dispatched
+          ? 'Mensagem despachada via WhatsApp Cloud API e registrada no histórico.'
+          : 'Mensagem registrada no histórico do CRM e status atualizado.',
       })
     } catch (err: any) {
       toast({
@@ -188,6 +221,25 @@ export default function WhatsAppChatDrawer({
       })
     } finally {
       setSending(false)
+    }
+  }
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 15 * 1024 * 1024) {
+        toast({
+          title: 'Arquivo muito grande',
+          description: 'O tamanho máximo suportado é de 15MB.',
+          variant: 'destructive',
+        })
+        return
+      }
+      setSelectedAttachment(file)
+      toast({
+        title: 'Arquivo anexado',
+        description: `${file.name} pronto para envio.`,
+      })
     }
   }
 
@@ -419,12 +471,38 @@ export default function WhatsAppChatDrawer({
                 <div ref={messagesEndRef} />
               </div>
 
+              {/* API Status / Fallback Notice Banner */}
+              {apiStatus && !apiStatus.configured && (
+                <div className="px-3.5 py-2 bg-amber-50 dark:bg-amber-950/40 border-t border-b border-amber-200 dark:border-amber-900/60 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-amber-800 dark:text-amber-300 gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+                    <span>
+                      <strong>API Oficial não configurada:</strong> as mensagens enviadas ficam
+                      registradas no CRM. Como alternativa temporária, use o WhatsApp Web.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <a
+                      href={getWhatsAppDirectUrl(displayClient.phone)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md bg-amber-100 hover:bg-amber-200 text-amber-900 transition-colors"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Abrir no WhatsApp Web
+                    </a>
+                  </div>
+                </div>
+              )}
+
               {/* 24-Hour Policy Warning Banner */}
               {!within24h && (
                 <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-t border-b border-amber-200 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 gap-2">
                   <div className="flex items-center gap-1.5">
                     <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
-                    <span>Janela de 24h fechada. A Meta exige template para reabrir contato.</span>
+                    <span>
+                      Janela de 24h fechada. A Meta exige template aprovado para reabrir contato.
+                    </span>
                   </div>
                   <Button
                     size="sm"
@@ -483,27 +561,70 @@ export default function WhatsAppChatDrawer({
                 </button>
               </div>
 
+              {/* Selected Attachment Preview */}
+              {selectedAttachment && (
+                <div className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border-t border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    <span className="truncate font-medium">{selectedAttachment.name}</span>
+                    <span className="text-[10px] text-emerald-600/80">
+                      ({(selectedAttachment.size / 1024).toFixed(0)} KB)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedAttachment(null)
+                      if (fileInputRef.current) fileInputRef.current.value = ''
+                    }}
+                    className="p-1 hover:bg-emerald-200/60 rounded text-emerald-700"
+                    title="Remover anexo"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
               {/* Chat Input */}
               <form
                 onSubmit={handleSendMessage}
                 className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
               >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelected}
+                  className="hidden"
+                  accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ai,.psd,.cdr"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-9 w-9 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                  title="Anexar arquivo, prova ou documento"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+
                 <Input
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   placeholder={
                     within24h
-                      ? 'Digite sua mensagem para o cliente...'
-                      : 'Janela fechada — use um Template Oficial ou envie texto livre...'
+                      ? 'Digite sua resposta para o cliente...'
+                      : 'Janela fechada — use um Template Oficial ou envie texto...'
                   }
                   className="flex-1 text-xs bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
                 />
                 <Button
                   type="submit"
-                  disabled={!inputMessage.trim() || sending}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-4"
+                  disabled={(!inputMessage.trim() && !selectedAttachment) || sending}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-4 shrink-0 font-medium"
                 >
-                  <Send className="h-4 w-4" />
+                  <Send className="h-4 w-4 mr-1.5" />
+                  Responder
                 </Button>
               </form>
             </div>

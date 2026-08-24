@@ -182,6 +182,52 @@ export const whatsappService = {
   /**
    * Get Webhook Diagnostics data from backend
    */
+  /**
+   * Check if WhatsApp API credentials are configured in system_settings
+   */
+  async getApiStatus(): Promise<{
+    configured: boolean
+    hasToken: boolean
+    hasPhoneNumberId: boolean
+    phoneNumberId?: string
+    displayPhone?: string
+    isDemoToken: boolean
+  }> {
+    try {
+      const list = await pb
+        .collection('system_settings')
+        .getFullList<{ setting_key: string; setting_value: string }>({
+          requestKey: null,
+        })
+      const map: Record<string, string> = {}
+      for (const item of list) {
+        map[item.setting_key] = item.setting_value
+      }
+
+      const token = map['whatsapp_access_token'] || ''
+      const phoneId = map['whatsapp_phone_number_id'] || ''
+      const isDemo = !token || token.includes('DEMO_TOKEN') || token.length < 20
+      const configured = Boolean(token && phoneId && !isDemo)
+
+      return {
+        configured,
+        hasToken: Boolean(token),
+        hasPhoneNumberId: Boolean(phoneId),
+        phoneNumberId: phoneId || undefined,
+        displayPhone: map['whatsapp_display_phone'] || undefined,
+        isDemoToken: isDemo,
+      }
+    } catch (err) {
+      console.error('Error fetching WhatsApp API status:', err)
+      return {
+        configured: false,
+        hasToken: false,
+        hasPhoneNumberId: false,
+        isDemoToken: true,
+      }
+    }
+  },
+
   async getWebhookDiagnostics(): Promise<{
     published: boolean
     webhook_url: string

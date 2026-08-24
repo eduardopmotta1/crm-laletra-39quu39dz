@@ -1,7 +1,24 @@
 import React from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Clock, Sparkles, Tag, ExternalLink, Star, Archive, Package, Lock } from 'lucide-react'
+import {
+  Clock,
+  MessageSquare,
+  Sparkles,
+  Tag,
+  ExternalLink,
+  Star,
+  Archive,
+  Package,
+  Lock,
+  MoreVertical,
+} from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import type { Client, Priority, KanbanColumn, SlaConfig } from '@/types/crm'
 import { calculateSlaInfo, formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
 import { useAuth } from '@/context/AuthContext'
@@ -189,56 +206,80 @@ export default function KanbanCard({
           </div>
         )}
 
-        {/* Bottom row: Assigned User + Direct WhatsApp Action */}
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+        {/* Bottom row: Assigned User + CRM Chat Button & WhatsApp secondary options */}
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-1.5">
           <div
-            className="flex items-center space-x-1.5"
+            className="flex items-center space-x-1.5 min-w-0"
             title={`Responsável: ${client.expand?.assigned_to?.name || 'Não atribuído'}`}
           >
-            <Avatar className="h-6 w-6 text-[10px] border border-slate-200 dark:border-slate-700">
+            <Avatar className="h-6 w-6 text-[10px] border border-slate-200 dark:border-slate-700 shrink-0">
               <AvatarFallback>
                 {getInitials(client.expand?.assigned_to?.name || 'LA')}
               </AvatarFallback>
             </Avatar>
-            <span className="text-[11px] text-slate-500 truncate max-w-[90px]">
+            <span className="text-[11px] text-slate-500 truncate max-w-[80px]">
               {client.expand?.assigned_to?.name?.split(' ')[0] || 'Atendente'}
             </span>
           </div>
 
-          <div className="flex items-center space-x-1">
-            {!isFinalStage && onCompleteAndArchive && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onCompleteAndArchive(client, e)
-                }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                title="Concluir e arquivar atendimento"
-              >
-                <Archive className="h-3.5 w-3.5" />
-              </button>
-            )}
-
+          <div className="flex items-center space-x-1 shrink-0">
+            {/* Primary Action: Responder no CRM */}
             <button
               type="button"
-              onClick={copyWhatsAppLink}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              title="Copiar Link de Atendimento WhatsApp"
+              onClick={onOpenChat}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors"
+              title="Responder conversa dentro do CRM"
             >
-              <Sparkles className="h-3.5 w-3.5" />
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>Conversar</span>
             </button>
 
-            <a
-              href={getWhatsAppDirectUrl(client.phone)}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              title="Abrir WhatsApp Web"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+            {/* Secondary options dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"
+                  title="Mais opções de atendimento"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-48 text-xs"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <DropdownMenuItem asChild>
+                  <a
+                    href={getWhatsAppDirectUrl(client.phone)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 cursor-pointer"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>Abrir no WhatsApp Web</span>
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={copyWhatsAppLink}
+                  className="flex items-center gap-2 cursor-pointer"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Copiar Link do WhatsApp</span>
+                </DropdownMenuItem>
+                {!isFinalStage && onCompleteAndArchive && (
+                  <DropdownMenuItem
+                    onClick={(e) => onCompleteAndArchive(client, e)}
+                    className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-200"
+                  >
+                    <Archive className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Concluir e arquivar</span>
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>

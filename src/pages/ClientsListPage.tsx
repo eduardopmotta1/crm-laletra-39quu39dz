@@ -16,7 +16,14 @@ import {
   Sparkles,
   Archive,
   RotateCcw,
+  MoreVertical,
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { clientsService } from '@/services/clients'
 import { settingsService } from '@/services/settings'
 import { dealsService } from '@/services/deals'
@@ -336,28 +343,16 @@ export default function ClientsListPage() {
                           <Button
                             size="sm"
                             onClick={() => {
-                              setClientForStartChat(client)
-                              setStartChatModalOpen(true)
-                            }}
-                            className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                            title="Iniciar conversa no WhatsApp com template oficial"
-                          >
-                            <Sparkles className="h-3.5 w-3.5 mr-1" />
-                            Iniciar conversa no WhatsApp
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
                               setSelectedClientForChat(client)
                               setChatDrawerOpen(true)
                             }}
-                            className="h-8 text-xs text-slate-700 hover:text-emerald-700 hover:bg-slate-50 border-slate-200"
-                            title="Ver histórico de mensagens e tarefas"
+                            className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-xs"
+                            title="Abrir e responder conversa no CRM"
                           >
-                            <MessageSquare className="h-3.5 w-3.5 mr-1 text-emerald-600" />
-                            Histórico
+                            <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                            Responder no CRM
                           </Button>
+
                           <Button
                             size="sm"
                             variant="ghost"
@@ -370,6 +365,41 @@ export default function ClientsListPage() {
                           >
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
+
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52 text-xs">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setClientForStartChat(client)
+                                  setStartChatModalOpen(true)
+                                }}
+                                className="cursor-pointer"
+                              >
+                                <Sparkles className="h-3.5 w-3.5 text-emerald-600 mr-2" />
+                                <span>Iniciar com Template Oficial</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <a
+                                  href={getWhatsAppDirectUrl(client.phone)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center cursor-pointer"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5 text-emerald-600 mr-2" />
+                                  <span>Abrir no WhatsApp Web</span>
+                                </a>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </td>
                     </tr>
