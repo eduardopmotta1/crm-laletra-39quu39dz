@@ -20,14 +20,21 @@ routerAdd('POST', '/api/crm/submit-evaluation', (e) => {
 
   // 1. Locate evaluation record or post_sale by token
   let evalRecord
+  let associatedOrderId = ''
+  let associatedOrderNumber = ''
+
   try {
     evalRecord = $app.findFirstRecordByData('evaluations', 'token', token)
+    associatedOrderId = evalRecord.getString('order_id')
+    associatedOrderNumber = evalRecord.getString('order_number')
   } catch (_) {
     // If not in evaluations, check if a post_sale exists with this token
     try {
       const psRecord = $app.findFirstRecordByData('post_sales', 'evaluation_token', token)
       const clientId = psRecord.getString('client_id')
       const attendanceId = psRecord.getString('attendance_id')
+      associatedOrderId = psRecord.getString('order_id')
+      associatedOrderNumber = psRecord.getString('order_number')
 
       const evalCol = $app.findCollectionByNameOrId('evaluations')
       evalRecord = new Record(evalCol)
@@ -36,6 +43,12 @@ routerAdd('POST', '/api/crm/submit-evaluation', (e) => {
       if (attendanceId) {
         evalRecord.set('attendance_id', attendanceId)
       }
+      if (associatedOrderId) {
+        evalRecord.set('order_id', associatedOrderId)
+      }
+      if (associatedOrderNumber) {
+        evalRecord.set('order_number', associatedOrderNumber)
+      }
       evalRecord.set('overall_rating', overallRating)
       evalRecord.set('comment', comment)
     } catch (_) {
@@ -43,22 +56,29 @@ routerAdd('POST', '/api/crm/submit-evaluation', (e) => {
     }
   }
 
-  // Prevent duplicate submissions if overall_rating was already recorded
+  // Check if order number is missing and resolve it if order_id exists
+  if (!associatedOrderNumber && associatedOrderId) {
+    try {
+      const ord = $app.findFirstRecordByData('production_orders', 'id', associatedOrderId)
+      associatedOrderNumber = ord.getString('order_number')
+      evalRecord.set('order_number', associatedOrderNumber)
+    } catch (_) {}
+  }
+
+  // Prevent duplicate submissions for the same token/order if already evaluated
   if (
     evalRecord.getInt('overall_rating') > 0 &&
     evalRecord.getString('created') !== evalRecord.getString('updated')
   ) {
-    // Check if already completed
     const existingComment = evalRecord.getString('comment')
     if (
       evalRecord.getBool('resolved') ||
       existingComment ||
       evalRecord.getInt('overall_rating') > 0
     ) {
-      // If client attempts to re-submit, check if already registered
       return e.json(409, {
         error:
-          'Esta avaliação já foi respondida e registrada anteriormente. Obrigado pelo seu feedback!',
+          'Esta avaliação para este pedido já foi respondida e registrada anteriormente. Obrigado pelo seu feedback!',
         already_submitted: true,
       })
     }
@@ -91,6 +111,7 @@ routerAdd('POST', '/api/crm/submit-evaluation', (e) => {
       if (isDissatisfied) {
         clientRecord.set('relationship_status', 'dissatisfied')
       } else if (isSatisfied) {
+        // Only set satisfied if not in recovery or dissatisfied from another unresolved order
         clientRecord.set('relationship_status', 'satisfied')
       }
       $app.save(clientRecord)
@@ -99,23 +120,24 @@ routerAdd('POST', '/api/crm/submit-evaluation', (e) => {
     }
   }
 
-  // 2. If dissatisfied (1, 2, 3 stars): create urgent Attention Task for recovery
+  // 2. If dissatisfied (1, 2, 3 stars): create urgent Attention Task for recovery linked to client and order
   if (isDissatisfied && clientId) {
     try {
       const tasksCol = $app.findCollectionByNameOrId('tasks')
       const taskRecord = new Record(tasksCol)
       const clientName = clientRecord ? clientRecord.getString('name') : 'Cliente'
       const assignedTo = clientRecord ? clientRecord.getString('assigned_to') : ''
+      const orderLabel = associatedOrderNumber ? ` [Pedido ${associatedOrderNumber}]` : ''
 
       taskRecord.set(
         'title',
-        `⚠️ RECUPERAÇÃO: Cliente Insatisfeito (${overallRating}★) - ${clientName}`,
+        `⚠️ RECUPERAÇÃO: Cliente Insatisfeito (${overallRating}★)${orderLabel} - ${clientName}`,
       )
       taskRecord.set(
         'description',
-        `Avaliação de ${overallRating} estrela(s) recebida. ` +
+        `Avaliação de ${overallRating} estrela(s) recebida para o pedido ${associatedOrderNumber || '(Vinculado)'}. ` +
           (comment ? `Comentário: "${comment}". ` : 'Sem comentário adicional. ') +
-          `Entrar em contato urgentemente para entender o motivo e solucionar a insatisfação.`,
+          `Entrar em contato urgentemente na área de Recuperação para entender o motivo e solucionar a insatisfação.`,
       )
       taskRecord.set('client_id', clientId)
       if (assignedTo) taskRecord.set('assigned_to', assignedTo)
@@ -141,5 +163,6 @@ routerAdd('POST', '/api/crm/submit-evaluation', (e) => {
     success: true,
     message: 'Avaliação registrada com sucesso. Muito obrigado pela sua opinião!',
     is_dissatisfied: isDissatisfied,
+    order_number: associatedOrderNumber || undefined,
   })
 })

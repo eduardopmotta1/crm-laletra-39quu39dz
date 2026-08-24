@@ -897,6 +897,12 @@ export default function WhatsAppChatDrawer({
                                     </span>
                                   </div>
 
+                                  {ev.order_number && (
+                                    <div className="text-[10px] text-slate-500 font-mono">
+                                      Pedido: <strong>{ev.order_number}</strong>
+                                    </div>
+                                  )}
+
                                   {ev.comment && (
                                     <p className="text-[11px] text-slate-600 dark:text-slate-300 italic">
                                       "{ev.comment}"
@@ -942,7 +948,7 @@ export default function WhatsAppChatDrawer({
                                 >
                                   <div>
                                     <span className="font-semibold text-slate-800 dark:text-slate-200 block">
-                                      Agendamento para{' '}
+                                      {ps.order_number ? `Pedido ${ps.order_number} • ` : ''}
                                       {new Date(ps.scheduled_date).toLocaleDateString('pt-BR')}
                                     </span>
                                     <span className="text-[10px] text-slate-400">

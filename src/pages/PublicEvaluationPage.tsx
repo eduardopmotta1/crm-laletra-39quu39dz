@@ -33,6 +33,8 @@ export default function PublicEvaluationPage() {
   const [error, setError] = useState<string | null>(null)
   const [alreadySubmitted, setAlreadySubmitted] = useState(false)
   const [submittedSuccess, setSubmittedSuccess] = useState(false)
+  const [orderNumber, setOrderNumber] = useState<string | null>(null)
+  const [productName, setProductName] = useState<string | null>(null)
 
   // Form ratings
   const [overallRating, setOverallRating] = useState<number>(0)
@@ -54,6 +56,8 @@ export default function PublicEvaluationPage() {
     const checkToken = async () => {
       try {
         const data = await evaluationsService.getByToken(token)
+        if (data.order_number) setOrderNumber(data.order_number)
+        if (data.product_name) setProductName(data.product_name)
         if (data.already_submitted) {
           setAlreadySubmitted(true)
           if (data.overall_rating) setOverallRating(data.overall_rating)
@@ -243,6 +247,13 @@ export default function PublicEvaluationPage() {
               <CardTitle className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
                 Como foi sua experiência conosco?
               </CardTitle>
+              {orderNumber ? (
+                <div className="pt-1">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    Pedido: {orderNumber} {productName ? `• ${productName}` : ''}
+                  </span>
+                </div>
+              ) : null}
               <CardDescription className="text-xs text-slate-500 max-w-md mx-auto">
                 Avalie sua experiência geral com o nosso serviço gráfico.
               </CardDescription>

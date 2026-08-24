@@ -10,7 +10,7 @@ export const postSalesService = {
       return await pb.collection('post_sales').getFullList<PostSale>({
         filter,
         sort,
-        expand: 'client_id,attendance_id,task_id',
+        expand: 'client_id,order_id,attendance_id,task_id',
         requestKey: null,
       })
     } catch (error) {
@@ -27,7 +27,7 @@ export const postSalesService = {
       return await pb.collection('post_sales').getFullList<PostSale>({
         filter: `client_id = "${clientId}"`,
         sort: '-scheduled_date',
-        expand: 'attendance_id,task_id',
+        expand: 'order_id,attendance_id,task_id',
         requestKey: null,
       })
     } catch (error) {
@@ -37,10 +37,29 @@ export const postSalesService = {
   },
 
   /**
+   * Get post sales for a specific production order
+   */
+  async getByOrderId(orderId: string): Promise<PostSale[]> {
+    try {
+      return await pb.collection('post_sales').getFullList<PostSale>({
+        filter: `order_id = "${orderId}"`,
+        sort: '-scheduled_date',
+        expand: 'client_id,order_id,task_id',
+        requestKey: null,
+      })
+    } catch (error) {
+      console.error(`Error fetching post sales for order ${orderId}:`, error)
+      return []
+    }
+  },
+
+  /**
    * Create a post sale record
    */
   async create(data: {
     clientId: string
+    orderId?: string
+    orderNumber?: string
     attendanceId?: string
     scheduledDate: string
     status?: PostSaleStatus
@@ -51,6 +70,8 @@ export const postSalesService = {
   }): Promise<PostSale> {
     return await pb.collection('post_sales').create<PostSale>({
       client_id: data.clientId,
+      order_id: data.orderId || undefined,
+      order_number: data.orderNumber || undefined,
       attendance_id: data.attendanceId || undefined,
       scheduled_date: data.scheduledDate,
       status: data.status || 'pending',

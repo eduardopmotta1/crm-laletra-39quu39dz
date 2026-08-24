@@ -93,66 +93,8 @@ export const dealsService = {
       console.error('Error logging stage transition:', err)
     }
 
-    // 4. Schedule Post-Sale if it was a won deal ("Venda fechada")
-    if (isWon) {
-      try {
-        const { settingsService } = await import('@/services/settings')
-        const postSaleCfg = await settingsService.getPostSaleConfig()
-
-        if (postSaleCfg.enabled) {
-          const delayDays = postSaleCfg.delayDays || 3
-          const scheduledDate = new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000).toISOString()
-          const evalToken =
-            'eval_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
-
-          // Pre-create evaluation record for this token
-          try {
-            await pb.collection('evaluations').create({
-              token: evalToken,
-              client_id: client.id,
-              attendance_id: archived.id,
-              overall_rating: 0,
-            })
-          } catch (e) {
-            console.error('Error pre-creating evaluation record:', e)
-          }
-
-          // Create follow-up Task if enabled
-          let taskId: string | undefined = undefined
-          if (postSaleCfg.autoTask) {
-            try {
-              const task = await pb.collection('tasks').create({
-                title: `⭐ Pós-venda e Avaliação: ${client.name}`,
-                description: `Realizar contato de pós-venda para verificar entrega e coletar avaliação do cliente. Link de avaliação: ${window.location.origin}/avaliacao/${evalToken}`,
-                client_id: client.id,
-                assigned_to: payload.assignedTo || client.assigned_to || pb.authStore.record?.id,
-                due_date: scheduledDate,
-                status: 'pendente',
-                priority: 'media',
-              })
-              taskId = task.id
-            } catch (err) {
-              console.error('Error creating post sale task:', err)
-            }
-          }
-
-          // Create post_sales record
-          await pb.collection('post_sales').create({
-            client_id: client.id,
-            attendance_id: archived.id,
-            scheduled_date: scheduledDate,
-            status: 'pending',
-            task_id: taskId,
-            evaluation_token: evalToken,
-            channel: 'whatsapp',
-            notes: `Agendado para ${delayDays} dia(s) após conclusão da venda.`,
-          })
-        }
-      } catch (err) {
-        console.error('Error scheduling post sale:', err)
-      }
-    }
-
+    // Post-sale trigger rule: Post-sales NO LONGER triggers on deal closure/archive.
+    // It triggers strictly when the linked production order is moved to "Concluído" (completed).
     return archived
   },
 

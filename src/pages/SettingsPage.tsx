@@ -266,8 +266,8 @@ export default function SettingsPage() {
                       Pós-Venda Automático & Convite de Avaliação
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      Configure o agendamento de rotinas de pós-venda quando um atendimento for
-                      concluído na etapa "Venda fechada".
+                      Configure o agendamento automático de pós-venda disparado quando o pedido de
+                      produção vinculado for movido para a etapa "Concluído".
                     </CardDescription>
                   </div>
                   <Switch
@@ -282,7 +282,8 @@ export default function SettingsPage() {
                 {/* Delay Option */}
                 <div className="space-y-3">
                   <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Definir quanto tempo após a conclusão da venda o pós-venda será realizado:
+                    Definir quanto tempo após a conclusão do pedido de produção o pós-venda será
+                    realizado:
                   </Label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
@@ -325,7 +326,7 @@ export default function SettingsPage() {
                       }
                       className="w-24 text-xs h-8"
                     />
-                    <span className="text-xs text-slate-400">dia(s) após fechamento</span>
+                    <span className="text-xs text-slate-400">dia(s) após conclusão do pedido</span>
                   </div>
                 </div>
 
@@ -333,11 +334,11 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700">
                   <div className="space-y-0.5">
                     <Label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      Criar automaticamente uma tarefa no CRM
+                      Criar automaticamente uma tarefa no CRM vinculada ao pedido
                     </Label>
                     <p className="text-[11px] text-slate-500">
-                      O sistema cria automaticamente uma tarefa de pós-venda para aquele cliente
-                      após o tempo configurado, com o link exclusivo de avaliação.
+                      O sistema cria automaticamente uma tarefa de pós-venda para aquele cliente e
+                      pedido após o tempo configurado, com o link exclusivo de avaliação.
                     </p>
                   </div>
                   <Switch

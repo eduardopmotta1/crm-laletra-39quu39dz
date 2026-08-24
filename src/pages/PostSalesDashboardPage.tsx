@@ -22,9 +22,17 @@ import {
 import { evaluationsService } from '@/services/evaluations'
 import { postSalesService } from '@/services/postSales'
 import { clientsService } from '@/services/clients'
+import { productionService } from '@/services/production'
 import { usersService } from '@/services/whatsapp'
 import { dealsService } from '@/services/deals'
-import type { Evaluation, PostSale, Client, User as CrmUser, ArchivedDeal } from '@/types/crm'
+import type {
+  Evaluation,
+  PostSale,
+  Client,
+  User as CrmUser,
+  ArchivedDeal,
+  ProductionOrder,
+} from '@/types/crm'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -45,6 +53,7 @@ export default function PostSalesDashboardPage() {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
   const [postSales, setPostSales] = useState<PostSale[]>([])
   const [clients, setClients] = useState<Client[]>([])
+  const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>([])
   const [archivedDeals, setArchivedDeals] = useState<ArchivedDeal[]>([])
   const [users, setUsers] = useState<CrmUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -60,16 +69,18 @@ export default function PostSalesDashboardPage() {
 
   const loadData = async () => {
     try {
-      const [evals, psList, cls, pastDeals, userList] = await Promise.all([
+      const [evals, psList, cls, prodOrders, pastDeals, userList] = await Promise.all([
         evaluationsService.getAll(undefined, '-created'),
         postSalesService.getAll(undefined, '-scheduled_date'),
         clientsService.getAll(undefined, '-updated', { includeArchived: true }),
+        productionService.getAll(undefined, '-created'),
         dealsService.getArchivedDeals(),
         usersService.getAll(),
       ])
       setEvaluations(evals)
       setPostSales(psList)
       setClients(cls)
+      setProductionOrders(prodOrders)
       setArchivedDeals(pastDeals)
       setUsers(userList)
     } catch (err) {
@@ -146,22 +157,31 @@ export default function PostSalesDashboardPage() {
   )
   const problemsResolved = completedEvaluations.filter((e) => e.resolved).length
 
-  // Repurchase Metrics (Clients who closed at least 1 deal and bought again or reopened)
-  const wonDeals = archivedDeals.filter((d) => d.result === 'Venda fechada')
+  // Repurchase Metrics: Production orders and closed deals count per client
   const clientPurchasesCount: Record<string, number> = {}
-  wonDeals.forEach((deal) => {
-    clientPurchasesCount[deal.client_id] = (clientPurchasesCount[deal.client_id] || 0) + 1
+  productionOrders.forEach((ord) => {
+    if (ord.client_id) {
+      clientPurchasesCount[ord.client_id] = (clientPurchasesCount[ord.client_id] || 0) + 1
+    }
   })
+  archivedDeals
+    .filter((d) => d.result === 'Venda fechada')
+    .forEach((deal) => {
+      if (!clientPurchasesCount[deal.client_id]) {
+        clientPurchasesCount[deal.client_id] = 1
+      }
+    })
 
   const returningClients = clients.filter((c) => {
-    const dealsCount = clientPurchasesCount[c.id] || 0
-    return dealsCount > 1 || c.has_returned
+    const ordersCount = clientPurchasesCount[c.id] || 0
+    const totalPurchases = c.total_purchases || 0
+    return ordersCount > 1 || totalPurchases > 1 || c.has_returned
   })
 
-  const totalClientsWithClosedDeals = Object.keys(clientPurchasesCount).length
+  const totalClientsWithPurchases = Object.keys(clientPurchasesCount).length
   const repurchaseRate =
-    totalClientsWithClosedDeals > 0
-      ? Math.round((returningClients.length / totalClientsWithClosedDeals) * 100)
+    totalClientsWithPurchases > 0
+      ? Math.round((returningClients.length / totalClientsWithPurchases) * 100)
       : 0
 
   // Rating distribution 1 to 5 stars
@@ -180,7 +200,8 @@ export default function PostSalesDashboardPage() {
 
     const token = ps.evaluation_token || 'eval_' + Math.random().toString(36).substring(2, 10)
     const evalLink = `${window.location.origin}/avaliacao/${token}`
-    const text = `Olá, ${client.name}! Seu pedido foi concluído pela Laletra. Poderia avaliar nosso atendimento e qualidade no link a seguir? Leva menos de 1 minuto: ${evalLink}`
+    const orderRef = ps.order_number ? ` (Pedido ${ps.order_number})` : ''
+    const text = `Olá, ${client.name}! Seu pedido${orderRef} foi concluído pela Laletra. Poderia avaliar nosso atendimento e qualidade no link a seguir? Leva menos de 1 minuto: ${evalLink}`
 
     // Copy to clipboard or open direct wa
     navigator.clipboard.writeText(text)
@@ -440,7 +461,7 @@ export default function PostSalesDashboardPage() {
                 Fila de Pós-Venda Automático ({pendingPostSales.length})
               </CardTitle>
               <CardDescription className="text-xs">
-                Contatos agendados após conclusão de vendas
+                Contatos agendados após conclusão dos pedidos na produção
               </CardDescription>
             </div>
           </CardHeader>
@@ -464,18 +485,26 @@ export default function PostSalesDashboardPage() {
                         <span className="font-semibold text-slate-900 dark:text-white">
                           {client.name}
                         </span>
+                        {ps.order_number && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0 font-mono bg-white dark:bg-slate-900"
+                          >
+                            {ps.order_number}
+                          </Badge>
+                        )}
                         <Badge
                           variant={ps.status === 'sent' ? 'secondary' : 'outline'}
                           className="text-[10px] px-1.5 py-0"
                         >
-                          {ps.status === 'sent' ? 'Mensagem Enviada' : 'Agendado'}
+                          {ps.status === 'sent' ? 'Mensagem Enviada' : 'Pós-Venda Agendado'}
                         </Badge>
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
+                      <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-2">
                         <span>Telefone: {client.phone}</span>
                         <span>•</span>
                         <span>
-                          Agendado: {new Date(ps.scheduled_date).toLocaleDateString('pt-BR')}
+                          Agendado para: {new Date(ps.scheduled_date).toLocaleDateString('pt-BR')}
                         </span>
                       </div>
                     </div>
@@ -548,6 +577,11 @@ export default function PostSalesDashboardPage() {
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
                           {client?.name || 'Cliente'}
                         </span>
+                        {ev.order_number && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                            Pedido {ev.order_number}
+                          </Badge>
+                        )}
                         <div className="flex items-center text-amber-400">
                           {[1, 2, 3, 4, 5].map((star) => (
                             <Star

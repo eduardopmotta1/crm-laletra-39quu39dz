@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T00:22:54.604Z",
+  "generatedAt": "2026-08-24T00:33:58.988Z",
   "collections": [
     {
       "name": "users",
@@ -904,6 +904,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "order_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "production_orders"
+        },
+        {
+          "name": "order_number",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -911,7 +924,8 @@
         "CREATE INDEX idx_evaluations_client ON evaluations (client_id)",
         "CREATE INDEX idx_evaluations_attendance ON evaluations (attendance_id)",
         "CREATE INDEX idx_evaluations_created ON evaluations (created DESC)",
-        "CREATE INDEX idx_evaluations_rating ON evaluations (overall_rating)"
+        "CREATE INDEX idx_evaluations_rating ON evaluations (overall_rating)",
+        "CREATE INDEX `idx_evaluations_order` ON `evaluations` (order_id)"
       ]
     },
     {
@@ -996,13 +1010,27 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "order_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "production_orders"
+        },
+        {
+          "name": "order_number",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
         "CREATE INDEX idx_postsales_client ON post_sales (client_id)",
         "CREATE INDEX idx_postsales_attendance ON post_sales (attendance_id)",
         "CREATE INDEX idx_postsales_status ON post_sales (status)",
-        "CREATE INDEX idx_postsales_scheduled ON post_sales (scheduled_date)"
+        "CREATE INDEX idx_postsales_scheduled ON post_sales (scheduled_date)",
+        "CREATE INDEX `idx_postsales_order` ON `post_sales` (order_id)"
       ]
     },
     {

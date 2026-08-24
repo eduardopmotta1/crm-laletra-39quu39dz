@@ -93,6 +93,8 @@ export interface Evaluation {
   id: string
   token: string
   client_id: string
+  order_id?: string
+  order_number?: string
   attendance_id?: string
   attendance_deal_id?: string
   overall_rating: number
@@ -107,6 +109,7 @@ export interface Evaluation {
   resolved_by?: string
   expand?: {
     client_id?: Client
+    order_id?: ProductionOrder
     attendance_id?: ArchivedDeal
     resolved_by?: User
   }
@@ -119,6 +122,8 @@ export type PostSaleStatus = 'pending' | 'sent' | 'completed' | 'cancelled'
 export interface PostSale {
   id: string
   client_id: string
+  order_id?: string
+  order_number?: string
   attendance_id?: string
   scheduled_date: string
   sent_date?: string
@@ -129,6 +134,7 @@ export interface PostSale {
   notes?: string
   expand?: {
     client_id?: Client
+    order_id?: ProductionOrder
     attendance_id?: ArchivedDeal
     task_id?: Task
   }

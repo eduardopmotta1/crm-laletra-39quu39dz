@@ -19,7 +19,7 @@ export const evaluationsService = {
       return await pb.collection('evaluations').getFullList<Evaluation>({
         filter,
         sort,
-        expand: 'client_id,attendance_id,resolved_by',
+        expand: 'client_id,order_id,attendance_id,resolved_by',
         requestKey: null,
       })
     } catch (error) {
@@ -36,11 +36,28 @@ export const evaluationsService = {
       return await pb.collection('evaluations').getFullList<Evaluation>({
         filter: `client_id = "${clientId}"`,
         sort: '-created',
-        expand: 'attendance_id,resolved_by',
+        expand: 'order_id,attendance_id,resolved_by',
         requestKey: null,
       })
     } catch (error) {
       console.error(`Error fetching evaluations for client ${clientId}:`, error)
+      return []
+    }
+  },
+
+  /**
+   * Get evaluations for a specific production order
+   */
+  async getByOrderId(orderId: string): Promise<Evaluation[]> {
+    try {
+      return await pb.collection('evaluations').getFullList<Evaluation>({
+        filter: `order_id = "${orderId}"`,
+        sort: '-created',
+        expand: 'client_id,order_id,resolved_by',
+        requestKey: null,
+      })
+    } catch (error) {
+      console.error(`Error fetching evaluations for order ${orderId}:`, error)
       return []
     }
   },
@@ -52,6 +69,8 @@ export const evaluationsService = {
     valid: boolean
     already_submitted: boolean
     token: string
+    order_number?: string | null
+    product_name?: string | null
     overall_rating?: number | null
     service_rating?: number | null
     quality_rating?: number | null
@@ -113,7 +132,7 @@ export const evaluationsService = {
         status: resolved ? 'resolved' : 'in_recovery',
       },
       {
-        expand: 'client_id,attendance_id,resolved_by',
+        expand: 'client_id,order_id,attendance_id,resolved_by',
       },
     )
 
@@ -141,7 +160,7 @@ export const evaluationsService = {
         status,
       },
       {
-        expand: 'client_id,attendance_id,resolved_by',
+        expand: 'client_id,order_id,attendance_id,resolved_by',
       },
     )
 

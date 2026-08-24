@@ -246,6 +246,15 @@ export const productionService = {
       .collection('production_orders')
       .update<ProductionOrder>(orderId, updatePayload)
 
+    // Trigger Post-Sales automatically ONLY when order enters 'completed' stage
+    if (isCompleted) {
+      try {
+        await this.triggerPostSaleForOrder(updated)
+      } catch (err) {
+        console.error('Error triggering post sale for completed order:', err)
+      }
+    }
+
     // Prepare WhatsApp automated message template
     let whatsappMessage = ''
     let whatsappSent = false
@@ -300,6 +309,88 @@ export const productionService = {
     })
 
     return updated
+  },
+
+  /**
+   * Trigger Post-Sales routine and generate exclusive evaluation link when order is completed
+   * Checks for duplicate post-sales for the same production order.
+   */
+  async triggerPostSaleForOrder(order: ProductionOrder): Promise<void> {
+    const { settingsService } = await import('./settings')
+    const postSaleCfg = await settingsService.getPostSaleConfig()
+
+    if (!postSaleCfg.enabled) {
+      return
+    }
+
+    // 1. Check if post-sales already exists for this order to prevent duplicates
+    try {
+      const existing = await pb.collection('post_sales').getFullList({
+        filter: `order_id = "${order.id}"`,
+        requestKey: null,
+      })
+      if (existing && existing.length > 0) {
+        // Already initiated post sale for this order
+        return
+      }
+    } catch {
+      /* intentionally ignored */
+    }
+
+    // 2. Compute scheduled date based on delay days setting
+    const delayDays = postSaleCfg.delayDays || 3
+    const scheduledDate = new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000).toISOString()
+
+    // 3. Generate secure evaluation token
+    const evalToken =
+      'eval_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
+
+    // 4. Pre-create evaluation record linked to client and order
+    try {
+      await pb.collection('evaluations').create({
+        token: evalToken,
+        client_id: order.client_id,
+        order_id: order.id,
+        order_number: order.order_number,
+        attendance_id: order.deal_origin_id || undefined,
+        overall_rating: 0,
+      })
+    } catch (e) {
+      console.error('Error pre-creating evaluation record for order:', e)
+    }
+
+    // 5. Create follow-up Task in CRM if autoTask is enabled
+    let taskId: string | undefined = undefined
+    if (postSaleCfg.autoTask) {
+      try {
+        const task = await pb.collection('tasks').create({
+          title: `⭐ Pós-venda [Pedido ${order.order_number}]: ${order.client_name}`,
+          description: `Realizar contato de pós-venda para verificar entrega do pedido ${order.order_number} (${order.product}) e coletar avaliação do cliente. Link de avaliação: ${window.location.origin}/avaliacao/${evalToken}`,
+          client_id: order.client_id,
+          assigned_to: order.sales_rep_id || pb.authStore.record?.id,
+          due_date: scheduledDate,
+          status: 'pendente',
+          priority: 'media',
+        })
+        taskId = task.id
+      } catch (err) {
+        console.error('Error creating post sale task for order:', err)
+      }
+    }
+
+    // 6. Create post_sales record linked to order
+    await pb.collection('post_sales').create({
+      client_id: order.client_id,
+      order_id: order.id,
+      order_number: order.order_number,
+      attendance_id: order.deal_origin_id || undefined,
+      scheduled_date: scheduledDate,
+      status: 'pending',
+      task_id: taskId,
+      evaluation_token: evalToken,
+      channel: 'whatsapp',
+      notes: `Agendado para ${delayDays} dia(s) após conclusão do pedido de produção ${order.order_number}.`,
+    })
   },
 
   /**

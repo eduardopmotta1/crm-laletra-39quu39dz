@@ -87,11 +87,13 @@ export default function CustomerRecoveryPage() {
     const client = ev.expand?.client_id || clients.find((c) => c.id === ev.client_id)
     const name = client?.name || ''
     const phone = client?.phone || ''
+    const orderNum = ev.order_number || ''
     const comment = ev.comment || ''
 
     const matchesSearch =
       name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       phone.includes(searchTerm) ||
+      orderNum.toLowerCase().includes(searchTerm.toLowerCase()) ||
       comment.toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesStatus =
@@ -303,6 +305,14 @@ export default function CustomerRecoveryPage() {
                         <span className="font-bold text-base text-slate-900 dark:text-white">
                           {client?.name || 'Cliente'}
                         </span>
+                        {ev.order_number && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] font-mono px-2 py-0 bg-white dark:bg-slate-900"
+                          >
+                            Pedido {ev.order_number}
+                          </Badge>
+                        )}
                         <div className="flex items-center text-amber-500">
                           {[1, 2, 3, 4, 5].map((s) => (
                             <Star
@@ -330,10 +340,18 @@ export default function CustomerRecoveryPage() {
                         </span>
                         <span>•</span>
                         <span>Avaliado em {formatDateTime(ev.created)}</span>
+                        {ev.order_number && (
+                          <>
+                            <span>•</span>
+                            <span>
+                              Pedido de Produção: <strong>{ev.order_number}</strong>
+                            </span>
+                          </>
+                        )}
                         {attendance && (
                           <>
                             <span>•</span>
-                            <span>Atendimento: {attendance.product_interest || 'Venda'}</span>
+                            <span>Origem Comercial: {attendance.product_interest || 'Venda'}</span>
                           </>
                         )}
                       </div>
