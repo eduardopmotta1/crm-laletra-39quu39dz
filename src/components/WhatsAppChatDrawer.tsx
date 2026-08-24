@@ -74,7 +74,7 @@ export default function WhatsAppChatDrawer({
   slaConfig,
   onClientUpdated,
 }: WhatsAppChatDrawerProps) {
-  const { user } = useAuth()
+  const { user, isAdmin, hasPermission, canViewFinancials } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [archivedDeals, setArchivedDeals] = useState<ArchivedDeal[]>([])
@@ -448,10 +448,10 @@ export default function WhatsAppChatDrawer({
                     setInputMessage(
                       `Olá, ${displayClient.name}! Seu orçamento para ${
                         displayClient.product_interest || 'impressão gráfica'
-                      } está pronto no valor de ${
-                        displayClient.quote_value
-                          ? formatCurrency(displayClient.quote_value)
-                          : 'R$ 0,00'
+                      } está pronto${
+                        canViewFinancials && displayClient.quote_value
+                          ? ` no valor de ${formatCurrency(displayClient.quote_value)}`
+                          : ''
                       }. Posso enviar os detalhes?`,
                     )
                   }

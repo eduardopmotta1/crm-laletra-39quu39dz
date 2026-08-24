@@ -37,11 +37,53 @@ export interface KanbanColumn {
 
 export type Priority = 'baixa' | 'media' | 'alta' | 'urgente'
 
+export type RoleSlug = 'admin' | 'comercial' | 'producao' | 'custom' | string
+
+export interface Role {
+  id: string
+  name: string
+  slug: RoleSlug
+  description?: string
+  is_system?: boolean
+  color?: string
+  permissions: Record<string, boolean>
+  created?: string
+  updated?: string
+}
+
+export interface AuditLog {
+  id: string
+  user_id?: string
+  user_name?: string
+  user_email?: string
+  action: string
+  module?: string
+  record_id?: string
+  record_title?: string
+  details?: string
+  previous_value?: any
+  new_value?: any
+  ip_address?: string
+  created: string
+  updated: string
+  expand?: {
+    user_id?: User
+  }
+}
+
 export interface User {
   id: string
   name: string
   email: string
   avatar?: string
+  phone?: string
+  role_id?: string
+  role_slug?: RoleSlug
+  is_active?: boolean
+  custom_permissions?: Record<string, boolean>
+  expand?: {
+    role_id?: Role
+  }
   created: string
   updated: string
 }

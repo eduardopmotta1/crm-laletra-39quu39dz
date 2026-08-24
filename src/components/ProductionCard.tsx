@@ -19,6 +19,7 @@ import {
 import type { ProductionOrder, ProductionStage } from '@/types/crm'
 import { productionService } from '@/services/production'
 import { formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
+import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
 
 interface ProductionCardProps {
@@ -36,6 +37,7 @@ export default function ProductionCard({
   onOpenApprovalModal,
   onDragStart,
 }: ProductionCardProps) {
+  const { canViewFinancials } = useAuth()
   const deadlineInfo = productionService.calculateDeadlineStatus(
     order.promised_deadline,
     order.is_completed,
@@ -152,7 +154,7 @@ export default function ProductionCard({
         )}
       </div>
 
-      {order.total_value ? (
+      {canViewFinancials && order.total_value ? (
         <div className="flex items-baseline justify-between py-1 px-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900">
           <span className="text-[10px] text-slate-500 font-medium">Valor do Pedido:</span>
           <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">

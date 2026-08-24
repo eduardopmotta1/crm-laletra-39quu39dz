@@ -21,6 +21,7 @@ import { clientsService } from '@/services/clients'
 import { settingsService } from '@/services/settings'
 import { dealsService } from '@/services/deals'
 import { calculateSlaInfo, formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
+import { useAuth } from '@/context/AuthContext'
 import type { Client, KanbanStage, SlaConfig } from '@/types/crm'
 import { KANBAN_STAGES } from '@/types/crm'
 import { Button } from '@/components/ui/button'
@@ -40,6 +41,7 @@ import StartWhatsAppConversationModal from '@/components/StartWhatsAppConversati
 import { toast } from '@/hooks/use-toast'
 
 export default function ClientsListPage() {
+  const { isAdmin, hasPermission, canViewFinancials } = useAuth()
   const [clients, setClients] = useState<Client[]>([])
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
     urgentMinutes: 1440,
@@ -299,7 +301,11 @@ export default function ClientsListPage() {
                           {client.product_interest || '-'}
                         </div>
                         <div className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px] mt-0.5">
-                          {client.quote_value ? formatCurrency(client.quote_value) : 'Sem valor'}
+                          {canViewFinancials
+                            ? client.quote_value
+                              ? formatCurrency(client.quote_value)
+                              : 'Sem valor'
+                            : 'Valor restrito'}
                         </div>
                       </td>
 

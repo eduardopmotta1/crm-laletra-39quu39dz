@@ -1,9 +1,10 @@
 import React from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Clock, Sparkles, Tag, ExternalLink, Star, Archive, Package } from 'lucide-react'
+import { Clock, Sparkles, Tag, ExternalLink, Star, Archive, Package, Lock } from 'lucide-react'
 import type { Client, Priority, KanbanColumn, SlaConfig } from '@/types/crm'
 import { calculateSlaInfo, formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
+import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
 import ProductionOrderModal from './ProductionOrderModal'
 
@@ -26,6 +27,7 @@ export default function KanbanCard({
   onCompleteAndArchive,
   onDragStart,
 }: KanbanCardProps) {
+  const { canViewFinancials, isAdmin, hasPermission } = useAuth()
   const [productionModalOpen, setProductionModalOpen] = React.useState(false)
   const slaInfo = calculateSlaInfo(
     client.last_message_at,
@@ -125,13 +127,21 @@ export default function KanbanCard({
           )}
         </div>
 
-        {/* Quote Value Badge */}
-        {client.quote_value ? (
+        {/* Quote Value Badge (Protected: Completely hidden if user lacks financial permission) */}
+        {canViewFinancials && client.quote_value ? (
           <div className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60">
             <span className="text-[10px] text-slate-500 font-medium">Orçamento:</span>
             <span className="font-bold text-emerald-700 dark:text-emerald-400">
               {formatCurrency(client.quote_value)}
             </span>
+          </div>
+        ) : !canViewFinancials && client.quote_value ? (
+          <div className="flex items-center justify-between text-[11px] py-1 px-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700">
+            <span className="flex items-center gap-1">
+              <Lock className="h-3 w-3 text-slate-400" />
+              <span>Orçamento:</span>
+            </span>
+            <span className="italic text-[10px]">Restrito</span>
           </div>
         ) : null}
 

@@ -24,6 +24,9 @@ import { settingsService } from '@/services/settings'
 import { columnsService } from '@/services/columns'
 import type { SlaConfig, AutoArchiveConfig, KanbanColumn, PostSaleConfig } from '@/types/crm'
 import EditColumnModal from '@/components/EditColumnModal'
+import UsersPermissionsSettings from '@/components/UsersPermissionsSettings'
+import AuditLogsTab from '@/components/AuditLogsTab'
+import { useAuth } from '@/context/AuthContext'
 import {
   Card,
   CardHeader,
@@ -80,7 +83,16 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [copiedWebhook, setCopiedWebhook] = useState(false)
 
+  const { isAdmin, hasPermission } = useAuth()
   const webhookUrl = `${window.location.origin}/api/crm/whatsapp-webhook`
+
+  const canManageUsers = isAdmin || hasPermission('settings_manage_users')
+  const canManagePerms = isAdmin || hasPermission('settings_manage_permissions')
+  const canViewAudit = isAdmin || hasPermission('settings_view_logs')
+  const canEditKanban = isAdmin || hasPermission('settings_edit_kanban')
+  const canConfigWA = isAdmin || hasPermission('settings_config_whatsapp')
+  const canConfigSla = isAdmin || hasPermission('settings_edit_automations')
+  const canConfigPS = isAdmin || hasPermission('settings_config_postsale')
 
   useEffect(() => {
     loadSettings()
@@ -226,33 +238,69 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="kanban" className="w-full">
-        <TabsList className="grid w-full grid-cols-6 max-w-3xl mb-6">
-          <TabsTrigger value="kanban" className="flex items-center gap-1.5 text-xs">
-            <Layers className="h-4 w-4" />
-            <span>Colunas</span>
-          </TabsTrigger>
-          <TabsTrigger value="sla" className="flex items-center gap-1.5 text-xs">
-            <Clock className="h-4 w-4" />
-            <span>SLA & Central</span>
-          </TabsTrigger>
-          <TabsTrigger value="postsale" className="flex items-center gap-1.5 text-xs">
-            <Star className="h-4 w-4 text-amber-500" />
-            <span>Pós-Venda</span>
-          </TabsTrigger>
-          <TabsTrigger value="autoarchive" className="flex items-center gap-1.5 text-xs">
-            <Archive className="h-4 w-4" />
-            <span>Arquivamento</span>
-          </TabsTrigger>
-          <TabsTrigger value="whatsapp" className="flex items-center gap-1.5 text-xs">
-            <MessageSquare className="h-4 w-4" />
-            <span>WhatsApp API</span>
-          </TabsTrigger>
+      <Tabs defaultValue={canManageUsers || canManagePerms ? 'users' : 'kanban'} className="w-full">
+        <TabsList className="flex flex-wrap gap-1 mb-6 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          {(canManageUsers || canManagePerms) && (
+            <TabsTrigger value="users" className="flex items-center gap-1.5 text-xs">
+              <ShieldAlert className="h-4 w-4 text-emerald-600" />
+              <span>Usuários & Permissões</span>
+            </TabsTrigger>
+          )}
+          {canViewAudit && (
+            <TabsTrigger value="audit" className="flex items-center gap-1.5 text-xs">
+              <Sparkles className="h-4 w-4 text-purple-600" />
+              <span>Logs de Auditoria</span>
+            </TabsTrigger>
+          )}
+          {canEditKanban && (
+            <TabsTrigger value="kanban" className="flex items-center gap-1.5 text-xs">
+              <Layers className="h-4 w-4" />
+              <span>Colunas Kanban</span>
+            </TabsTrigger>
+          )}
+          {canConfigSla && (
+            <TabsTrigger value="sla" className="flex items-center gap-1.5 text-xs">
+              <Clock className="h-4 w-4" />
+              <span>SLA & Central</span>
+            </TabsTrigger>
+          )}
+          {canConfigPS && (
+            <TabsTrigger value="postsale" className="flex items-center gap-1.5 text-xs">
+              <Star className="h-4 w-4 text-amber-500" />
+              <span>Pós-Venda</span>
+            </TabsTrigger>
+          )}
+          {canEditKanban && (
+            <TabsTrigger value="autoarchive" className="flex items-center gap-1.5 text-xs">
+              <Archive className="h-4 w-4" />
+              <span>Arquivamento</span>
+            </TabsTrigger>
+          )}
+          {canConfigWA && (
+            <TabsTrigger value="whatsapp" className="flex items-center gap-1.5 text-xs">
+              <MessageSquare className="h-4 w-4" />
+              <span>WhatsApp API</span>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="company" className="flex items-center gap-1.5 text-xs">
             <Building2 className="h-4 w-4" />
             <span>Empresa</span>
           </TabsTrigger>
         </TabsList>
+
+        {/* TAB: USERS & PERMISSIONS */}
+        {(canManageUsers || canManagePerms) && (
+          <TabsContent value="users" className="space-y-6">
+            <UsersPermissionsSettings />
+          </TabsContent>
+        )}
+
+        {/* TAB: AUDIT LOGS */}
+        {canViewAudit && (
+          <TabsContent value="audit" className="space-y-6">
+            <AuditLogsTab />
+          </TabsContent>
+        )}
 
         {/* TAB: PÓS-VENDA & AVALIAÇÃO DO CLIENTE */}
         <TabsContent value="postsale" className="space-y-6">

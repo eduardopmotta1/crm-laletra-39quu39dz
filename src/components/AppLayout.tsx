@@ -51,7 +51,7 @@ import { toast } from '@/hooks/use-toast'
 import ClientFormModal from './ClientFormModal'
 
 export default function AppLayout() {
-  const { user, logout } = useAuth()
+  const { user, logout, isAdmin, roleSlug, hasPermission } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -161,7 +161,32 @@ export default function AppLayout() {
     }
   }
 
-  const navItems = [
+  // Compute authorized navigation items based on user's permissions (Requirement 8)
+  const canAccessPending = isAdmin || hasPermission('pending_access')
+  const canAccessReports =
+    isAdmin ||
+    hasPermission('reports_attendance') ||
+    hasPermission('reports_commercial') ||
+    hasPermission('reports_revenue')
+  const canAccessKanban = isAdmin || hasPermission('attendance_view')
+  const canAccessProduction = isAdmin || hasPermission('production_view')
+  const canAccessClients = isAdmin || hasPermission('clients_view')
+  const canAccessArchived =
+    isAdmin || hasPermission('attendance_view_history') || hasPermission('attendance_archive')
+  const canAccessPostSale = isAdmin || hasPermission('postsale_view')
+  const canAccessTemplates =
+    isAdmin || hasPermission('whatsapp_use_templates') || hasPermission('settings_config_templates')
+  const canAccessTasks =
+    isAdmin || hasPermission('attendance_edit') || hasPermission('whatsapp_followup')
+  const canAccessSettings =
+    isAdmin ||
+    hasPermission('settings_manage_users') ||
+    hasPermission('settings_manage_permissions') ||
+    hasPermission('settings_edit_kanban') ||
+    hasPermission('settings_view_logs') ||
+    hasPermission('settings_config_whatsapp')
+
+  const allNavCandidates = [
     {
       to: '/pendencias',
       label: 'Central de Pendências',
@@ -169,12 +194,14 @@ export default function AppLayout() {
       badge: pendingHighAndUrgentCount > 0 ? `🔴 ${pendingHighAndUrgentCount}` : null,
       badgeVariant: 'destructive',
       highlight: true,
+      visible: canAccessPending,
     },
     {
       to: '/dashboard',
       label: 'Painel & Métricas',
       icon: LayoutDashboard,
       badge: null,
+      visible: canAccessReports,
     },
     {
       to: '/kanban',
@@ -182,6 +209,7 @@ export default function AppLayout() {
       icon: Kanban,
       badge: urgentCount > 0 ? `${urgentCount} SLA` : null,
       badgeVariant: 'destructive',
+      visible: canAccessKanban,
     },
     {
       to: '/producao',
@@ -189,18 +217,21 @@ export default function AppLayout() {
       icon: Package,
       badge: null,
       badgeVariant: 'secondary',
+      visible: canAccessProduction,
     },
     {
       to: '/clientes',
       label: 'Clientes & Atendimentos',
       icon: Users,
       badge: null,
+      visible: canAccessClients,
     },
     {
       to: '/arquivados',
       label: 'Atendimentos Arquivados',
       icon: Archive,
       badge: null,
+      visible: canAccessArchived,
     },
     {
       to: '/pos-venda',
@@ -208,6 +239,7 @@ export default function AppLayout() {
       icon: Star,
       badge: dissatisfiedCount > 0 ? `${dissatisfiedCount} ⚠️` : null,
       badgeVariant: 'destructive',
+      visible: canAccessPostSale,
       subItems: [
         {
           to: '/pos-venda',
@@ -225,20 +257,25 @@ export default function AppLayout() {
       label: 'Templates do WhatsApp',
       icon: FileText,
       badge: null,
+      visible: canAccessTemplates,
     },
     {
       to: '/tarefas',
       label: 'Tarefas de Follow-up',
       icon: CheckSquare,
       badge: null,
+      visible: canAccessTasks,
     },
     {
       to: '/configuracoes',
-      label: 'Configurações & API',
+      label: 'Configurações & Governança',
       icon: Settings,
       badge: null,
+      visible: canAccessSettings,
     },
   ]
+
+  const navItems = allNavCandidates.filter((item) => item.visible)
 
   const getInitials = (name?: string) => {
     if (!name) return 'AT'
@@ -354,13 +391,15 @@ export default function AppLayout() {
 
           {/* Quick Action Button */}
           <div className="px-4 pt-4 pb-2 space-y-2">
-            <Button
-              onClick={() => setNewClientOpen(true)}
-              className="w-full justify-center bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-all h-10"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Atendimento
-            </Button>
+            {(isAdmin || hasPermission('clients_create') || hasPermission('attendance_create')) && (
+              <Button
+                onClick={() => setNewClientOpen(true)}
+                className="w-full justify-center bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-all h-10"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Novo Atendimento
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -368,7 +407,7 @@ export default function AppLayout() {
               className="w-full text-xs text-slate-600 dark:text-slate-300 border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <MessageSquare className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
-              Simular msg WhatsApp
+              Simular WhatsApp
             </Button>
           </div>
 
