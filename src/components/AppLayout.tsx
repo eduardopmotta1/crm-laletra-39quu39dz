@@ -23,11 +23,14 @@ import {
   ChevronDown,
   ChevronUp,
   Package,
+  Layers,
+  AlertCircle,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
 import { settingsService } from '@/services/settings'
 import { evaluationsService } from '@/services/evaluations'
+import { pendingService } from '@/services/pending'
 import { calculateSlaInfo } from '@/lib/sla'
 import type { Client, SlaConfig } from '@/types/crm'
 import { Button } from '@/components/ui/button'
@@ -54,6 +57,7 @@ export default function AppLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [urgentCount, setUrgentCount] = useState(0)
   const [warningCount, setWarningCount] = useState(0)
+  const [pendingHighAndUrgentCount, setPendingHighAndUrgentCount] = useState(0)
   const [dissatisfiedCount, setDissatisfiedCount] = useState(0)
   const [postSaleSubMenuOpen, setPostSaleSubMenuOpen] = useState(true)
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
@@ -76,14 +80,21 @@ export default function AppLayout() {
 
   const loadSlaAlerts = async () => {
     try {
-      const [cfg, autoArchiveCfg, clients, evals] = await Promise.all([
+      const [cfg, autoArchiveCfg, clients, evals, pendingItems] = await Promise.all([
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
         clientsService.getAll(),
         evaluationsService.getAll('overall_rating <= 3 && overall_rating > 0 && resolved = false'),
+        pendingService.getAllPendingItems(),
       ])
       setSlaConfig(cfg)
       setDissatisfiedCount(evals.length)
+
+      // Count Alta + Urgente from Central de Pendências
+      const urgentAndHigh = pendingItems.filter(
+        (p) => p.priority === 'urgente' || p.priority === 'alta',
+      ).length
+      setPendingHighAndUrgentCount(urgentAndHigh)
 
       // Run automatic archiving check if enabled
       if (autoArchiveCfg.enabled) {
@@ -151,6 +162,14 @@ export default function AppLayout() {
   }
 
   const navItems = [
+    {
+      to: '/pendencias',
+      label: 'Central de Pendências',
+      icon: AlertCircle,
+      badge: pendingHighAndUrgentCount > 0 ? `🔴 ${pendingHighAndUrgentCount}` : null,
+      badgeVariant: 'destructive',
+      highlight: true,
+    },
     {
       to: '/dashboard',
       label: 'Painel & Métricas',
@@ -257,14 +276,26 @@ export default function AppLayout() {
         </div>
 
         <div className="flex items-center space-x-2">
-          {urgentCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="animate-pulse flex items-center gap-1 text-xs px-2 py-0.5"
-            >
-              <AlertTriangle className="h-3 w-3" />
-              {urgentCount} SLA
-            </Badge>
+          {pendingHighAndUrgentCount > 0 ? (
+            <NavLink to="/pendencias">
+              <Badge
+                variant="destructive"
+                className="animate-pulse flex items-center gap-1 text-xs px-2 py-0.5 font-bold"
+              >
+                <AlertCircle className="h-3 w-3" />
+                {pendingHighAndUrgentCount} Pendências
+              </Badge>
+            </NavLink>
+          ) : (
+            urgentCount > 0 && (
+              <Badge
+                variant="destructive"
+                className="animate-pulse flex items-center gap-1 text-xs px-2 py-0.5"
+              >
+                <AlertTriangle className="h-3 w-3" />
+                {urgentCount} SLA
+              </Badge>
+            )
           )}
           <Button
             size="sm"
@@ -302,20 +333,23 @@ export default function AppLayout() {
             </div>
           </div>
 
-          {/* SLA Alert Banner if urgent clients */}
-          {urgentCount > 0 && (
-            <div className="mx-4 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex items-start gap-2.5 animate-pulse">
-              <AlertTriangle className="h-5 w-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <span className="font-semibold text-rose-900 dark:text-rose-200 block">
-                  {urgentCount}{' '}
-                  {urgentCount === 1 ? 'cliente sem resposta' : 'clientes sem resposta'}!
+          {/* Central de Pendências Alert Banner */}
+          {pendingHighAndUrgentCount > 0 && (
+            <NavLink
+              to="/pendencias"
+              onClick={() => setMobileMenuOpen(false)}
+              className="mx-4 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex items-start gap-2.5 hover:shadow-md transition-all group"
+            >
+              <AlertCircle className="h-5 w-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5 animate-bounce" />
+              <div className="text-xs min-w-0 flex-1">
+                <span className="font-bold text-rose-900 dark:text-rose-200 block truncate group-hover:underline">
+                  {pendingHighAndUrgentCount} pendências prioritárias
                 </span>
                 <p className="text-rose-700 dark:text-rose-300 text-[11px] mt-0.5">
-                  SLA estourado ({slaConfig.urgentMinutes ?? 1440}min). Priorize respostas agora.
+                  Acesse a Central de Pendências para resolver atendimentos e prazos.
                 </p>
               </div>
-            </div>
+            </NavLink>
           )}
 
           {/* Quick Action Button */}

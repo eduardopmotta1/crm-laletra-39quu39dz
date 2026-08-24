@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T00:33:58.988Z",
+  "generatedAt": "2026-08-24T00:49:08.776Z",
   "collections": [
     {
       "name": "users",
@@ -1537,6 +1537,131 @@
         }
       ],
       "indexes": ["CREATE INDEX idx_prod_proofs_order ON production_proofs (order_id)"]
+    },
+    {
+      "name": "pending_resolutions",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "category",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "item_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "item_title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "clients"
+        },
+        {
+          "name": "client_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "assigned_to",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "assigned_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolved_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "resolved_by_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "action_taken",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_created_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolved_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resolution_time_minutes",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "initial_priority",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_pending_res_cat ON pending_resolutions (category)",
+        "CREATE INDEX idx_pending_res_client ON pending_resolutions (client_id)",
+        "CREATE INDEX idx_pending_res_resolved_at ON pending_resolutions (resolved_at)"
+      ]
     }
   ]
 }

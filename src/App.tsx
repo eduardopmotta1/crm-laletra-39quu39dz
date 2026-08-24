@@ -10,6 +10,7 @@ import AppLayout from '@/components/AppLayout'
 import LoginPage from '@/pages/LoginPage'
 import RegisterPage from '@/pages/RegisterPage'
 import DashboardPage from '@/pages/DashboardPage'
+import PendingHubPage from '@/pages/PendingHubPage'
 import KanbanPage from '@/pages/KanbanPage'
 import ClientsListPage from '@/pages/ClientsListPage'
 import TasksPage from '@/pages/TasksPage'
@@ -47,7 +48,8 @@ const App = () => (
               </ProtectedRoute>
             }
           >
-            <Route path="/" element={<DashboardPage />} />
+            <Route path="/" element={<PendingHubPage />} />
+            <Route path="/pendencias" element={<PendingHubPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/kanban" element={<KanbanPage />} />
             <Route path="/producao" element={<ProductionKanbanPage />} />

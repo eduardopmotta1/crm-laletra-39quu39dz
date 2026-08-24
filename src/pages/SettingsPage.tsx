@@ -232,6 +232,10 @@ export default function SettingsPage() {
             <Layers className="h-4 w-4" />
             <span>Colunas</span>
           </TabsTrigger>
+          <TabsTrigger value="sla" className="flex items-center gap-1.5 text-xs">
+            <Clock className="h-4 w-4" />
+            <span>SLA & Central</span>
+          </TabsTrigger>
           <TabsTrigger value="postsale" className="flex items-center gap-1.5 text-xs">
             <Star className="h-4 w-4 text-amber-500" />
             <span>Pós-Venda</span>
@@ -243,10 +247,6 @@ export default function SettingsPage() {
           <TabsTrigger value="whatsapp" className="flex items-center gap-1.5 text-xs">
             <MessageSquare className="h-4 w-4" />
             <span>WhatsApp API</span>
-          </TabsTrigger>
-          <TabsTrigger value="sla" className="flex items-center gap-1.5 text-xs">
-            <Clock className="h-4 w-4" />
-            <span>SLA</span>
           </TabsTrigger>
           <TabsTrigger value="company" className="flex items-center gap-1.5 text-xs">
             <Building2 className="h-4 w-4" />
@@ -763,21 +763,50 @@ export default function SettingsPage() {
           </form>
         </TabsContent>
 
-        {/* TAB 4: SLA RULES */}
+        {/* TAB 4: SLA RULES & CENTRAL DE PENDÊNCIAS */}
         <TabsContent value="sla" className="space-y-6">
           <form onSubmit={handleSaveSla} className="space-y-6">
             <Card className="border-slate-200 dark:border-slate-800">
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Clock className="h-5 w-5 text-emerald-600" />
-                  Prazos e Alertas de SLA para Atendimento
+                  Prazos e Alertas de SLA para Atendimento & Central de Pendências
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Controle os prazos máximos para a equipe responder aos clientes aguardando no
-                  WhatsApp.
+                  Controle os prazos máximos para a equipe responder aos clientes e como a Central
+                  de Pendências calcula prioridades automáticas.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border text-xs space-y-2">
+                  <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <AlertCircle className="h-4 w-4 text-emerald-600" />
+                    Regras Automáticas da Central de Pendências:
+                  </span>
+                  <ul className="list-disc list-inside space-y-1 text-slate-600 dark:text-slate-300">
+                    <li>
+                      <strong>Clientes aguardando resposta:</strong> &lt;15 min (Normal), 15-60 min
+                      (Alta), &gt;60 min (Urgente).
+                    </li>
+                    <li>
+                      <strong>Pedidos em atraso:</strong> Atrasado hoje (Alta), &gt;1 dia de atraso
+                      (Urgente).
+                    </li>
+                    <li>
+                      <strong>Clientes insatisfeitos (1-3 estrelas):</strong> Sempre prioridade Alta
+                      ou Urgente.
+                    </li>
+                    <li>
+                      <strong>Orçamentos sem retorno:</strong> &gt;1 dia (Alta), &gt;3 dias
+                      (Urgente).
+                    </li>
+                    <li>
+                      <strong>Follow-ups e Pós-Vendas:</strong> Programados p/ hoje (Normal),
+                      vencidos (Alta/Urgente).
+                    </li>
+                  </ul>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Notice (Amarelo) */}
                   <div className="p-4 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 space-y-2">

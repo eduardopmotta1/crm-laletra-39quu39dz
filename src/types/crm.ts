@@ -402,6 +402,96 @@ export interface ProductionDeadlineStatus {
   cardBorderClass: string
 }
 
+// ----------------------------------------------------
+// Central de Pendências Types
+// ----------------------------------------------------
+
+export type PendingCategory =
+  | 'clients_waiting_response' // Clientes aguardando resposta WhatsApp
+  | 'overdue_attendances' // Atendimentos atrasados (SLA geral sem ação)
+  | 'quotes_waiting_return' // Orçamentos aguardando retorno
+  | 'overdue_followups' // Follow-ups vencidos ou para hoje
+  | 'proofs_waiting_approval' // Artes aguardando aprovação
+  | 'orders_overdue' // Pedidos atrasados na produção
+  | 'orders_due_today' // Pedidos que vencem hoje
+  | 'orders_due_tomorrow' // Pedidos que vencem amanhã
+  | 'pending_post_sales' // Pós-vendas pendentes
+  | 'dissatisfied_clients' // Clientes insatisfeitos (nota <= 3 ou reclamação aberta)
+
+export type PendingPriority = 'baixa' | 'normal' | 'alta' | 'urgente'
+
+export interface PendingItem {
+  id: string
+  category: PendingCategory
+  categoryLabel: string
+  title: string
+  subtitle?: string
+  priority: PendingPriority
+  createdAt: string
+  referenceDate?: string
+  waitingTimeFormatted: string
+  waitingTimeMinutes: number
+  assignedToId?: string
+  assignedToName?: string
+  assignedToAvatar?: string
+
+  // Entity context
+  clientId?: string
+  clientName: string
+  clientPhone: string
+  clientEmail?: string
+  productInterest?: string
+  quoteValue?: number
+  currentStage?: string
+
+  // Specific entity references
+  orderId?: string
+  orderNumber?: string
+  proofId?: string
+  taskId?: string
+  evaluationId?: string
+  evaluationRating?: number
+  evaluationComment?: string
+  postSaleId?: string
+
+  // Raw object for fast operations
+  originalData?: any
+}
+
+export interface PendingResolutionRecord {
+  id: string
+  category: PendingCategory | string
+  item_id: string
+  item_title?: string
+  client_id?: string
+  client_name?: string
+  assigned_to?: string
+  assigned_name?: string
+  resolved_by?: string
+  resolved_by_name?: string
+  action_taken?: string
+  notes?: string
+  item_created_at?: string
+  resolved_at?: string
+  resolution_time_minutes?: number
+  initial_priority?: string
+  created: string
+  updated: string
+}
+
+export interface EfficiencyMetrics {
+  avgFirstResponseMinutes: number
+  totalOverdueAttendances: number
+  resolvedTodayCount: number
+  avgResolutionMinutes: number
+  percentResponsesOnTime: number
+  percentOrdersDeliveredOnTime: number
+  percentFollowupsCompleted: number
+  totalPendingCount: number
+  totalUrgentCount: number
+  totalHighCount: number
+}
+
 /**
  * Checks if a client is within the Meta 24-hour service window
  * (Customer sent an inbound message less than 24h ago).
