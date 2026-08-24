@@ -22,6 +22,10 @@ import {
   Sparkles,
   Activity,
   Loader2,
+  RefreshCw,
+  Server,
+  Zap,
+  Globe,
 } from 'lucide-react'
 import {
   Dialog,
@@ -33,6 +37,7 @@ import {
 } from '@/components/ui/dialog'
 import { settingsService } from '@/services/settings'
 import { columnsService } from '@/services/columns'
+import { whatsappService } from '@/services/whatsapp'
 import type { SlaConfig, AutoArchiveConfig, KanbanColumn, PostSaleConfig } from '@/types/crm'
 import EditColumnModal from '@/components/EditColumnModal'
 import UsersPermissionsSettings from '@/components/UsersPermissionsSettings'
@@ -105,6 +110,37 @@ export default function SettingsPage() {
     sentChallenge: string
     isSuccess: boolean
     errorMessage?: string
+    testedAt?: string
+  } | null>(null)
+
+  // Webhook Diagnostics & Publication Status State
+  const [publicationStatus, setPublicationStatus] = useState<{
+    checked: boolean
+    checking: boolean
+    isPublished: boolean
+    status: string
+    service?: string
+    timestamp?: string
+    error?: string
+    rawResponse?: string
+    lastCheckedAt?: string
+  }>({
+    checked: false,
+    checking: false,
+    isPublished: false,
+    status: 'idle',
+  })
+
+  const [diagnosticsData, setDiagnosticsData] = useState<{
+    loading: boolean
+    published: boolean
+    webhook_url: string
+    last_meta_event_at: string | null
+    last_meta_event_type?: string
+    total_inbound_messages?: number
+    total_meta_messages?: number
+    server_time: string
+    lastFetchedAt?: string
   } | null>(null)
 
   const { isAdmin, hasPermission } = useAuth()
@@ -124,7 +160,53 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadSettings()
+    checkPublicationAndDiagnostics()
   }, [])
+
+  const checkPublicationAndDiagnostics = async () => {
+    setPublicationStatus((prev) => ({ ...prev, checking: true }))
+    try {
+      const [pubRes, diagRes] = await Promise.all([
+        whatsappService.checkPublicationStatus(productionWebhookUrl),
+        whatsappService.getWebhookDiagnostics(),
+      ])
+
+      const nowIso = new Date().toISOString()
+      setPublicationStatus({
+        checked: true,
+        checking: false,
+        isPublished: pubRes.isPublished,
+        status: pubRes.status,
+        service: pubRes.service,
+        timestamp: pubRes.timestamp,
+        error: pubRes.error,
+        rawResponse: pubRes.rawResponse,
+        lastCheckedAt: nowIso,
+      })
+
+      setDiagnosticsData({
+        loading: false,
+        published: diagRes.published,
+        webhook_url: diagRes.webhook_url,
+        last_meta_event_at: diagRes.last_meta_event_at,
+        last_meta_event_type: diagRes.last_meta_event_type,
+        total_inbound_messages: diagRes.total_inbound_messages,
+        total_meta_messages: diagRes.total_meta_messages,
+        server_time: diagRes.server_time,
+        lastFetchedAt: nowIso,
+      })
+    } catch (err: any) {
+      setPublicationStatus((prev) => ({
+        ...prev,
+        checked: true,
+        checking: false,
+        isPublished: false,
+        status: 'error',
+        error: err?.message || 'Falha ao verificar status',
+        lastCheckedAt: new Date().toISOString(),
+      }))
+    }
+  }
 
   const loadSettings = async () => {
     try {
@@ -282,6 +364,7 @@ export default function SettingsPage() {
         expectedToken: tokenToTest,
         sentChallenge: challengeToTest,
         isSuccess,
+        testedAt: new Date().toISOString(),
       })
       setTestModalOpen(true)
     } catch (err: any) {
@@ -293,6 +376,7 @@ export default function SettingsPage() {
         sentChallenge: challengeToTest,
         isSuccess: false,
         errorMessage: err?.message,
+        testedAt: new Date().toISOString(),
       })
       setTestModalOpen(true)
     } finally {
@@ -767,6 +851,71 @@ export default function SettingsPage() {
 
         {/* TAB 3: WHATSAPP API */}
         <TabsContent value="whatsapp" className="space-y-6">
+          {/* Status Indicator Banner */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl border bg-white dark:bg-slate-900 shadow-sm border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div
+                className={`p-2.5 rounded-xl shrink-0 ${
+                  publicationStatus.checking
+                    ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                    : publicationStatus.isPublished
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
+                      : 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400'
+                }`}
+              >
+                {publicationStatus.checking ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : publicationStatus.isPublished ? (
+                  <Globe className="h-5 w-5 text-emerald-600" />
+                ) : (
+                  <AlertCircle className="h-5 w-5 text-rose-600" />
+                )}
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">
+                    Status de Publicação do Webhook:
+                  </span>
+                  {publicationStatus.checking ? (
+                    <Badge variant="outline" className="text-xs text-slate-600 animate-pulse">
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      Verificando publicação...
+                    </Badge>
+                  ) : publicationStatus.isPublished ? (
+                    <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold">
+                      ✅ Publicado — URL de produção ativa
+                    </Badge>
+                  ) : (
+                    <Badge variant="destructive" className="text-xs font-semibold">
+                      ⚠️ Projeto não publicado — clique em Publicar no Builder do Skip
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {publicationStatus.isPublished
+                    ? 'O endpoint público do WhatsApp está respondendo ativamente com JSON formatado e pronto para a Meta.'
+                    : 'A URL de produção ainda não respondeu com o JSON ativo do webhook. Publique o projeto no Skip para ativar.'}
+                </p>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={checkPublicationAndDiagnostics}
+              disabled={publicationStatus.checking}
+              className="shrink-0 text-xs font-semibold h-8"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 mr-1.5 ${
+                  publicationStatus.checking ? 'animate-spin text-emerald-600' : ''
+                }`}
+              />
+              {publicationStatus.checking ? 'Verificando...' : 'Verificar novamente'}
+            </Button>
+          </div>
+
           <form onSubmit={handleSaveWhatsApp} className="space-y-6">
             <Card className="border-slate-200 dark:border-slate-800">
               <CardHeader>
@@ -956,6 +1105,169 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Diagnostics Panel Card */}
+            <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600">
+                      <Server className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">Diagnóstico do Webhook</CardTitle>
+                      <CardDescription className="text-xs">
+                        Monitoramento de integridade, status de publicação e telemetria de eventos
+                        Meta.
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={checkPublicationAndDiagnostics}
+                    disabled={publicationStatus.checking}
+                    className="text-xs h-8 text-slate-600 hover:text-emerald-600"
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 mr-1.5 ${
+                        publicationStatus.checking ? 'animate-spin' : ''
+                      }`}
+                    />
+                    Atualizar
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Item 1: Status de Publicação */}
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                        <Globe className="h-3.5 w-3.5 text-slate-400" />
+                        Status da Publicação
+                      </span>
+                      {publicationStatus.checking ? (
+                        <Badge variant="outline" className="text-[10px] animate-pulse">
+                          Verificando...
+                        </Badge>
+                      ) : publicationStatus.isPublished ? (
+                        <Badge className="bg-emerald-600 text-white text-[10px] font-semibold">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Online / Ativo
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive" className="text-[10px] font-semibold">
+                          <XCircle className="h-3 w-3 mr-1" />
+                          Não publicado
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      {publicationStatus.isPublished
+                        ? 'URL de Produção respondendo com sucesso'
+                        : 'Requer clique em Publicar no Builder'}
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-mono truncate">
+                      {productionWebhookUrl}
+                    </p>
+                  </div>
+
+                  {/* Item 2: Último teste realizado */}
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                        <Activity className="h-3.5 w-3.5 text-slate-400" />
+                        Último Teste Realizado
+                      </span>
+                      {testResult ? (
+                        <Badge
+                          className={`text-[10px] font-semibold ${
+                            testResult.isSuccess
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-rose-600 text-white'
+                          }`}
+                        >
+                          {testResult.isSuccess ? '✅ Sucesso' : '❌ Falhou'}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-slate-400">
+                          Nenhum teste nesta sessão
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      {testResult
+                        ? `${new Date(testResult.testedAt || Date.now()).toLocaleDateString('pt-BR')} às ${new Date(testResult.testedAt || Date.now()).toLocaleTimeString('pt-BR')}`
+                        : 'Clique em "Testar Webhook" acima para executar'}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {testResult
+                        ? `HTTP Status: ${testResult.status} | Token: ${testResult.expectedToken}`
+                        : 'Simula handshake subscribe da Meta'}
+                    </p>
+                  </div>
+
+                  {/* Item 3: Último evento recebido da Meta */}
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                        <Zap className="h-3.5 w-3.5 text-slate-400" />
+                        Último Evento Recebido da Meta
+                      </span>
+                      {diagnosticsData?.last_meta_event_at ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-emerald-600 border-emerald-300"
+                        >
+                          {diagnosticsData.last_meta_event_type || 'Mensagem'}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-slate-400">
+                          Sem eventos
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      {diagnosticsData?.last_meta_event_at
+                        ? `${new Date(diagnosticsData.last_meta_event_at).toLocaleDateString('pt-BR')} às ${new Date(diagnosticsData.last_meta_event_at).toLocaleTimeString('pt-BR')}`
+                        : 'Nenhum evento registrado ainda'}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {diagnosticsData?.total_inbound_messages !== undefined
+                        ? `Total de mensagens recebidas: ${diagnosticsData.total_inbound_messages}`
+                        : 'Consultado na collection de mensagens do CRM'}
+                    </p>
+                  </div>
+
+                  {/* Item 4: Timestamp da última verificação */}
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-slate-400" />
+                        Última Verificação do Diagnóstico
+                      </span>
+                      <Badge variant="secondary" className="text-[10px] font-mono">
+                        {publicationStatus.checked ? 'Atualizado' : 'Aguardando'}
+                      </Badge>
+                    </div>
+                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      {publicationStatus.lastCheckedAt
+                        ? `${new Date(publicationStatus.lastCheckedAt).toLocaleDateString('pt-BR')} às ${new Date(publicationStatus.lastCheckedAt).toLocaleTimeString('pt-BR')}`
+                        : 'Não verificado'}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Horário do servidor:{' '}
+                      {diagnosticsData?.server_time
+                        ? new Date(diagnosticsData.server_time).toLocaleTimeString('pt-BR')
+                        : '-'}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="flex justify-end gap-3">
               <Button
                 type="submit"

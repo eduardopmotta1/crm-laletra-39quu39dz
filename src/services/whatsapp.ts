@@ -101,6 +101,121 @@ export const whatsappService = {
   },
 
   /**
+   * Check production webhook publication and health status
+   */
+  async checkPublicationStatus(
+    url = 'https://crm-grafica-whatsapp-7b1a5.goskip.app/api/crm/whatsapp-webhook',
+  ): Promise<{
+    isPublished: boolean
+    isJson: boolean
+    status: string
+    service?: string
+    timestamp?: string
+    error?: string
+    rawResponse?: string
+  }> {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json, text/plain, */*',
+        },
+      })
+
+      const contentType = response.headers.get('content-type') || ''
+      const text = await response.text()
+
+      if (contentType.includes('application/json')) {
+        try {
+          const data = JSON.parse(text)
+          if (data && (data.status === 'active' || data.service)) {
+            return {
+              isPublished: true,
+              isJson: true,
+              status: data.status || 'active',
+              service: data.service,
+              timestamp: data.timestamp,
+              rawResponse: text,
+            }
+          }
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
+      // Check if response text is valid JSON with status active
+      try {
+        const parsed = JSON.parse(text)
+        if (parsed && (parsed.status === 'active' || parsed.service)) {
+          return {
+            isPublished: true,
+            isJson: true,
+            status: parsed.status || 'active',
+            service: parsed.service,
+            timestamp: parsed.timestamp,
+            rawResponse: text,
+          }
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+
+      // If returned HTML (e.g. Builder/non-published placeholder) or non-JSON
+      return {
+        isPublished: false,
+        isJson: false,
+        status: response.status === 200 ? 'html_or_invalid_json' : `http_${response.status}`,
+        error:
+          'Resposta recebida não é o JSON ativo do webhook (projeto não publicado no Builder ou em manutenção)',
+        rawResponse: text.slice(0, 300),
+      }
+    } catch (err: any) {
+      return {
+        isPublished: false,
+        isJson: false,
+        status: 'network_or_cors_error',
+        error: err?.message || 'Falha na conexão de rede / CORS',
+      }
+    }
+  },
+
+  /**
+   * Get Webhook Diagnostics data from backend
+   */
+  async getWebhookDiagnostics(): Promise<{
+    published: boolean
+    webhook_url: string
+    last_meta_event_at: string | null
+    last_meta_event_type?: string
+    total_inbound_messages?: number
+    total_meta_messages?: number
+    server_time: string
+  }> {
+    try {
+      const res = await pb.send<{
+        published: boolean
+        webhook_url: string
+        last_meta_event_at: string | null
+        last_meta_event_type?: string
+        total_inbound_messages?: number
+        total_meta_messages?: number
+        server_time: string
+      }>('/api/crm/webhook-diagnostics', {
+        method: 'GET',
+      })
+      return res
+    } catch (error) {
+      console.error('Error fetching webhook diagnostics:', error)
+      return {
+        published: false,
+        webhook_url: 'https://crm-grafica-whatsapp-7b1a5.goskip.app/api/crm/whatsapp-webhook',
+        last_meta_event_at: null,
+        server_time: new Date().toISOString(),
+      }
+    }
+  },
+
+  /**
    * Simulate or trigger incoming webhook message from customer
    */
   async simulateInboundMessage(
