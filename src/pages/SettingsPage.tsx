@@ -17,9 +17,20 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
+  XCircle,
   Star,
   Sparkles,
+  Activity,
+  Loader2,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { settingsService } from '@/services/settings'
 import { columnsService } from '@/services/columns'
 import type { SlaConfig, AutoArchiveConfig, KanbanColumn, PostSaleConfig } from '@/types/crm'
@@ -82,6 +93,19 @@ export default function SettingsPage() {
 
   const [saving, setSaving] = useState(false)
   const [copiedWebhook, setCopiedWebhook] = useState(false)
+
+  // Webhook Testing State
+  const [testingWebhook, setTestingWebhook] = useState(false)
+  const [testModalOpen, setTestModalOpen] = useState(false)
+  const [testResult, setTestResult] = useState<{
+    testedUrl: string
+    status: number | string
+    responseBody: string
+    expectedToken: string
+    sentChallenge: string
+    isSuccess: boolean
+    errorMessage?: string
+  } | null>(null)
 
   const { isAdmin, hasPermission } = useAuth()
   const productionWebhookUrl =
@@ -231,6 +255,49 @@ export default function SettingsPage() {
     toast({
       title: 'Copiado para a área de transferência',
     })
+  }
+
+  const handleTestWebhook = async () => {
+    setTestingWebhook(true)
+    const tokenToTest = verifyToken || 'laletra_crm_webhook_2024'
+    const challengeToTest = 'test_challenge_' + Math.floor(100000 + Math.random() * 900000)
+    const targetUrl = new URL(productionWebhookUrl)
+    targetUrl.searchParams.set('hub.mode', 'subscribe')
+    targetUrl.searchParams.set('hub.verify_token', tokenToTest)
+    targetUrl.searchParams.set('hub.challenge', challengeToTest)
+
+    const fullTestedUrl = targetUrl.toString()
+
+    try {
+      const res = await fetch(fullTestedUrl, {
+        method: 'GET',
+      })
+      const text = await res.text()
+      const isSuccess = res.status === 200 && text.trim() === challengeToTest
+
+      setTestResult({
+        testedUrl: fullTestedUrl,
+        status: res.status,
+        responseBody: text,
+        expectedToken: tokenToTest,
+        sentChallenge: challengeToTest,
+        isSuccess,
+      })
+      setTestModalOpen(true)
+    } catch (err: any) {
+      setTestResult({
+        testedUrl: fullTestedUrl,
+        status: 'Erro de Conexão',
+        responseBody: err?.message || 'Falha na requisição de rede',
+        expectedToken: tokenToTest,
+        sentChallenge: challengeToTest,
+        isSuccess: false,
+        errorMessage: err?.message,
+      })
+      setTestModalOpen(true)
+    } finally {
+      setTestingWebhook(false)
+    }
   }
 
   return (
@@ -853,9 +920,43 @@ export default function SettingsPage() {
                     Padrão recomendado: <code>laletra_crm_webhook_2024</code>.
                   </p>
                 </div>
+
+                {/* Test Webhook Action Box */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-lg">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <Activity className="h-4 w-4 text-emerald-600" />
+                      Validar Handshake da Meta
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Simula a requisição GET da Meta com seu token configurado e valida a resposta
+                      de challenge.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTestWebhook}
+                    disabled={testingWebhook}
+                    className="border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 shrink-0 text-xs font-semibold"
+                  >
+                    {testingWebhook ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        Testando...
+                      </>
+                    ) : (
+                      <>
+                        <Activity className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
+                        Testar Webhook
+                      </>
+                    )}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-3">
               <Button
                 type="submit"
                 disabled={saving}
@@ -867,7 +968,6 @@ export default function SettingsPage() {
             </div>
           </form>
         </TabsContent>
-
         {/* TAB 4: SLA RULES & CENTRAL DE PENDÊNCIAS */}
         <TabsContent value="sla" className="space-y-6">
           <form onSubmit={handleSaveSla} className="space-y-6">
@@ -1040,6 +1140,143 @@ export default function SettingsPage() {
         allColumns={columns}
         onSaved={() => loadSettings()}
       />
+
+      {/* Webhook Test Result Modal */}
+      <Dialog open={testModalOpen} onOpenChange={setTestModalOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              {testResult?.isSuccess ? (
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              ) : (
+                <XCircle className="h-5 w-5 text-rose-600" />
+              )}
+              {testResult?.isSuccess
+                ? '✅ Webhook funcionando!'
+                : '❌ Falha na validação — verifique os logs'}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Resultado do teste de validação de Webhook do WhatsApp Cloud API (Meta Handshake GET).
+            </DialogDescription>
+          </DialogHeader>
+
+          {testResult && (
+            <div className="space-y-3 py-2 text-xs">
+              {/* Status banner */}
+              <div
+                className={`p-3 rounded-lg border flex items-center justify-between ${
+                  testResult.isSuccess
+                    ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                    : 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+                }`}
+              >
+                <div className="font-semibold flex items-center gap-2">
+                  <span>Status HTTP:</span>
+                  <Badge
+                    variant={testResult.status === 200 ? 'default' : 'destructive'}
+                    className={
+                      testResult.status === 200
+                        ? 'bg-emerald-600 text-white font-mono'
+                        : 'font-mono'
+                    }
+                  >
+                    {testResult.status}
+                  </Badge>
+                </div>
+                <div className="text-[11px] font-medium">
+                  {testResult.isSuccess
+                    ? 'Challenge verificado com sucesso'
+                    : 'Resposta incompatível com o esperado pela Meta'}
+                </div>
+              </div>
+
+              {/* Detail fields */}
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                  URL Testada:
+                </Label>
+                <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[11px] break-all select-all text-slate-800 dark:text-slate-200">
+                  {testResult.testedUrl}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Token Esperado / Enviado:
+                  </Label>
+                  <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[11px] text-slate-800 dark:text-slate-200">
+                    {testResult.expectedToken}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Challenge Enviado:
+                  </Label>
+                  <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[11px] text-slate-800 dark:text-slate-200">
+                    {testResult.sentChallenge}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                  Corpo da Resposta Recebida:
+                </Label>
+                <div
+                  className={`p-2 rounded font-mono text-[11px] whitespace-pre-wrap break-all ${
+                    testResult.isSuccess
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                      : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                  }`}
+                >
+                  {testResult.responseBody || '(vazio)'}
+                </div>
+              </div>
+
+              {testResult.isSuccess ? (
+                <p className="text-[11px] text-slate-500">
+                  A Meta aceitará este endpoint instantaneamente ao clicar em "Verificar e salvar"
+                  no painel da Meta for Developers.
+                </p>
+              ) : (
+                <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                  Certifique-se de salvar o Token no CRM antes de testar ou verifique se o servidor
+                  backend está online.
+                </p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setTestModalOpen(false)}
+              className="text-xs"
+            >
+              Fechar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleTestWebhook}
+              disabled={testingWebhook}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+            >
+              {testingWebhook ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Testando novamente...
+                </>
+              ) : (
+                'Testar Novamente'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

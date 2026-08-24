@@ -3,25 +3,46 @@
 
 // 1. Webhook Verification endpoint for Meta Webhook setup (GET)
 routerAdd('GET', '/api/crm/whatsapp-webhook', (e) => {
-  const query = e.requestInfo().query || {}
-  const hubMode = query['hub.mode'] || query['hub_mode'] || ''
-  const hubVerifyToken = query['hub.verify_token'] || query['hub_verify_token'] || ''
-  const hubChallenge = query['hub.challenge'] || query['hub_challenge'] || ''
+  // Access query parameters via e.request.url.query() (Go net/url API) with fallback to e.requestInfo().query
+  let hubMode = ''
+  let hubVerifyToken = ''
+  let hubChallenge = ''
 
-  console.log('[Meta Webhook GET] Verification request received:', {
-    has_mode: Boolean(hubMode),
-    mode: hubMode,
-    has_verify_token: Boolean(hubVerifyToken),
-    received_token: hubVerifyToken
-      ? hubVerifyToken.length > 8
-        ? hubVerifyToken.substring(0, 4) + '...'
-        : '***'
-      : 'none',
+  try {
+    if (e.request && e.request.url && typeof e.request.url.query === 'function') {
+      const q = e.request.url.query()
+      hubMode = q.get('hub.mode') || q.get('hub_mode') || ''
+      hubVerifyToken = q.get('hub.verify_token') || q.get('hub_verify_token') || ''
+      hubChallenge = q.get('hub.challenge') || q.get('hub_challenge') || ''
+    }
+  } catch (err) {
+    console.log('[Meta Webhook GET] Error reading url.query():', err)
+  }
+
+  // Fallback to requestInfo().query if needed
+  if (!hubMode && !hubVerifyToken && !hubChallenge) {
+    try {
+      const reqInfoQuery = (e.requestInfo && e.requestInfo().query) || {}
+      hubMode = reqInfoQuery['hub.mode'] || reqInfoQuery['hub_mode'] || ''
+      hubVerifyToken = reqInfoQuery['hub.verify_token'] || reqInfoQuery['hub_verify_token'] || ''
+      hubChallenge = reqInfoQuery['hub.challenge'] || reqInfoQuery['hub_challenge'] || ''
+    } catch (_) {}
+  }
+
+  const maskedReceivedToken = hubVerifyToken
+    ? hubVerifyToken.length > 8
+      ? hubVerifyToken.substring(0, 4) + '...' + hubVerifyToken.substring(hubVerifyToken.length - 2)
+      : '***'
+    : 'none'
+
+  console.log('[Meta Webhook GET] Request received with query params:', {
+    hub_mode: hubMode,
+    hub_verify_token_masked: maskedReceivedToken,
     has_challenge: Boolean(hubChallenge),
     challenge_length: hubChallenge ? String(hubChallenge).length : 0,
   })
 
-  // If this is a Meta verification handshake (hub.mode === 'subscribe')
+  // If this is a Meta verification handshake (hub.mode === 'subscribe') or verification params were sent
   if (hubMode === 'subscribe' || hubVerifyToken || hubChallenge) {
     // 1. Fetch configured VERIFY_TOKEN from system_settings or env or fallback defaults
     let expectedToken = ''
@@ -48,17 +69,26 @@ routerAdd('GET', '/api/crm/whatsapp-webhook', (e) => {
       'laletra_crm_secret_token_2025',
     ].filter((t) => Boolean(t && t.trim()))
 
-    const isMatch = allowedTokens.includes(hubVerifyToken.trim())
+    const isMatch = Boolean(hubVerifyToken) && allowedTokens.includes(hubVerifyToken.trim())
+
+    console.log('[Meta Webhook GET] Verification check details:', {
+      mode: hubMode,
+      token_matched: isMatch,
+      received_token_masked: maskedReceivedToken,
+      expected_tokens_count: allowedTokens.length,
+    })
 
     if (hubMode === 'subscribe' && isMatch) {
-      console.log('[Meta Webhook GET] Verification SUCCESS! Returning challenge string.')
+      console.log(
+        '[Meta Webhook GET] Verification SUCCESS! Returning challenge string as plain text.',
+      )
       // Meta requires HTTP 200 with raw challenge text (Content-Type: text/plain)
       return e.string(200, String(hubChallenge))
     }
 
     if (!isMatch) {
       console.log(
-        '[Meta Webhook GET] Verification FAILED: token mismatch. Received token did not match configured tokens.',
+        '[Meta Webhook GET] Verification FAILED: token mismatch or invalid token. Received token did not match configured tokens.',
       )
       return e.string(403, 'Forbidden: verification token mismatch')
     }
