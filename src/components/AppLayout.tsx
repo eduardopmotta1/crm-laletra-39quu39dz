@@ -345,37 +345,55 @@ export default function AppLayout() {
         </div>
       </header>
 
-      {/* Sidebar Desktop */}
+      {/* Mobile Backdrop */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-45 bg-black/50 backdrop-blur-xs lg:hidden transition-opacity"
+          onClick={() => setMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar Desktop / Mobile Drawer: Fixed Container with Scrollable Body */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 h-screen max-h-screen ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Brand Header */}
-        <div>
-          <div className="h-16 flex items-center justify-between px-5 border-b border-slate-100 dark:border-slate-800/80">
-            <div className="flex items-center space-x-3">
-              <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/20">
-                <Printer className="h-5 w-5" />
-              </div>
-              <div>
-                <h1 className="font-bold text-slate-900 dark:text-white text-base leading-tight">
-                  CRM Gráfica
-                </h1>
-                <p className="text-xs text-slate-500 flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
-                  WhatsApp Cloud Ativo
-                </p>
-              </div>
+        {/* Brand Header (Fixed at top of sidebar) */}
+        <div className="h-16 shrink-0 flex items-center justify-between px-5 border-b border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900">
+          <div className="flex items-center space-x-3">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/20">
+              <Printer className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="font-bold text-slate-900 dark:text-white text-base leading-tight">
+                CRM Gráfica
+              </h1>
+              <p className="text-xs text-slate-500 flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
+                WhatsApp Cloud Ativo
+              </p>
             </div>
           </div>
+          {/* Close button for mobile drawer */}
+          <button
+            onClick={() => setMobileMenuOpen(false)}
+            className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Fechar menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
+        {/* Scrollable Navigation & Action Area */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-2 space-y-3">
           {/* Central de Pendências Alert Banner */}
           {pendingHighAndUrgentCount > 0 && (
             <NavLink
               to="/pendencias"
               onClick={() => setMobileMenuOpen(false)}
-              className="mx-4 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex items-start gap-2.5 hover:shadow-md transition-all group"
+              className="mx-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex items-start gap-2.5 hover:shadow-md transition-all group"
             >
               <AlertCircle className="h-5 w-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5 animate-bounce" />
               <div className="text-xs min-w-0 flex-1">
@@ -390,10 +408,13 @@ export default function AppLayout() {
           )}
 
           {/* Quick Action Button */}
-          <div className="px-4 pt-4 pb-2 space-y-2">
+          <div className="px-4 space-y-2">
             {(isAdmin || hasPermission('clients_create') || hasPermission('attendance_create')) && (
               <Button
-                onClick={() => setNewClientOpen(true)}
+                onClick={() => {
+                  setNewClientOpen(true)
+                  setMobileMenuOpen(false)
+                }}
                 className="w-full justify-center bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-all h-10"
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -403,7 +424,10 @@ export default function AppLayout() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSimulateOpen(true)}
+              onClick={() => {
+                setSimulateOpen(true)
+                setMobileMenuOpen(false)
+              }}
               className="w-full text-xs text-slate-600 dark:text-slate-300 border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <MessageSquare className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
@@ -412,7 +436,7 @@ export default function AppLayout() {
           </div>
 
           {/* Navigation Links */}
-          <nav className="px-3 py-3 space-y-1">
+          <nav className="px-3 space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon
               const hasSub = !!item.subItems
@@ -511,8 +535,8 @@ export default function AppLayout() {
           </nav>
         </div>
 
-        {/* User Footer */}
-        <div className="p-4 border-t border-slate-100 dark:border-slate-800">
+        {/* User Footer (Fixed at bottom of sidebar) */}
+        <div className="p-4 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900">
           <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
             <div className="flex items-center space-x-2.5 min-w-0">
               <Avatar className="h-9 w-9 border border-slate-200 dark:border-slate-700 bg-emerald-100 text-emerald-800">
