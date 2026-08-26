@@ -35,19 +35,22 @@ export const productionService = {
    */
   async getNextOrderNumber(): Promise<string> {
     try {
-      const records = await pb.collection('production_orders').getList<ProductionOrder>(1, 1, {
+      const records = await pb.collection('production_orders').getFullList<ProductionOrder>({
         sort: '-created',
+        fields: 'order_number',
         requestKey: null,
       })
-      if (records.items.length === 0) {
+      if (records.length === 0) {
         return '#001844'
       }
-      const lastNumStr = records.items[0].order_number.replace(/\D/g, '')
-      const lastNum = parseInt(lastNumStr, 10)
-      if (isNaN(lastNum)) {
-        return `#00${Math.floor(1000 + Math.random() * 9000)}`
+      let maxNum = 0
+      for (const r of records) {
+        const num = parseInt(r.order_number.replace(/\D/g, ''), 10)
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num
+        }
       }
-      const nextNum = lastNum + 1
+      const nextNum = Math.max(maxNum + 1, 1844)
       return `#${String(nextNum).padStart(6, '0')}`
     } catch {
       return `#00${Math.floor(1000 + Math.random() * 9000)}`
