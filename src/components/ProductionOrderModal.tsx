@@ -261,8 +261,19 @@ export default function ProductionOrderModal({
           }
         }
 
+        const targetClientId = clientId || clients[0]?.id
+        if (!targetClientId) {
+          toast({
+            title: 'Cliente obrigatório',
+            description: 'Selecione ou cadastre um cliente antes de criar o pedido de produção.',
+            variant: 'destructive',
+          })
+          setLoading(false)
+          return
+        }
+
         const created = await productionService.create({
-          clientId: clientId || clients[0]?.id || '',
+          clientId: targetClientId,
           clientName: clientName.trim(),
           clientPhone: clientPhone.trim(),
           clientEmail: clientEmail.trim() || undefined,
@@ -292,10 +303,28 @@ export default function ProductionOrderModal({
       onClose()
       window.dispatchEvent(new CustomEvent('production-order-updated'))
     } catch (err: any) {
-      console.error('Error saving production order:', err)
+      console.error(
+        'Error saving production order:',
+        {
+          message: err?.message,
+          status: err?.status,
+          url: err?.url,
+          data: err?.data || err?.response?.data,
+          response: err?.response,
+        },
+        err,
+      )
+      const fieldErrors = err?.response?.data || err?.data
+      let detailedMsg = err?.message || 'Verifique os campos preenchidos.'
+      if (fieldErrors && typeof fieldErrors === 'object') {
+        const details = Object.entries(fieldErrors)
+          .map(([k, v]: [string, any]) => `${k}: ${v?.message || JSON.stringify(v)}`)
+          .join(', ')
+        if (details) detailedMsg = `${detailedMsg} (${details})`
+      }
       toast({
         title: 'Erro ao salvar pedido',
-        description: err?.message || 'Verifique os campos preenchidos.',
+        description: detailedMsg,
         variant: 'destructive',
       })
     } finally {

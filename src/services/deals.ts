@@ -34,23 +34,39 @@ export const dealsService = {
     }
 
     // 1. Create archived deal record
-    const archived = await pb.collection('archived_deals').create<ArchivedDeal>({
-      client_id: client.id,
-      client_name: client.name,
-      client_phone: client.phone,
-      client_email: client.email || '',
-      result: payload.result,
-      loss_reason: payload.lossReason || '',
-      loss_category: payload.lossCategory || '',
-      product_interest: payload.productInterest || client.product_interest || '',
-      quote_value:
-        payload.quoteValue !== undefined ? payload.quoteValue : client.quote_value || undefined,
-      closed_at: todayDateStr,
-      assigned_to: payload.assignedTo || client.assigned_to || undefined,
-      closed_by: payload.closedBy || pb.authStore.record?.id || undefined,
-      final_notes: payload.finalNotes || '',
-      duration_days: durationDays,
-    })
+    let archived: ArchivedDeal
+    try {
+      archived = await pb.collection('archived_deals').create<ArchivedDeal>({
+        client_id: client.id,
+        client_name: client.name,
+        client_phone: client.phone,
+        client_email: client.email || undefined,
+        result: payload.result,
+        loss_reason: payload.lossReason || '',
+        loss_category: payload.lossCategory || '',
+        product_interest: payload.productInterest || client.product_interest || '',
+        quote_value:
+          payload.quoteValue !== undefined ? payload.quoteValue : client.quote_value || undefined,
+        closed_at: todayDateStr,
+        assigned_to: payload.assignedTo || client.assigned_to || undefined,
+        closed_by: payload.closedBy || pb.authStore.record?.id || undefined,
+        final_notes: payload.finalNotes || '',
+        duration_days: durationDays,
+      })
+    } catch (err: any) {
+      console.error(
+        'Error creating archived deal in PocketBase:',
+        {
+          message: err?.message,
+          status: err?.status,
+          url: err?.url,
+          data: err?.data || err?.response?.data,
+          response: err?.response,
+        },
+        err,
+      )
+      throw err
+    }
 
     // 2. Update client as archived, recording last archived deal reference and final stage
     const finalStage = payload.result === 'Venda fechada' ? 'Venda fechada' : 'Não fechou'

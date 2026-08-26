@@ -128,9 +128,28 @@ export default function CompleteAndArchiveModal({
       }
       window.dispatchEvent(new CustomEvent('crm-client-updated'))
     } catch (err: any) {
+      console.error(
+        'Error in completeAndArchive modal:',
+        {
+          message: err?.message,
+          status: err?.status,
+          url: err?.url,
+          data: err?.data || err?.response?.data,
+          response: err?.response,
+        },
+        err,
+      )
+      const fieldErrors = err?.response?.data || err?.data
+      let detailedMsg = err?.message || 'Não foi possível concluir o atendimento.'
+      if (fieldErrors && typeof fieldErrors === 'object') {
+        const details = Object.entries(fieldErrors)
+          .map(([k, v]: [string, any]) => `${k}: ${v?.message || JSON.stringify(v)}`)
+          .join(', ')
+        if (details) detailedMsg = `${detailedMsg} (${details})`
+      }
       toast({
         title: 'Erro ao arquivar',
-        description: err?.message || 'Não foi possível concluir o atendimento.',
+        description: detailedMsg,
         variant: 'destructive',
       })
     } finally {

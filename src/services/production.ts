@@ -147,7 +147,7 @@ export const productionService = {
     const formData = new FormData()
     formData.append('order_number', orderNumber)
     formData.append('tracking_token', trackingToken)
-    formData.append('client_id', payload.clientId)
+    if (payload.clientId) formData.append('client_id', payload.clientId)
     formData.append('client_name', payload.clientName)
     formData.append('client_phone', payload.clientPhone)
     if (payload.clientEmail) formData.append('client_email', payload.clientEmail)
@@ -182,7 +182,23 @@ export const productionService = {
       }
     }
 
-    const created = await pb.collection('production_orders').create<ProductionOrder>(formData)
+    let created: ProductionOrder
+    try {
+      created = await pb.collection('production_orders').create<ProductionOrder>(formData)
+    } catch (err: any) {
+      console.error(
+        'Error creating production order in PocketBase:',
+        {
+          message: err?.message,
+          status: err?.status,
+          url: err?.url,
+          data: err?.data || err?.response?.data,
+          response: err?.response,
+        },
+        err,
+      )
+      throw err
+    }
 
     // Log initial creation
     await this.logTransition({
