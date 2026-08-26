@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import type { ProductionOrder, ProductionStage, Priority } from '@/types/crm'
 import { productionService } from '@/services/production'
 import { productionStagesService } from '@/services/productionStages'
@@ -83,18 +83,25 @@ export default function ProductionKanbanPage() {
   const [reopenTargetStage, setReopenTargetStage] = useState<string>('order_received')
   const [reopening, setReopening] = useState(false)
 
+  const loadVersionRef = useRef(0)
+
   const loadData = async () => {
+    const version = ++loadVersionRef.current
     try {
       const [stageList, orderList] = await Promise.all([
         productionStagesService.getVisible(),
         productionService.getAll(undefined, '-created'),
       ])
+      if (version !== loadVersionRef.current) return
       setStages(stageList)
       setOrders(orderList)
     } catch (err) {
+      if (version !== loadVersionRef.current) return
       console.error('Error loading production data:', err)
     } finally {
-      setLoading(false)
+      if (version === loadVersionRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -106,8 +113,13 @@ export default function ProductionKanbanPage() {
   }, [])
 
   // Split orders into active and archived
-  const activeOrders = orders.filter((o) => o.is_archived !== true)
-  const archivedOrders = orders.filter((o) => o.is_archived === true)
+  const activeOrders = orders
+    .filter((o) => o.is_archived !== true)
+    .filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i)
+
+  const archivedOrders = orders
+    .filter((o) => o.is_archived === true)
+    .filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i)
 
   // Quick stats calculation for active production
   const stats = {
@@ -260,6 +272,25 @@ export default function ProductionKanbanPage() {
     setReopening(true)
     try {
       await productionService.reopenOrder(orderToReopen.id, reopenTargetStage)
+
+      const targetStageObj = stages.find((s) => s.internal_id === reopenTargetStage)
+      const targetName = targetStageObj?.name || reopenTargetStage
+
+      // Optimistic: move from archived to active immediately
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderToReopen.id
+            ? {
+                ...o,
+                is_archived: false,
+                stage_internal_id: reopenTargetStage,
+                stage_name: targetName,
+                is_completed: false,
+              }
+            : o,
+        ),
+      )
+
       toast({
         title: 'Pedido Reaberto',
         description: `O pedido ${orderToReopen.order_number} foi reaberto com sucesso e enviado para a Produção Ativa.`,
