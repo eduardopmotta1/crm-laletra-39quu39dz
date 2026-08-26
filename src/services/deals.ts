@@ -79,7 +79,7 @@ export const dealsService = {
     const firstPurchase = client.first_purchase_date || (isWon ? todayDateStr : undefined)
     const lastPurchase = isWon ? todayDateStr : client.last_purchase_date
 
-    await pb.collection('clients').update(client.id, {
+    const clientUpdateData: Record<string, any> = {
       is_archived: true,
       stage: finalStage,
       closed_at: todayDateStr,
@@ -87,9 +87,30 @@ export const dealsService = {
       has_returned: false,
       total_purchases: currentPurchases,
       total_purchase_value: currentTotalValue,
-      first_purchase_date: firstPurchase,
-      last_purchase_date: lastPurchase,
-    })
+    }
+    if (firstPurchase) {
+      clientUpdateData.first_purchase_date = firstPurchase
+    }
+    if (lastPurchase) {
+      clientUpdateData.last_purchase_date = lastPurchase
+    }
+
+    try {
+      await pb.collection('clients').update(client.id, clientUpdateData)
+    } catch (err: any) {
+      console.error(
+        'Error updating client during completeAndArchive in PocketBase:',
+        {
+          message: err?.message,
+          status: err?.status,
+          url: err?.url,
+          data: err?.data || err?.response?.data,
+          response: err?.response,
+        },
+        err,
+      )
+      throw err
+    }
 
     // 3. Log stage transition history
     try {

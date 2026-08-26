@@ -126,20 +126,35 @@ export default function ClientFormModal({
 
     setLoading(true)
     try {
-      const payload: Partial<Client> = {
+      const payload: Record<string, any> = {
         name: formData.name.trim(),
         phone: formData.phone.trim(),
-        email: formData.email.trim() || undefined,
         stage: formData.stage,
-        product_interest: formData.product_interest.trim() || undefined,
-        quote_value: formData.quote_value ? Number(formData.quote_value) : undefined,
         priority: formData.priority,
-        assigned_to: formData.assigned_to || undefined,
-        notes: formData.notes.trim() || undefined,
-        next_action: formData.next_action.trim() || undefined,
-        next_action_date: formData.next_action_date
+      }
+
+      if (formData.email.trim()) {
+        payload.email = formData.email.trim()
+      }
+      if (formData.product_interest.trim()) {
+        payload.product_interest = formData.product_interest.trim()
+      }
+      if (formData.quote_value !== '' && !isNaN(Number(formData.quote_value))) {
+        payload.quote_value = Number(formData.quote_value)
+      }
+      if (formData.assigned_to && formData.assigned_to.trim()) {
+        payload.assigned_to = formData.assigned_to.trim()
+      }
+      if (formData.notes.trim()) {
+        payload.notes = formData.notes.trim()
+      }
+      if (formData.next_action.trim()) {
+        payload.next_action = formData.next_action.trim()
+      }
+      if (formData.next_action_date && formData.next_action_date.trim()) {
+        payload.next_action_date = formData.next_action_date.includes('T')
           ? formData.next_action_date.split('T')[0]
-          : undefined,
+          : formData.next_action_date.trim()
       }
 
       let saved: Client
@@ -164,10 +179,28 @@ export default function ClientFormModal({
       onSaved(saved)
       onClose()
     } catch (err: any) {
-      console.error('Error saving client:', err)
+      console.error(
+        'Error saving client:',
+        {
+          message: err?.message,
+          status: err?.status,
+          url: err?.url,
+          data: err?.data || err?.response?.data,
+          response: err?.response,
+        },
+        err,
+      )
+      const fieldErrors = err?.response?.data || err?.data
+      let detailedMsg = err?.message || 'Verifique os dados informados.'
+      if (fieldErrors && typeof fieldErrors === 'object') {
+        const details = Object.entries(fieldErrors)
+          .map(([k, v]: [string, any]) => `${k}: ${v?.message || JSON.stringify(v)}`)
+          .join(', ')
+        if (details) detailedMsg = `${detailedMsg} (${details})`
+      }
       toast({
         title: 'Erro ao salvar',
-        description: err?.message || 'Verifique os dados informados.',
+        description: detailedMsg,
         variant: 'destructive',
       })
     } finally {

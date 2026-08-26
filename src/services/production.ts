@@ -147,27 +147,57 @@ export const productionService = {
     const formData = new FormData()
     formData.append('order_number', orderNumber)
     formData.append('tracking_token', trackingToken)
-    if (payload.clientId) formData.append('client_id', payload.clientId)
-    formData.append('client_name', payload.clientName)
-    formData.append('client_phone', payload.clientPhone)
-    if (payload.clientEmail) formData.append('client_email', payload.clientEmail)
-    if (payload.dealOriginId) formData.append('deal_origin_id', payload.dealOriginId)
+    if (payload.clientId && payload.clientId.trim()) {
+      formData.append('client_id', payload.clientId.trim())
+    }
+    formData.append('client_name', payload.clientName.trim())
+    formData.append('client_phone', payload.clientPhone.trim())
+    if (payload.clientEmail && payload.clientEmail.trim()) {
+      formData.append('client_email', payload.clientEmail.trim())
+    }
+    if (payload.dealOriginId && payload.dealOriginId.trim()) {
+      formData.append('deal_origin_id', payload.dealOriginId.trim())
+    }
     formData.append('sale_date', todayDateStr)
-    formData.append('product', payload.product)
-    if (payload.description) formData.append('description', payload.description)
-    if (payload.quantity !== undefined) formData.append('quantity', String(payload.quantity))
-    if (payload.dimensions) formData.append('dimensions', payload.dimensions)
-    if (payload.totalValue !== undefined) formData.append('total_value', String(payload.totalValue))
-    if (payload.salesRepId) formData.append('sales_rep_id', payload.salesRepId)
-    if (payload.productionRepId) formData.append('production_rep_id', payload.productionRepId)
-    if (payload.promisedDeadline) {
+    formData.append('product', payload.product.trim())
+    if (payload.description && payload.description.trim()) {
+      formData.append('description', payload.description.trim())
+    }
+    if (
+      payload.quantity !== undefined &&
+      payload.quantity !== null &&
+      !isNaN(Number(payload.quantity))
+    ) {
+      formData.append('quantity', String(Number(payload.quantity)))
+    }
+    if (payload.dimensions && payload.dimensions.trim()) {
+      formData.append('dimensions', payload.dimensions.trim())
+    }
+    if (
+      payload.totalValue !== undefined &&
+      payload.totalValue !== null &&
+      !isNaN(Number(payload.totalValue))
+    ) {
+      formData.append('total_value', String(Number(payload.totalValue)))
+    }
+    if (payload.salesRepId && payload.salesRepId.trim()) {
+      formData.append('sales_rep_id', payload.salesRepId.trim())
+    }
+    if (payload.productionRepId && payload.productionRepId.trim()) {
+      formData.append('production_rep_id', payload.productionRepId.trim())
+    }
+    if (payload.promisedDeadline && payload.promisedDeadline.trim()) {
       const deadlineDateStr = payload.promisedDeadline.includes('T')
         ? payload.promisedDeadline.split('T')[0]
-        : payload.promisedDeadline
+        : payload.promisedDeadline.trim()
       formData.append('promised_deadline', deadlineDateStr)
     }
-    if (payload.deliveryType) formData.append('delivery_type', payload.deliveryType)
-    if (payload.notes) formData.append('notes', payload.notes)
+    if (payload.deliveryType) {
+      formData.append('delivery_type', payload.deliveryType)
+    }
+    if (payload.notes && payload.notes.trim()) {
+      formData.append('notes', payload.notes.trim())
+    }
     formData.append('art_approved', 'false')
     if (stage?.id) formData.append('stage_id', stage.id)
     formData.append('stage_internal_id', initialStageId)
@@ -178,7 +208,9 @@ export const productionService = {
 
     if (payload.attachments && payload.attachments.length > 0) {
       for (const file of payload.attachments) {
-        formData.append('attachments', file)
+        if (file instanceof File) {
+          formData.append('attachments', file)
+        }
       }
     }
 
