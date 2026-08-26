@@ -88,7 +88,7 @@ export const postSalesService = {
   async markAsSent(id: string, notes?: string): Promise<PostSale> {
     return await pb.collection('post_sales').update<PostSale>(id, {
       status: 'sent',
-      sent_date: new Date().toISOString(),
+      sent_date: new Date().toISOString().split('T')[0],
       notes: notes || undefined,
     })
   },

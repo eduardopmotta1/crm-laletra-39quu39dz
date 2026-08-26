@@ -23,7 +23,7 @@ export const dealsService = {
    */
   async completeAndArchive(payload: ArchiveDealPayload): Promise<ArchivedDeal> {
     const client = await pb.collection('clients').getOne(payload.clientId)
-    const nowIso = new Date().toISOString()
+    const todayDateStr = new Date().toISOString().split('T')[0]
 
     // Calculate deal duration in days
     let durationDays = 0
@@ -45,7 +45,7 @@ export const dealsService = {
       product_interest: payload.productInterest || client.product_interest || '',
       quote_value:
         payload.quoteValue !== undefined ? payload.quoteValue : client.quote_value || undefined,
-      closed_at: nowIso,
+      closed_at: todayDateStr,
       assigned_to: payload.assignedTo || client.assigned_to || undefined,
       closed_by: payload.closedBy || pb.authStore.record?.id || undefined,
       final_notes: payload.finalNotes || '',
@@ -60,13 +60,13 @@ export const dealsService = {
 
     const currentPurchases = (client.total_purchases || 0) + (isWon ? 1 : 0)
     const currentTotalValue = (client.total_purchase_value || 0) + (isWon ? dealValue : 0)
-    const firstPurchase = client.first_purchase_date || (isWon ? nowIso : undefined)
-    const lastPurchase = isWon ? nowIso : client.last_purchase_date
+    const firstPurchase = client.first_purchase_date || (isWon ? todayDateStr : undefined)
+    const lastPurchase = isWon ? todayDateStr : client.last_purchase_date
 
     await pb.collection('clients').update(client.id, {
       is_archived: true,
       stage: finalStage,
-      closed_at: nowIso,
+      closed_at: todayDateStr,
       last_archived_deal_id: archived.id,
       has_returned: false,
       total_purchases: currentPurchases,
@@ -102,7 +102,7 @@ export const dealsService = {
    * Reopen an archived deal / client manually
    */
   async reopenClient(clientId: string, stage: string = 'Precisa responder'): Promise<void> {
-    const nowIso = new Date().toISOString()
+    const todayDateStr = new Date().toISOString().split('T')[0]
     const client = await pb.collection('clients').getOne(clientId)
     const oldStage = client.stage
 
@@ -110,7 +110,7 @@ export const dealsService = {
       is_archived: false,
       stage: stage,
       has_returned: true,
-      reopened_at: nowIso,
+      reopened_at: todayDateStr,
     })
 
     try {

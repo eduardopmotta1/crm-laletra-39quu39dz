@@ -136,8 +136,8 @@ export default function TasksPage() {
         client_id: taskForm.client_id,
         assigned_to: taskForm.assigned_to || undefined,
         due_date: taskForm.due_date
-          ? new Date(taskForm.due_date).toISOString()
-          : new Date().toISOString(),
+          ? taskForm.due_date.split('T')[0]
+          : new Date().toISOString().split('T')[0],
         status: 'pendente',
         priority: taskForm.priority,
       })

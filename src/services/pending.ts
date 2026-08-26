@@ -713,6 +713,13 @@ export const pendingService = {
       const currentUserName = pb.authStore.record?.name || pb.authStore.record?.email || 'Atendente'
       const nowIso = new Date().toISOString()
 
+      const todayDateStr = new Date().toISOString().split('T')[0]
+      const itemCreatedDateStr = data.itemCreatedAt
+        ? data.itemCreatedAt.includes('T')
+          ? data.itemCreatedAt.split('T')[0]
+          : data.itemCreatedAt
+        : undefined
+
       const record = await pb.collection('pending_resolutions').create<PendingResolutionRecord>({
         category: data.category,
         item_id: data.itemId,
@@ -725,8 +732,8 @@ export const pendingService = {
         resolved_by_name: currentUserName,
         action_taken: data.actionTaken,
         notes: data.notes || '',
-        item_created_at: data.itemCreatedAt || undefined,
-        resolved_at: nowIso,
+        item_created_at: itemCreatedDateStr,
+        resolved_at: todayDateStr,
         resolution_time_minutes: data.waitingMinutes || 0,
         initial_priority: data.initialPriority || 'normal',
       })
@@ -901,9 +908,10 @@ export const pendingService = {
         case 'dissatisfied_clients':
           if (item.evaluationId) {
             const currentUserId = pb.authStore.record?.id
+            const todayDateStr = new Date().toISOString().split('T')[0]
             await pb.collection('evaluations').update(item.evaluationId, {
               resolved: true,
-              resolved_at: nowIso,
+              resolved_at: todayDateStr,
               resolved_notes: notes || 'Resolvido diretamente pela Central de Pendências.',
               resolved_by: currentUserId || undefined,
               status: 'resolved',
@@ -926,15 +934,16 @@ export const pendingService = {
 
         case 'proofs_waiting_approval':
           if (item.proofId) {
+            const todayDateStr = new Date().toISOString().split('T')[0]
             await pb.collection('production_proofs').update(item.proofId, {
               status: 'aprovado',
-              approved_at: nowIso,
+              approved_at: todayDateStr,
               client_comment: notes || 'Aprovado via Central de Pendências',
             })
             if (item.orderId) {
               await pb.collection('production_orders').update(item.orderId, {
                 art_approved: true,
-                art_approved_at: nowIso,
+                art_approved_at: todayDateStr,
                 stage_internal_id: 'approved',
                 stage_name: 'Arte aprovada',
               })
@@ -957,9 +966,10 @@ export const pendingService = {
 
         case 'pending_post_sales':
           if (item.postSaleId) {
+            const todayDateStr = new Date().toISOString().split('T')[0]
             await pb.collection('post_sales').update(item.postSaleId, {
               status: 'completed',
-              sent_date: nowIso,
+              sent_date: todayDateStr,
               notes: notes || 'Pós-venda concluído via Central de Pendências.',
             })
           }

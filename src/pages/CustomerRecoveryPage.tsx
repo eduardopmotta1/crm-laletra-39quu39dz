@@ -17,6 +17,7 @@ import {
   Check,
   XCircle,
   HelpCircle,
+  ExternalLink,
 } from 'lucide-react'
 import { evaluationsService } from '@/services/evaluations'
 import { clientsService } from '@/services/clients'

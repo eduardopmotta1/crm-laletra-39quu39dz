@@ -61,8 +61,47 @@ export function calculateSlaInfo(
     }
   }
 
-  // If we responded last, we're waiting for the client
+  // Outbound message: Graphic team was the last to respond, waiting for client response!
   if (lastMessageDirection === 'outbound') {
+    if (diffMinutes >= urgentMins) {
+      return {
+        status: 'urgent',
+        minutesElapsed: diffMinutes,
+        hoursElapsed: diffHours,
+        label: `Cliente não responde há ${formatMinutes(diffMinutes)}`,
+        colorBadgeClass: 'bg-rose-500 text-white font-semibold animate-pulse shadow-sm',
+        colorBorderClass: 'border-rose-500 ring-2 ring-rose-500/30',
+        colorBgClass: 'bg-rose-50/80 dark:bg-rose-950/20',
+        colorTextClass: 'text-rose-600 dark:text-rose-400',
+      }
+    }
+
+    if (diffMinutes >= warningMins) {
+      return {
+        status: 'warning',
+        minutesElapsed: diffMinutes,
+        hoursElapsed: diffHours,
+        label: `Cliente não responde há ${formatMinutes(diffMinutes)}`,
+        colorBadgeClass: 'bg-amber-500 text-white font-semibold shadow-sm',
+        colorBorderClass: 'border-amber-400 ring-1 ring-amber-400/40',
+        colorBgClass: 'bg-amber-50/70 dark:bg-amber-950/20',
+        colorTextClass: 'text-amber-600 dark:text-amber-400',
+      }
+    }
+
+    if (diffMinutes >= noticeMins) {
+      return {
+        status: 'notice',
+        minutesElapsed: diffMinutes,
+        hoursElapsed: diffHours,
+        label: `Cliente não responde há ${formatMinutes(diffMinutes)}`,
+        colorBadgeClass: 'bg-yellow-400 text-yellow-950 font-medium',
+        colorBorderClass: 'border-yellow-300',
+        colorBgClass: 'bg-yellow-50/50 dark:bg-yellow-950/10',
+        colorTextClass: 'text-yellow-700 dark:text-yellow-400',
+      }
+    }
+
     return {
       status: 'normal',
       minutesElapsed: diffMinutes,

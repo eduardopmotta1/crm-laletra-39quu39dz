@@ -98,7 +98,9 @@ export const clientsService = {
       stage,
       // If moving out of final stage, remove closed_at
       closed_at:
-        stage === 'Venda fechada' || stage === 'Não fechou' ? new Date().toISOString() : null,
+        stage === 'Venda fechada' || stage === 'Não fechou'
+          ? new Date().toISOString().split('T')[0]
+          : null,
     })
 
     if (fromStage !== stage) {

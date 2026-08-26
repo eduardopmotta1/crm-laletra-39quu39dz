@@ -138,7 +138,7 @@ export default function ClientFormModal({
         notes: formData.notes.trim() || undefined,
         next_action: formData.next_action.trim() || undefined,
         next_action_date: formData.next_action_date
-          ? new Date(formData.next_action_date).toISOString()
+          ? formData.next_action_date.split('T')[0]
           : undefined,
       }
 

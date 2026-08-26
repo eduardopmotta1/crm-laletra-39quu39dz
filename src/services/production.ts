@@ -138,7 +138,7 @@ export const productionService = {
   async create(payload: CreateProductionOrderPayload): Promise<ProductionOrder> {
     const orderNumber = await this.getNextOrderNumber()
     const trackingToken = this.generateTrackingToken()
-    const nowIso = new Date().toISOString()
+    const todayDateStr = new Date().toISOString().split('T')[0]
     const initialStageId = payload.initialStageId || 'order_received'
 
     const stage = await productionStagesService.getByInternalId(initialStageId)
@@ -152,7 +152,7 @@ export const productionService = {
     formData.append('client_phone', payload.clientPhone)
     if (payload.clientEmail) formData.append('client_email', payload.clientEmail)
     if (payload.dealOriginId) formData.append('deal_origin_id', payload.dealOriginId)
-    formData.append('sale_date', nowIso)
+    formData.append('sale_date', todayDateStr)
     formData.append('product', payload.product)
     if (payload.description) formData.append('description', payload.description)
     if (payload.quantity !== undefined) formData.append('quantity', String(payload.quantity))
@@ -160,7 +160,12 @@ export const productionService = {
     if (payload.totalValue !== undefined) formData.append('total_value', String(payload.totalValue))
     if (payload.salesRepId) formData.append('sales_rep_id', payload.salesRepId)
     if (payload.productionRepId) formData.append('production_rep_id', payload.productionRepId)
-    if (payload.promisedDeadline) formData.append('promised_deadline', payload.promisedDeadline)
+    if (payload.promisedDeadline) {
+      const deadlineDateStr = payload.promisedDeadline.includes('T')
+        ? payload.promisedDeadline.split('T')[0]
+        : payload.promisedDeadline
+      formData.append('promised_deadline', deadlineDateStr)
+    }
     if (payload.deliveryType) formData.append('delivery_type', payload.deliveryType)
     if (payload.notes) formData.append('notes', payload.notes)
     formData.append('art_approved', 'false')
@@ -220,7 +225,7 @@ export const productionService = {
     const targetStage = await productionStagesService.getByInternalId(targetStageInternalId)
     const targetStageName = targetStage?.name || targetStageInternalId
     const isCompleted = targetStageInternalId === 'completed'
-    const nowIso = new Date().toISOString()
+    const todayDateStr = new Date().toISOString().split('T')[0]
 
     const updatePayload: Partial<ProductionOrder> = {
       stage_internal_id: targetStageInternalId,
@@ -230,12 +235,12 @@ export const productionService = {
     }
 
     if (isCompleted) {
-      updatePayload.completed_at = nowIso
+      updatePayload.completed_at = todayDateStr
     }
 
     if (targetStageInternalId === 'approved') {
       updatePayload.art_approved = true
-      updatePayload.art_approved_at = nowIso
+      updatePayload.art_approved_at = todayDateStr
     }
 
     if (options?.trackingCode) {
@@ -339,7 +344,9 @@ export const productionService = {
 
     // 2. Compute scheduled date based on delay days setting
     const delayDays = postSaleCfg.delayDays || 3
-    const scheduledDate = new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000).toISOString()
+    const scheduledDateObj = new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000)
+    const scheduledDateStr = scheduledDateObj.toISOString().split('T')[0]
+    const scheduledDate = scheduledDateObj.toISOString()
 
     // 3. Generate secure evaluation token
     const evalToken =
@@ -384,7 +391,7 @@ export const productionService = {
       order_id: order.id,
       order_number: order.order_number,
       attendance_id: order.deal_origin_id || undefined,
-      scheduled_date: scheduledDate,
+      scheduled_date: scheduledDateStr,
       status: 'pending',
       task_id: taskId,
       evaluation_token: evalToken,
@@ -491,7 +498,7 @@ export const productionService = {
     formData.append('order_id', orderId)
     formData.append('version_number', String(versionNumber))
     if (proofUrl) formData.append('proof_url', proofUrl)
-    formData.append('sent_at', new Date().toISOString())
+    formData.append('sent_at', new Date().toISOString().split('T')[0])
     if (pb.authStore.record?.id) formData.append('sent_by', pb.authStore.record.id)
     formData.append('status', 'aguardando_aprovacao')
     if (feedbackNotes) formData.append('feedback_notes', feedbackNotes)
@@ -519,18 +526,18 @@ export const productionService = {
     clientComment?: string,
     approvedByContact?: string,
   ): Promise<void> {
-    const nowIso = new Date().toISOString()
+    const todayDateStr = new Date().toISOString().split('T')[0]
     await pb.collection('production_proofs').update(proofId, {
       status: decision,
       client_comment: clientComment || '',
-      approved_at: decision === 'aprovado' ? nowIso : undefined,
+      approved_at: decision === 'aprovado' ? todayDateStr : undefined,
       approved_by_contact: approvedByContact || '',
     })
 
     if (decision === 'aprovado') {
       await pb.collection('production_orders').update(orderId, {
         art_approved: true,
-        art_approved_at: nowIso,
+        art_approved_at: todayDateStr,
       })
       await this.updateStage(orderId, 'approved', {
         notes: `Arte explicitamente aprovada pelo cliente. Comentário: ${clientComment || 'Sem observações'}.`,

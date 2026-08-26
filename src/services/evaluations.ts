@@ -120,13 +120,13 @@ export const evaluationsService = {
     resolved = true,
   ): Promise<Evaluation> {
     const currentUserId = pb.authStore.record?.id
-    const nowIso = new Date().toISOString()
+    const todayDateStr = new Date().toISOString().split('T')[0]
 
     const updated = await pb.collection('evaluations').update<Evaluation>(
       evaluationId,
       {
         resolved,
-        resolved_at: resolved ? nowIso : null,
+        resolved_at: resolved ? todayDateStr : null,
         resolved_notes: notes,
         resolved_by: resolved ? currentUserId : null,
         status: resolved ? 'resolved' : 'in_recovery',

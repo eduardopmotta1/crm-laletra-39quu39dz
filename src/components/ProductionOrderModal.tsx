@@ -231,9 +231,7 @@ export default function ProductionOrderModal({
           total_value: totalValue ? Number(totalValue) : undefined,
           sales_rep_id: salesRepId || undefined,
           production_rep_id: productionRepId || undefined,
-          promised_deadline: promisedDeadline
-            ? new Date(promisedDeadline).toISOString()
-            : undefined,
+          promised_deadline: promisedDeadline ? promisedDeadline.split('T')[0] : undefined,
           delivery_type: deliveryType,
           tracking_code: trackingCode.trim() || undefined,
           notes: notes.trim() || undefined,
@@ -276,7 +274,7 @@ export default function ProductionOrderModal({
           totalValue: totalValue ? Number(totalValue) : undefined,
           salesRepId: salesRepId || undefined,
           productionRepId: productionRepId || undefined,
-          promisedDeadline: promisedDeadline ? new Date(promisedDeadline).toISOString() : undefined,
+          promisedDeadline: promisedDeadline ? promisedDeadline.split('T')[0] : undefined,
           deliveryType,
           notes: notes.trim() || undefined,
           initialStageId: stageInternalId,
