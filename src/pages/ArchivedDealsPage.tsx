@@ -50,6 +50,7 @@ import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 
 export default function ArchivedDealsPage() {
   const [deals, setDeals] = useState<ArchivedDeal[]>([])
+  const [archivedClientIds, setArchivedClientIds] = useState<Set<string>>(new Set())
   const [users, setUsers] = useState<CRMUser[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -76,10 +77,15 @@ export default function ArchivedDealsPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [dealsList, usersList] = await Promise.all([
+      const [dealsList, usersList, clientsList] = await Promise.all([
         dealsService.getArchivedDeals(),
         usersService.getAll(),
+        clientsService.getAll(),
       ])
+      const activeArchivedIds = new Set(
+        clientsList.filter((c) => c.is_archived === true).map((c) => c.id),
+      )
+      setArchivedClientIds(activeArchivedIds)
       setDeals(dealsList)
       setUsers(usersList)
     } catch (err) {
@@ -93,17 +99,20 @@ export default function ArchivedDealsPage() {
     loadData()
   }, [])
 
-  // Loss reasons present in data
+  // Deals whose clients are currently archived (is_archived === true)
+  const currentlyArchivedDeals = deals.filter((deal) => archivedClientIds.has(deal.client_id))
+
+  // Loss reasons present in currently archived data
   const distinctLossReasons = Array.from(
     new Set(
-      deals
+      currentlyArchivedDeals
         .filter((d) => d.result === 'Venda perdida' && d.loss_reason)
         .map((d) => d.loss_reason!.trim()),
     ),
   )
 
   // Filter application
-  const filteredDeals = deals.filter((deal) => {
+  const filteredDeals = currentlyArchivedDeals.filter((deal) => {
     // Search by client name, phone, email, product, loss reason, or final notes
     const searchLower = searchTerm.toLowerCase()
     const matchesSearch =
@@ -151,8 +160,8 @@ export default function ArchivedDealsPage() {
   })
 
   // Summary Metrics
-  const wonDeals = deals.filter((d) => d.result === 'Venda fechada')
-  const lostDeals = deals.filter((d) => d.result === 'Venda perdida')
+  const wonDeals = currentlyArchivedDeals.filter((d) => d.result === 'Venda fechada')
+  const lostDeals = currentlyArchivedDeals.filter((d) => d.result === 'Venda perdida')
   const totalWonValue = wonDeals.reduce((sum, d) => sum + (d.quote_value || 0), 0)
   const totalLostValue = lostDeals.reduce((sum, d) => sum + (d.quote_value || 0), 0)
 
@@ -234,7 +243,9 @@ export default function ArchivedDealsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white">{deals.length}</div>
+            <div className="text-2xl font-bold text-slate-900 dark:text-white">
+              {currentlyArchivedDeals.length}
+            </div>
             <p className="text-xs text-slate-500 mt-1">
               {filteredDeals.length} correspondentes ao filtro
             </p>
@@ -293,7 +304,9 @@ export default function ArchivedDealsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900 dark:text-white">
-              {deals.length > 0 ? `${Math.round((wonDeals.length / deals.length) * 100)}%` : '0%'}
+              {currentlyArchivedDeals.length > 0
+                ? `${Math.round((wonDeals.length / currentlyArchivedDeals.length) * 100)}%`
+                : '0%'}
             </div>
             <p className="text-xs text-slate-500 mt-1">Dos atendimentos finalizados</p>
           </CardContent>

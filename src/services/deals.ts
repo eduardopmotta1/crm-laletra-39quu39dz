@@ -33,11 +33,16 @@ export const dealsService = {
       durationDays = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)))
     }
 
-    // 1. Create archived deal record
+    // 1. Upsert archived deal record (1 client = 1 archived_deal)
     let archived: ArchivedDeal
     try {
-      archived = await pb.collection('archived_deals').create<ArchivedDeal>({
-        client_id: client.id,
+      const existingList = await pb.collection('archived_deals').getList<ArchivedDeal>(1, 1, {
+        filter: `client_id = "${client.id}"`,
+        sort: '-created',
+        requestKey: null,
+      })
+
+      const dealData: Record<string, any> = {
         client_name: client.name,
         client_phone: client.phone,
         client_email: client.email || undefined,
@@ -52,10 +57,23 @@ export const dealsService = {
         closed_by: payload.closedBy || pb.authStore.record?.id || undefined,
         final_notes: payload.finalNotes || '',
         duration_days: durationDays,
-      })
+      }
+
+      if (existingList.items.length > 0) {
+        // PATCH existing record
+        archived = await pb
+          .collection('archived_deals')
+          .update<ArchivedDeal>(existingList.items[0].id, dealData)
+      } else {
+        // POST new record
+        archived = await pb.collection('archived_deals').create<ArchivedDeal>({
+          client_id: client.id,
+          ...dealData,
+        })
+      }
     } catch (err: any) {
       console.error(
-        'Error creating archived deal in PocketBase:',
+        'Error saving archived deal in PocketBase:',
         {
           message: err?.message,
           status: err?.status,
