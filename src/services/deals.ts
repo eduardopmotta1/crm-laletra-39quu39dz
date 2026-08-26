@@ -79,7 +79,7 @@ export const dealsService = {
     const firstPurchase = client.first_purchase_date || (isWon ? todayDateStr : undefined)
     const lastPurchase = isWon ? todayDateStr : client.last_purchase_date
 
-    const clientUpdateData: Record<string, any> = {
+    const rawClientUpdateData: Record<string, any> = {
       is_archived: true,
       stage: finalStage,
       closed_at: todayDateStr,
@@ -89,10 +89,18 @@ export const dealsService = {
       total_purchase_value: currentTotalValue,
     }
     if (firstPurchase) {
-      clientUpdateData.first_purchase_date = firstPurchase
+      rawClientUpdateData.first_purchase_date = firstPurchase
     }
     if (lastPurchase) {
-      clientUpdateData.last_purchase_date = lastPurchase
+      rawClientUpdateData.last_purchase_date = lastPurchase
+    }
+
+    // Filter out undefined and null values to build a clean payload
+    const clientUpdateData: Record<string, any> = {}
+    for (const [key, value] of Object.entries(rawClientUpdateData)) {
+      if (value !== undefined && value !== null) {
+        clientUpdateData[key] = value
+      }
     }
 
     try {
@@ -109,6 +117,26 @@ export const dealsService = {
         },
         err,
       )
+      // Emergency minimal patch to at least link the archived deal and set is_archived = true
+      try {
+        await pb.collection('clients').update(client.id, {
+          is_archived: true,
+          last_archived_deal_id: archived.id,
+        })
+        console.log(
+          `Emergency minimal client patch succeeded for ${client.id} after main patch failed.`,
+        )
+      } catch (emergencyErr: any) {
+        console.error(
+          `Emergency minimal client patch also failed for ${client.id}:`,
+          {
+            message: emergencyErr?.message,
+            status: emergencyErr?.status,
+            data: emergencyErr?.data || emergencyErr?.response?.data,
+          },
+          emergencyErr,
+        )
+      }
       throw err
     }
 
