@@ -1,1 +1,1 @@
-// Removido após diagnóstico concluído
+// Removido após conclusão do diagnóstico de isolamento

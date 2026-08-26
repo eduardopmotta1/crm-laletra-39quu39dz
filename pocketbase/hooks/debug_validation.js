@@ -1,18 +1,7 @@
-// PocketBase Hook — Debug & Validação SEGURO (Apenas Log Pós-Operação)
-// REGRAS DE OURO:
-// - NUNCA modificar e.requestInfo().body (PROIBIDO e.requestInfo().body = ...)
-// - NUNCA sanitizar, alterar, inserir ou remover campos
-// - NUNCA bloquear requisições — sempre chamar e.next()
-// - Apenas LOGAR: collection, operação, record ID, campos, erro retornado
-// - Usar onRecordAfterCreateSuccess, onRecordAfterUpdateSuccess, onRecordAfterDeleteSuccess
-// - Usar onRecordAfterCreateError, onRecordAfterUpdateError, onRecordAfterDeleteError
-// - NUNCA usar onRecordCreateRequest ou onRecordUpdateRequest (que interceptavam o body)
+// Debug Validation Hook — v2 SEGURA
+// APENAS log, NUNCA modifica request body
+// Usa exclusivamente hooks pós-execução
 
-// -------------------------------------------------------------
-// PÓS-SUCESSO
-// -------------------------------------------------------------
-
-// 1. CREATE SUCESSO
 onRecordAfterCreateSuccess(
   (e) => {
     try {
@@ -21,18 +10,11 @@ onRecordAfterCreateSuccess(
         (record && record.collection && record.collection().name) ||
         (e.collection && e.collection.name) ||
         'unknown'
-      const recordId = record ? record.id : 'unknown'
-      const fields = record ? record.publicExport() : {}
-
-      console.log(
-        '[DEBUG] CREATE ' +
-          colName +
-          ' OK: {id: "' +
-          recordId +
-          '", fields: ' +
-          JSON.stringify(fields) +
-          '}',
-      )
+      const id = record ? record.id : ''
+      const body = record ? record.publicExport() : null
+      const safe = typeof body === 'object' ? JSON.stringify(body) : String(body || '')
+      const msg = 'CREATE ' + colName + ' OK | ' + (id ? 'ID:' + id + ' | ' : '') + 'body: ' + safe
+      console.log('[DEBUG]', msg.substring(0, 1000))
     } catch (_) {}
     return e.next()
   },
@@ -41,7 +23,6 @@ onRecordAfterCreateSuccess(
   'production_orders',
 )
 
-// 2. UPDATE SUCESSO
 onRecordAfterUpdateSuccess(
   (e) => {
     try {
@@ -50,18 +31,11 @@ onRecordAfterUpdateSuccess(
         (record && record.collection && record.collection().name) ||
         (e.collection && e.collection.name) ||
         'unknown'
-      const recordId = record ? record.id : 'unknown'
-      const fields = record ? record.publicExport() : {}
-
-      console.log(
-        '[DEBUG] UPDATE ' +
-          colName +
-          ' OK: {id: "' +
-          recordId +
-          '", fields: ' +
-          JSON.stringify(fields) +
-          '}',
-      )
+      const id = record ? record.id : ''
+      const body = record ? record.publicExport() : null
+      const safe = typeof body === 'object' ? JSON.stringify(body) : String(body || '')
+      const msg = 'UPDATE ' + colName + ' OK | ' + (id ? 'ID:' + id + ' | ' : '') + 'body: ' + safe
+      console.log('[DEBUG]', msg.substring(0, 1000))
     } catch (_) {}
     return e.next()
   },
@@ -70,7 +44,6 @@ onRecordAfterUpdateSuccess(
   'production_orders',
 )
 
-// 3. DELETE SUCESSO
 onRecordAfterDeleteSuccess(
   (e) => {
     try {
@@ -79,9 +52,11 @@ onRecordAfterDeleteSuccess(
         (record && record.collection && record.collection().name) ||
         (e.collection && e.collection.name) ||
         'unknown'
-      const recordId = record ? record.id : 'unknown'
-
-      console.log('[DEBUG] DELETE ' + colName + ' OK: {id: "' + recordId + '"}')
+      const id = record ? record.id : ''
+      const body = record ? record.publicExport() : null
+      const safe = typeof body === 'object' ? JSON.stringify(body) : String(body || '')
+      const msg = 'DELETE ' + colName + ' OK | ' + (id ? 'ID:' + id + ' | ' : '') + 'body: ' + safe
+      console.log('[DEBUG]', msg.substring(0, 1000))
     } catch (_) {}
     return e.next()
   },
@@ -90,11 +65,6 @@ onRecordAfterDeleteSuccess(
   'production_orders',
 )
 
-// -------------------------------------------------------------
-// PÓS-ERRO
-// -------------------------------------------------------------
-
-// 4. CREATE ERRO
 onRecordAfterCreateError(
   (e) => {
     try {
@@ -102,8 +72,14 @@ onRecordAfterCreateError(
         (e.collection && e.collection.name) ||
         (e.record && e.record.collection && e.record.collection().name) ||
         'unknown'
-      const errMessage = (e.error && e.error.message) || String(e.error || 'unknown_error')
-      console.log('[DEBUG] CREATE ' + colName + ' ERROR: {err: "' + errMessage + '"}')
+      const reqBody = (e.requestInfo && e.requestInfo().body) || null
+      const errMsg =
+        (e.response && e.response.message) ||
+        (e.error && e.error.message) ||
+        String(e.error || 'unknown')
+      const safe = typeof reqBody === 'object' ? JSON.stringify(reqBody) : String(reqBody || '')
+      const msg = 'CREATE ' + colName + ' ERROR: ' + errMsg + ' | body: ' + safe
+      console.log('[DEBUG]', msg.substring(0, 1000))
     } catch (_) {}
     return e.next()
   },
@@ -112,7 +88,6 @@ onRecordAfterCreateError(
   'production_orders',
 )
 
-// 5. UPDATE ERRO
 onRecordAfterUpdateError(
   (e) => {
     try {
@@ -120,11 +95,23 @@ onRecordAfterUpdateError(
         (e.collection && e.collection.name) ||
         (e.record && e.record.collection && e.record.collection().name) ||
         'unknown'
-      const recordId = e.record ? e.record.id : 'unknown'
-      const errMessage = (e.error && e.error.message) || String(e.error || 'unknown_error')
-      console.log(
-        '[DEBUG] UPDATE ' + colName + ' ERROR: {id: "' + recordId + '", err: "' + errMessage + '"}',
-      )
+      const reqBody = (e.requestInfo && e.requestInfo().body) || null
+      const id = e.record ? e.record.id : ''
+      const errMsg =
+        (e.response && e.response.message) ||
+        (e.error && e.error.message) ||
+        String(e.error || 'unknown')
+      const safe = typeof reqBody === 'object' ? JSON.stringify(reqBody) : String(reqBody || '')
+      const msg =
+        'UPDATE ' +
+        colName +
+        ' ERROR: ' +
+        errMsg +
+        ' | ' +
+        (id ? 'ID:' + id + ' | ' : '') +
+        'body: ' +
+        safe
+      console.log('[DEBUG]', msg.substring(0, 1000))
     } catch (_) {}
     return e.next()
   },
@@ -133,7 +120,6 @@ onRecordAfterUpdateError(
   'production_orders',
 )
 
-// 6. DELETE ERRO
 onRecordAfterDeleteError(
   (e) => {
     try {
@@ -141,11 +127,13 @@ onRecordAfterDeleteError(
         (e.collection && e.collection.name) ||
         (e.record && e.record.collection && e.record.collection().name) ||
         'unknown'
-      const recordId = e.record ? e.record.id : 'unknown'
-      const errMessage = (e.error && e.error.message) || String(e.error || 'unknown_error')
-      console.log(
-        '[DEBUG] DELETE ' + colName + ' ERROR: {id: "' + recordId + '", err: "' + errMessage + '"}',
-      )
+      const id = e.record ? e.record.id : ''
+      const errMsg =
+        (e.response && e.response.message) ||
+        (e.error && e.error.message) ||
+        String(e.error || 'unknown')
+      const msg = 'DELETE ' + colName + ' ERROR: ' + errMsg + ' | ' + (id ? 'ID:' + id : '')
+      console.log('[DEBUG]', msg.substring(0, 1000))
     } catch (_) {}
     return e.next()
   },
@@ -153,3 +141,5 @@ onRecordAfterDeleteError(
   'archived_deals',
   'production_orders',
 )
+
+console.log('[DEBUG VALIDATION] v2 loaded — safe log-only mode')
