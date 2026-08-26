@@ -80,7 +80,7 @@ export default function ArchivedDealsPage() {
       const [dealsList, usersList, clientsList] = await Promise.all([
         dealsService.getArchivedDeals(),
         usersService.getAll(),
-        clientsService.getAll(),
+        clientsService.getAll(undefined, '-last_message_at', { includeArchived: true }),
       ])
       const activeArchivedIds = new Set(
         clientsList.filter((c) => c.is_archived === true).map((c) => c.id),
