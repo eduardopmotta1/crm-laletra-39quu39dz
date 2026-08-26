@@ -143,7 +143,7 @@ export default function ProductionOrderModal({
         setSalesRepId(orderToEdit.sales_rep_id || '')
         setProductionRepId(orderToEdit.production_rep_id || '')
         setPromisedDeadline(
-          orderToEdit.promised_deadline ? orderToEdit.promised_deadline.split('T')[0] : '',
+          orderToEdit.promised_deadline ? orderToEdit.promised_deadline.substring(0, 10) : '',
         )
         setDeliveryType(orderToEdit.delivery_type || 'retirada')
         setTrackingCode(orderToEdit.tracking_code || '')
@@ -170,7 +170,7 @@ export default function ProductionOrderModal({
         // default deadline 3 days from now
         const d = new Date()
         d.setDate(d.getDate() + 3)
-        setPromisedDeadline(d.toISOString().split('T')[0])
+        setPromisedDeadline(d.toISOString().substring(0, 10))
         setDeliveryType('retirada')
         setTrackingCode('')
         setNotes(prefillData?.notes || '')
@@ -219,7 +219,7 @@ export default function ProductionOrderModal({
         }
 
         const currentStageObj = stages.find((s) => s.internal_id === stageInternalId)
-        await productionService.update(orderToEdit.id, {
+        const updatePayload: Record<string, any> = {
           client_id: clientId,
           client_name: clientName,
           client_phone: clientPhone,
@@ -231,14 +231,19 @@ export default function ProductionOrderModal({
           total_value: totalValue ? Number(totalValue) : undefined,
           sales_rep_id: salesRepId || undefined,
           production_rep_id: productionRepId || undefined,
-          promised_deadline: promisedDeadline ? promisedDeadline.split('T')[0] : undefined,
           delivery_type: deliveryType,
           tracking_code: trackingCode.trim() || undefined,
           notes: notes.trim() || undefined,
           priority: priority,
           stage_internal_id: stageInternalId,
           stage_name: currentStageObj?.name || orderToEdit.stage_name,
-        })
+        }
+
+        if (promisedDeadline && promisedDeadline.trim()) {
+          updatePayload.promised_deadline = promisedDeadline.substring(0, 10)
+        }
+
+        await productionService.update(orderToEdit.id, updatePayload)
 
         // If stage changed, trigger updateStage flow with notification
         if (orderToEdit.stage_internal_id !== stageInternalId) {
@@ -285,13 +290,25 @@ export default function ProductionOrderModal({
           totalValue: totalValue ? Number(totalValue) : undefined,
           salesRepId: salesRepId || undefined,
           productionRepId: productionRepId || undefined,
-          promisedDeadline: promisedDeadline ? promisedDeadline.split('T')[0] : undefined,
+          promisedDeadline: promisedDeadline ? promisedDeadline.substring(0, 10) : undefined,
           deliveryType,
           notes: notes.trim() || undefined,
           initialStageId: stageInternalId,
           priority,
           attachments: filesArray,
         })
+
+        // If this order originated from a commercial deal, automatically archive the client attendance
+        if (prefillData?.dealOriginId) {
+          try {
+            await pb.collection('clients').update(targetClientId, {
+              is_archived: true,
+              last_archived_deal_id: prefillData.dealOriginId,
+            })
+          } catch (archiveErr) {
+            console.error('Error archiving client after production order creation:', archiveErr)
+          }
+        }
 
         toast({
           title: '🎉 Pedido de Produção Criado!',
@@ -302,6 +319,8 @@ export default function ProductionOrderModal({
       onSaved()
       onClose()
       window.dispatchEvent(new CustomEvent('production-order-updated'))
+      window.dispatchEvent(new CustomEvent('crm-client-updated'))
+      window.dispatchEvent(new CustomEvent('deal-updated'))
     } catch (err: any) {
       console.error(
         'Error saving production order:',
