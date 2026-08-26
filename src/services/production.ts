@@ -500,6 +500,74 @@ export const productionService = {
   },
 
   /**
+   * Archive a production order (soft archive)
+   */
+  async archiveOrder(id: string, notes?: string): Promise<ProductionOrder> {
+    const currentOrder = await this.getById(id)
+    if (!currentOrder) throw new Error('Pedido não encontrado.')
+
+    const updated = await pb.collection('production_orders').update<ProductionOrder>(id, {
+      is_archived: true,
+    })
+
+    await this.logTransition({
+      orderId: updated.id,
+      fromStageId: currentOrder.stage_internal_id,
+      fromStageName: currentOrder.stage_name,
+      toStageId: 'archived',
+      toStageName: 'Arquivado',
+      changeType: 'manual',
+      notes:
+        notes ||
+        `Pedido arquivado. Status anterior: ${currentOrder.stage_name || currentOrder.stage_internal_id}.`,
+    })
+
+    return updated
+  },
+
+  /**
+   * Reopen an archived production order into a specific target stage
+   */
+  async reopenOrder(
+    id: string,
+    targetStageInternalId: ProductionStageInternalId = 'order_received',
+    notes?: string,
+  ): Promise<ProductionOrder> {
+    const currentOrder = await this.getById(id)
+    if (!currentOrder) throw new Error('Pedido não encontrado.')
+
+    const targetStage = await productionStagesService.getByInternalId(targetStageInternalId)
+    const targetStageName = targetStage?.name || targetStageInternalId
+    const isCompleted = targetStageInternalId === 'completed'
+
+    const updatePayload: Partial<ProductionOrder> = {
+      is_archived: false,
+      stage_internal_id: targetStageInternalId,
+      stage_name: targetStageName,
+      stage_id: targetStage?.id,
+      is_completed: isCompleted,
+    }
+
+    const updated = await pb
+      .collection('production_orders')
+      .update<ProductionOrder>(id, updatePayload)
+
+    await this.logTransition({
+      orderId: updated.id,
+      fromStageId: 'archived',
+      fromStageName: 'Arquivado',
+      toStageId: targetStageInternalId,
+      toStageName: targetStageName,
+      changeType: 'manual',
+      notes:
+        notes ||
+        `Pedido reaberto da lixeira/arquivo para a etapa "${targetStageName}". Status anterior: Arquivado.`,
+    })
+
+    return updated
+  },
+
+  /**
    * Delete order (rare, soft archive preferred)
    */
   async delete(id: string): Promise<boolean> {

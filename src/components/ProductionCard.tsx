@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -15,7 +15,18 @@ import {
   FileText,
   User,
   Share2,
+  Archive,
 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { ProductionOrder, ProductionStage } from '@/types/crm'
 import { productionService } from '@/services/production'
 import { formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
@@ -67,6 +78,9 @@ export default function ProductionCard({
       .toUpperCase()
   }
 
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
+
   const copyTrackingLink = (e: React.MouseEvent) => {
     e.stopPropagation()
     const link = `${window.location.origin}/acompanhar/${order.tracking_token}`
@@ -77,159 +91,223 @@ export default function ProductionCard({
     })
   }
 
-  return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      onClick={onClick}
-      className={`group relative bg-white dark:bg-slate-900 rounded-xl border transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer select-none p-3.5 space-y-3 ${deadlineInfo.cardBorderClass}`}
-    >
-      {/* Top row: Order Number + Priority Badge + Deadline Status Alert */}
-      <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="font-extrabold text-xs text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md font-mono">
-            {order.order_number}
-          </span>
-          <Badge
-            variant="outline"
-            className={`text-[10px] font-semibold px-2 py-0 uppercase tracking-wider ${
-              priorityColors[order.priority || 'media']
-            }`}
-          >
-            {priorityLabels[order.priority || 'media']}
-          </Badge>
+  const handleArchiveConfirm = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setIsArchiving(true)
+    try {
+      await productionService.archiveOrder(order.id)
+      toast({
+        title: 'Pedido arquivado',
+        description: `O pedido ${order.order_number} foi arquivado com sucesso.`,
+      })
+      window.dispatchEvent(new CustomEvent('production-order-updated'))
+    } catch (err: any) {
+      console.error('Error archiving order:', err)
+      toast({
+        title: 'Erro ao arquivar',
+        description: err?.message || 'Não foi possível arquivar o pedido.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsArchiving(false)
+      setArchiveDialogOpen(false)
+    }
+  }
 
-          {order.art_approved && (
-            <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0 flex items-center gap-0.5 font-bold">
-              <CheckCircle2 className="h-2.5 w-2.5" />
-              Arte OK
+  return (
+    <>
+      <div
+        draggable
+        onDragStart={onDragStart}
+        onClick={onClick}
+        className={`group relative bg-white dark:bg-slate-900 rounded-xl border transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer select-none p-3.5 space-y-3 ${deadlineInfo.cardBorderClass}`}
+      >
+        {/* Top row: Order Number + Priority Badge + Deadline Status Alert */}
+        <div className="flex items-center justify-between gap-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-extrabold text-xs text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md font-mono">
+              {order.order_number}
+            </span>
+            <Badge
+              variant="outline"
+              className={`text-[10px] font-semibold px-2 py-0 uppercase tracking-wider ${
+                priorityColors[order.priority || 'media']
+              }`}
+            >
+              {priorityLabels[order.priority || 'media']}
             </Badge>
+
+            {order.art_approved && (
+              <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0 flex items-center gap-0.5 font-bold">
+                <CheckCircle2 className="h-2.5 w-2.5" />
+                Arte OK
+              </Badge>
+            )}
+          </div>
+
+          {/* Deadline Badge */}
+          <span
+            className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${deadlineInfo.badgeClass}`}
+          >
+            {deadlineInfo.status === 'overdue' ? (
+              <AlertTriangle className="h-3 w-3 text-rose-600" />
+            ) : (
+              <Clock className="h-3 w-3" />
+            )}
+            {deadlineInfo.label}
+          </span>
+        </div>
+
+        {/* Product Name & Description */}
+        <div className="space-y-1">
+          <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight line-clamp-1 group-hover:text-emerald-600 transition-colors">
+            {order.product}
+          </h4>
+          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+            {order.description || 'Sem especificações detalhadas'}
+          </p>
+        </div>
+
+        {/* Client Name & Phone */}
+        <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 bg-slate-50/70 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/80">
+          <span className="font-semibold truncate max-w-[140px]">{order.client_name}</span>
+          <span className="text-[11px] text-slate-400 font-mono">{order.client_phone}</span>
+        </div>
+
+        {/* Quantity, Dimensions & Value Summary */}
+        <div className="grid grid-cols-2 gap-1 text-[11px]">
+          {order.quantity && (
+            <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+              <Package className="h-3 w-3 text-slate-400" />
+              <span>
+                Qtd: <strong>{order.quantity} un</strong>
+              </span>
+            </div>
+          )}
+          {order.dimensions && (
+            <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400 justify-end">
+              <Layers className="h-3 w-3 text-slate-400" />
+              <span className="truncate">{order.dimensions}</span>
+            </div>
           )}
         </div>
 
-        {/* Deadline Badge */}
-        <span
-          className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${deadlineInfo.badgeClass}`}
-        >
-          {deadlineInfo.status === 'overdue' ? (
-            <AlertTriangle className="h-3 w-3 text-rose-600" />
-          ) : (
-            <Clock className="h-3 w-3" />
-          )}
-          {deadlineInfo.label}
-        </span>
-      </div>
+        {canViewFinancials && order.total_value ? (
+          <div className="flex items-baseline justify-between py-1 px-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900">
+            <span className="text-[10px] text-slate-500 font-medium">Valor do Pedido:</span>
+            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+              {formatCurrency(order.total_value)}
+            </span>
+          </div>
+        ) : null}
 
-      {/* Product Name & Description */}
-      <div className="space-y-1">
-        <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight line-clamp-1 group-hover:text-emerald-600 transition-colors">
-          {order.product}
-        </h4>
-        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-          {order.description || 'Sem especificações detalhadas'}
-        </p>
-      </div>
+        {/* Action for Approval if currently in awaiting_approval */}
+        {order.stage_internal_id === 'awaiting_approval' && onOpenApprovalModal && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenApprovalModal(order, e)
+            }}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-purple-50 dark:bg-purple-950/50 hover:bg-purple-100 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[11px] font-semibold transition-colors animate-pulse"
+          >
+            <ShieldCheck className="h-3.5 w-3.5 text-purple-600" />
+            Registrar Decisão de Arte
+          </button>
+        )}
 
-      {/* Client Name & Phone */}
-      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 bg-slate-50/70 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/80">
-        <span className="font-semibold truncate max-w-[140px]">{order.client_name}</span>
-        <span className="text-[11px] text-slate-400 font-mono">{order.client_phone}</span>
-      </div>
-
-      {/* Quantity, Dimensions & Value Summary */}
-      <div className="grid grid-cols-2 gap-1 text-[11px]">
-        {order.quantity && (
-          <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
-            <Package className="h-3 w-3 text-slate-400" />
-            <span>
-              Qtd: <strong>{order.quantity} un</strong>
+        {/* Tracking Code if Shipped */}
+        {order.tracking_code && (
+          <div className="flex items-center justify-between text-[11px] text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 p-1.5 rounded-lg border border-blue-200 dark:border-blue-800 font-mono">
+            <span className="flex items-center gap-1">
+              <Truck className="h-3 w-3" />
+              {order.tracking_code}
             </span>
           </div>
         )}
-        {order.dimensions && (
-          <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400 justify-end">
-            <Layers className="h-3 w-3 text-slate-400" />
-            <span className="truncate">{order.dimensions}</span>
+
+        {/* Bottom Bar: Responsible info + Share tracking link + WhatsApp */}
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+          <div
+            className="flex items-center space-x-1.5"
+            title={`Resp: ${order.expand?.production_rep_id?.name || order.expand?.sales_rep_id?.name || 'Produção'}`}
+          >
+            <Avatar className="h-6 w-6 text-[10px] border border-slate-200 dark:border-slate-700 bg-emerald-100 text-emerald-800 font-semibold">
+              <AvatarFallback>
+                {getInitials(
+                  order.expand?.production_rep_id?.name || order.expand?.sales_rep_id?.name,
+                )}
+              </AvatarFallback>
+            </Avatar>
+            <span className="text-[11px] text-slate-500 truncate max-w-[85px]">
+              {order.expand?.production_rep_id?.name?.split(' ')[0] ||
+                order.expand?.sales_rep_id?.name?.split(' ')[0] ||
+                'Produção'}
+            </span>
           </div>
-        )}
-      </div>
 
-      {canViewFinancials && order.total_value ? (
-        <div className="flex items-baseline justify-between py-1 px-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900">
-          <span className="text-[10px] text-slate-500 font-medium">Valor do Pedido:</span>
-          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-            {formatCurrency(order.total_value)}
-          </span>
-        </div>
-      ) : null}
+          <div className="flex items-center space-x-1">
+            <button
+              type="button"
+              onClick={copyTrackingLink}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Copiar Link de Acompanhamento Público"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+            </button>
 
-      {/* Action for Approval if currently in awaiting_approval */}
-      {order.stage_internal_id === 'awaiting_approval' && onOpenApprovalModal && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onOpenApprovalModal(order, e)
-          }}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-purple-50 dark:bg-purple-950/50 hover:bg-purple-100 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[11px] font-semibold transition-colors animate-pulse"
-        >
-          <ShieldCheck className="h-3.5 w-3.5 text-purple-600" />
-          Registrar Decisão de Arte
-        </button>
-      )}
+            <a
+              href={getWhatsAppDirectUrl(order.client_phone)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Abrir WhatsApp"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
 
-      {/* Tracking Code if Shipped */}
-      {order.tracking_code && (
-        <div className="flex items-center justify-between text-[11px] text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 p-1.5 rounded-lg border border-blue-200 dark:border-blue-800 font-mono">
-          <span className="flex items-center gap-1">
-            <Truck className="h-3 w-3" />
-            {order.tracking_code}
-          </span>
-        </div>
-      )}
-
-      {/* Bottom Bar: Responsible info + Share tracking link + WhatsApp */}
-      <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-        <div
-          className="flex items-center space-x-1.5"
-          title={`Resp: ${order.expand?.production_rep_id?.name || order.expand?.sales_rep_id?.name || 'Produção'}`}
-        >
-          <Avatar className="h-6 w-6 text-[10px] border border-slate-200 dark:border-slate-700 bg-emerald-100 text-emerald-800 font-semibold">
-            <AvatarFallback>
-              {getInitials(
-                order.expand?.production_rep_id?.name || order.expand?.sales_rep_id?.name,
-              )}
-            </AvatarFallback>
-          </Avatar>
-          <span className="text-[11px] text-slate-500 truncate max-w-[85px]">
-            {order.expand?.production_rep_id?.name?.split(' ')[0] ||
-              order.expand?.sales_rep_id?.name?.split(' ')[0] ||
-              'Produção'}
-          </span>
-        </div>
-
-        <div className="flex items-center space-x-1">
-          <button
-            type="button"
-            onClick={copyTrackingLink}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Copiar Link de Acompanhamento Público"
-          >
-            <Share2 className="h-3.5 w-3.5" />
-          </button>
-
-          <a
-            href={getWhatsAppDirectUrl(order.client_phone)}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Abrir WhatsApp"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setArchiveDialogOpen(true)
+              }}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
+              title="Arquivar Pedido"
+            >
+              <Archive className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Archive Confirmation Dialog */}
+      <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Archive className="h-5 w-5 text-amber-600" />
+              Arquivar pedido {order.order_number}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-500">
+              O pedido de <strong>{order.client_name}</strong> ({order.product}) será removido do
+              Kanban ativo e enviado para a aba "Pedidos Arquivados". Você poderá reabri-lo a
+              qualquer momento sem perder dados ou histórico.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isArchiving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleArchiveConfirm}
+              disabled={isArchiving}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {isArchiving ? 'Arquivando...' : 'Sim, arquivar pedido'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
