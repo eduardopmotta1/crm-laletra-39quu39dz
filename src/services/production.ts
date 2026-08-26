@@ -139,7 +139,6 @@ export const productionService = {
    * Create a new production order
    */
   async create(payload: CreateProductionOrderPayload): Promise<ProductionOrder> {
-    const orderNumber = await this.getNextOrderNumber()
     const trackingToken = this.generateTrackingToken()
     const todayDateStr = new Date().toISOString().split('T')[0]
     const initialStageId = payload.initialStageId || 'order_received'
@@ -147,92 +146,119 @@ export const productionService = {
     const stage = await productionStagesService.getByInternalId(initialStageId)
     const stageName = stage?.name || 'Pedido recebido'
 
-    const formData = new FormData()
-    formData.append('order_number', orderNumber)
-    formData.append('tracking_token', trackingToken)
-    if (payload.clientId && payload.clientId.trim()) {
-      formData.append('client_id', payload.clientId.trim())
-    }
-    formData.append('client_name', payload.clientName.trim())
-    formData.append('client_phone', payload.clientPhone.trim())
-    if (payload.clientEmail && payload.clientEmail.trim()) {
-      formData.append('client_email', payload.clientEmail.trim())
-    }
-    if (payload.dealOriginId && payload.dealOriginId.trim()) {
-      formData.append('deal_origin_id', payload.dealOriginId.trim())
-    }
-    formData.append('sale_date', todayDateStr)
-    formData.append('product', payload.product.trim())
-    if (payload.description && payload.description.trim()) {
-      formData.append('description', payload.description.trim())
-    }
-    if (
-      payload.quantity !== undefined &&
-      payload.quantity !== null &&
-      !isNaN(Number(payload.quantity))
-    ) {
-      formData.append('quantity', String(Number(payload.quantity)))
-    }
-    if (payload.dimensions && payload.dimensions.trim()) {
-      formData.append('dimensions', payload.dimensions.trim())
-    }
-    if (
-      payload.totalValue !== undefined &&
-      payload.totalValue !== null &&
-      !isNaN(Number(payload.totalValue))
-    ) {
-      formData.append('total_value', String(Number(payload.totalValue)))
-    }
-    if (payload.salesRepId && payload.salesRepId.trim()) {
-      formData.append('sales_rep_id', payload.salesRepId.trim())
-    }
-    if (payload.productionRepId && payload.productionRepId.trim()) {
-      formData.append('production_rep_id', payload.productionRepId.trim())
-    }
-    if (payload.promisedDeadline && payload.promisedDeadline.trim()) {
-      const deadlineDateStr = payload.promisedDeadline.includes('T')
-        ? payload.promisedDeadline.split('T')[0]
-        : payload.promisedDeadline.trim()
-      formData.append('promised_deadline', deadlineDateStr)
-    }
-    if (payload.deliveryType) {
-      formData.append('delivery_type', payload.deliveryType)
-    }
-    if (payload.notes && payload.notes.trim()) {
-      formData.append('notes', payload.notes.trim())
-    }
-    formData.append('art_approved', 'false')
-    if (stage?.id) formData.append('stage_id', stage.id)
-    formData.append('stage_internal_id', initialStageId)
-    formData.append('stage_name', stageName)
-    formData.append('priority', payload.priority || 'media')
-    formData.append('is_completed', 'false')
-    formData.append('is_archived', 'false')
+    const maxRetries = 5
+    let created: ProductionOrder | null = null
+    let usedOrderNumber = ''
 
-    if (payload.attachments && payload.attachments.length > 0) {
-      for (const file of payload.attachments) {
-        if (file instanceof File) {
-          formData.append('attachments', file)
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const orderNumber = await this.getNextOrderNumber()
+      usedOrderNumber = orderNumber
+
+      const formData = new FormData()
+      formData.append('order_number', orderNumber)
+      formData.append('tracking_token', trackingToken)
+      if (payload.clientId && payload.clientId.trim()) {
+        formData.append('client_id', payload.clientId.trim())
+      }
+      formData.append('client_name', payload.clientName.trim())
+      formData.append('client_phone', payload.clientPhone.trim())
+      if (payload.clientEmail && payload.clientEmail.trim()) {
+        formData.append('client_email', payload.clientEmail.trim())
+      }
+      if (payload.dealOriginId && payload.dealOriginId.trim()) {
+        formData.append('deal_origin_id', payload.dealOriginId.trim())
+      }
+      formData.append('sale_date', todayDateStr)
+      formData.append('product', payload.product.trim())
+      if (payload.description && payload.description.trim()) {
+        formData.append('description', payload.description.trim())
+      }
+      if (
+        payload.quantity !== undefined &&
+        payload.quantity !== null &&
+        !isNaN(Number(payload.quantity))
+      ) {
+        formData.append('quantity', String(Number(payload.quantity)))
+      }
+      if (payload.dimensions && payload.dimensions.trim()) {
+        formData.append('dimensions', payload.dimensions.trim())
+      }
+      if (
+        payload.totalValue !== undefined &&
+        payload.totalValue !== null &&
+        !isNaN(Number(payload.totalValue))
+      ) {
+        formData.append('total_value', String(Number(payload.totalValue)))
+      }
+      if (payload.salesRepId && payload.salesRepId.trim()) {
+        formData.append('sales_rep_id', payload.salesRepId.trim())
+      }
+      if (payload.productionRepId && payload.productionRepId.trim()) {
+        formData.append('production_rep_id', payload.productionRepId.trim())
+      }
+      if (payload.promisedDeadline && payload.promisedDeadline.trim()) {
+        const deadlineDateStr = payload.promisedDeadline.includes('T')
+          ? payload.promisedDeadline.split('T')[0]
+          : payload.promisedDeadline.trim()
+        formData.append('promised_deadline', deadlineDateStr)
+      }
+      if (payload.deliveryType) {
+        formData.append('delivery_type', payload.deliveryType)
+      }
+      if (payload.notes && payload.notes.trim()) {
+        formData.append('notes', payload.notes.trim())
+      }
+      formData.append('art_approved', 'false')
+      if (stage?.id) formData.append('stage_id', stage.id)
+      formData.append('stage_internal_id', initialStageId)
+      formData.append('stage_name', stageName)
+      formData.append('priority', payload.priority || 'media')
+      formData.append('is_completed', 'false')
+      formData.append('is_archived', 'false')
+
+      if (payload.attachments && payload.attachments.length > 0) {
+        for (const file of payload.attachments) {
+          if (file instanceof File) {
+            formData.append('attachments', file)
+          }
         }
+      }
+
+      try {
+        created = await pb.collection('production_orders').create<ProductionOrder>(formData)
+        break
+      } catch (err: any) {
+        const orderNumberError = err?.data?.order_number || err?.response?.data?.order_number
+        const isUniqueConflict =
+          err?.status === 400 &&
+          (orderNumberError?.code === 'validation_not_unique' ||
+            (typeof orderNumberError?.message === 'string' &&
+              orderNumberError.message.toLowerCase().includes('unique')))
+
+        if (isUniqueConflict && attempt < maxRetries - 1) {
+          console.warn(
+            `[OrderNumber] Collision detected for ${orderNumber}, retrying (${attempt + 1}/${maxRetries})...`,
+          )
+          continue
+        }
+
+        console.error(
+          'Error creating production order in PocketBase:',
+          {
+            message: err?.message,
+            status: err?.status,
+            url: err?.url,
+            data: err?.data || err?.response?.data,
+            response: err?.response,
+          },
+          err,
+        )
+        throw err
       }
     }
 
-    let created: ProductionOrder
-    try {
-      created = await pb.collection('production_orders').create<ProductionOrder>(formData)
-    } catch (err: any) {
-      console.error(
-        'Error creating production order in PocketBase:',
-        {
-          message: err?.message,
-          status: err?.status,
-          url: err?.url,
-          data: err?.data || err?.response?.data,
-          response: err?.response,
-        },
-        err,
-      )
-      throw err
+    if (!created) {
+      throw new Error('Falha ao criar o pedido de produção.')
     }
 
     // Log initial creation
@@ -241,13 +267,13 @@ export const productionService = {
       toStageId: initialStageId,
       toStageName: stageName,
       changeType: 'automatic',
-      notes: `Pedido criado e registrado com sucesso. Número: ${orderNumber}.`,
+      notes: `Pedido criado e registrado com sucesso. Número: ${usedOrderNumber}.`,
       whatsappSent: stage?.auto_notify_whatsapp || false,
       whatsappStatus: stage?.auto_notify_whatsapp ? 'enviado' : 'nao_enviado',
       whatsappMessage: stage?.whatsapp_message_template
         ? stage.whatsapp_message_template
             .replace('{{nome}}', payload.clientName)
-            .replace('{{pedido}}', orderNumber)
+            .replace('{{pedido}}', usedOrderNumber)
             .replace(
               '{{link_acompanhamento}}',
               `${window.location.origin}/acompanhar/${trackingToken}`,
