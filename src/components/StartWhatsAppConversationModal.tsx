@@ -177,7 +177,7 @@ export default function StartWhatsAppConversationModal({
           onSuccess({
             ...client,
             stage: res.client.stage || targetStage,
-            last_message_at: res.client.last_message_at || new Date().toISOString(),
+            last_message_at: res.client.last_message_at || new Date().toISOString().split('T')[0],
             last_message_direction: 'outbound',
             last_message_text: renderedBody,
           })

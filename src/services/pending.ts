@@ -783,10 +783,10 @@ export const pendingService = {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1)
       }
 
-      const startIso = startDate.toISOString()
+      const startDateStr = startDate.toISOString().split('T')[0]
 
       // Fetch resolutions
-      let resFilter = `resolved_at >= "${startIso}"`
+      let resFilter = `resolved_at >= "${startDateStr}"`
       if (userId) {
         resFilter += ` && (resolved_by = "${userId}" || assigned_to = "${userId}")`
       }
@@ -1031,16 +1031,17 @@ export const pendingService = {
    */
   async rescheduleItem(item: PendingItem, newDate: string): Promise<boolean> {
     try {
+      const pureDate = newDate.includes('T') ? newDate.split('T')[0] : newDate.trim()
       if (item.taskId) {
-        await pb.collection('tasks').update(item.taskId, { due_date: newDate })
+        await pb.collection('tasks').update(item.taskId, { due_date: pureDate })
       } else if (item.postSaleId) {
-        await pb.collection('post_sales').update(item.postSaleId, { scheduled_date: newDate })
+        await pb.collection('post_sales').update(item.postSaleId, { scheduled_date: pureDate })
       } else if (item.orderId) {
         await pb
           .collection('production_orders')
-          .update(item.orderId, { promised_deadline: newDate })
+          .update(item.orderId, { promised_deadline: pureDate })
       } else if (item.clientId) {
-        await pb.collection('clients').update(item.clientId, { next_action_date: newDate })
+        await pb.collection('clients').update(item.clientId, { next_action_date: pureDate })
       }
       return true
     } catch (err) {

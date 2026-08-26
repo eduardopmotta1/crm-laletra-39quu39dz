@@ -122,19 +122,21 @@ export const evaluationsService = {
     const currentUserId = pb.authStore.record?.id
     const todayDateStr = new Date().toISOString().split('T')[0]
 
-    const updated = await pb.collection('evaluations').update<Evaluation>(
-      evaluationId,
-      {
-        resolved,
-        resolved_at: resolved ? todayDateStr : null,
-        resolved_notes: notes,
-        resolved_by: resolved ? currentUserId : null,
-        status: resolved ? 'resolved' : 'in_recovery',
-      },
-      {
+    const updatePayload: Record<string, any> = {
+      resolved,
+      resolved_notes: notes,
+      status: resolved ? 'resolved' : 'in_recovery',
+    }
+    if (resolved) {
+      updatePayload.resolved_at = todayDateStr
+      if (currentUserId) updatePayload.resolved_by = currentUserId
+    }
+
+    const updated = await pb
+      .collection('evaluations')
+      .update<Evaluation>(evaluationId, updatePayload, {
         expand: 'client_id,order_id,attendance_id,resolved_by',
-      },
-    )
+      })
 
     // Update client relationship status to recovered if resolved
     if (updated.client_id) {

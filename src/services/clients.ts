@@ -51,8 +51,27 @@ export const clientsService = {
   },
 
   async create(data: Partial<Client>): Promise<Client> {
+    const dateFieldNames = [
+      'closed_at',
+      'next_action_date',
+      'reopened_at',
+      'first_purchase_date',
+      'last_purchase_date',
+      'last_message_at',
+    ]
+
+    const sanitizedData: Record<string, any> = { ...data }
+    for (const key of dateFieldNames) {
+      if (key in sanitizedData) {
+        const val = sanitizedData[key]
+        if (typeof val === 'string' && val.includes('T')) {
+          sanitizedData[key] = val.split('T')[0]
+        }
+      }
+    }
+
     const created = await pb.collection('clients').create<Client>({
-      ...data,
+      ...sanitizedData,
       is_archived: false,
       has_returned: false,
     })
@@ -73,9 +92,30 @@ export const clientsService = {
 
   async update(id: string, data: Partial<Client>): Promise<Client> {
     const prev = await this.getById(id)
+
+    // Sanitize date fields to YYYY-MM-DD
+    const dateFieldNames = [
+      'closed_at',
+      'next_action_date',
+      'reopened_at',
+      'first_purchase_date',
+      'last_purchase_date',
+      'last_message_at',
+    ]
+
+    const sanitizedData: Record<string, any> = { ...data }
+    for (const key of dateFieldNames) {
+      if (key in sanitizedData) {
+        const val = sanitizedData[key]
+        if (typeof val === 'string' && val.includes('T')) {
+          sanitizedData[key] = val.split('T')[0]
+        }
+      }
+    }
+
     let updated: Client
     try {
-      updated = await pb.collection('clients').update<Client>(id, data)
+      updated = await pb.collection('clients').update<Client>(id, sanitizedData as Partial<Client>)
     } catch (err: any) {
       console.error(
         `Error updating client ${id} in PocketBase:`,

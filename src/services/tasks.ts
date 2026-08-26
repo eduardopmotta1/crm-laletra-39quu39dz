@@ -31,11 +31,19 @@ export const tasksService = {
   },
 
   async create(data: Partial<Task>): Promise<Task> {
-    return await pb.collection('tasks').create<Task>(data)
+    const sanitized = { ...data }
+    if (typeof sanitized.due_date === 'string' && sanitized.due_date.includes('T')) {
+      sanitized.due_date = sanitized.due_date.split('T')[0]
+    }
+    return await pb.collection('tasks').create<Task>(sanitized)
   },
 
   async update(id: string, data: Partial<Task>): Promise<Task> {
-    return await pb.collection('tasks').update<Task>(id, data)
+    const sanitized = { ...data }
+    if (typeof sanitized.due_date === 'string' && sanitized.due_date.includes('T')) {
+      sanitized.due_date = sanitized.due_date.split('T')[0]
+    }
+    return await pb.collection('tasks').update<Task>(id, sanitized)
   },
 
   async toggleStatus(

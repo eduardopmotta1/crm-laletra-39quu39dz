@@ -141,7 +141,7 @@ routerAdd('POST', '/api/crm/submit-evaluation', (e) => {
       )
       taskRecord.set('client_id', clientId)
       if (assignedTo) taskRecord.set('assigned_to', assignedTo)
-      taskRecord.set('due_date', new Date().toISOString())
+      taskRecord.set('due_date', new Date().toISOString().split('T')[0])
       taskRecord.set('status', 'pendente')
       taskRecord.set('priority', 'alta')
 

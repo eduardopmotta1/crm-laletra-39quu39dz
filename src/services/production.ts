@@ -394,7 +394,6 @@ export const productionService = {
     const delayDays = postSaleCfg.delayDays || 3
     const scheduledDateObj = new Date(Date.now() + delayDays * 24 * 60 * 60 * 1000)
     const scheduledDateStr = scheduledDateObj.toISOString().split('T')[0]
-    const scheduledDate = scheduledDateObj.toISOString()
 
     // 3. Generate secure evaluation token
     const evalToken =
@@ -423,7 +422,7 @@ export const productionService = {
           description: `Realizar contato de pós-venda para verificar entrega do pedido ${order.order_number} (${order.product}) e coletar avaliação do cliente. Link de avaliação: ${window.location.origin}/avaliacao/${evalToken}`,
           client_id: order.client_id,
           assigned_to: order.sales_rep_id || pb.authStore.record?.id,
-          due_date: scheduledDate,
+          due_date: scheduledDateStr,
           status: 'pendente',
           priority: 'media',
         })
@@ -452,7 +451,23 @@ export const productionService = {
    * Update full order details
    */
   async update(id: string, data: Partial<ProductionOrder>): Promise<ProductionOrder> {
-    return await pb.collection('production_orders').update<ProductionOrder>(id, data)
+    const sanitizedData = { ...data }
+    const dateFields = [
+      'sale_date',
+      'promised_deadline',
+      'estimated_delivery_date',
+      'completed_at',
+      'art_approved_at',
+    ]
+
+    for (const key of dateFields) {
+      const val = (sanitizedData as any)[key]
+      if (typeof val === 'string' && val.includes('T')) {
+        ;(sanitizedData as any)[key] = val.split('T')[0]
+      }
+    }
+
+    return await pb.collection('production_orders').update<ProductionOrder>(id, sanitizedData)
   },
 
   /**

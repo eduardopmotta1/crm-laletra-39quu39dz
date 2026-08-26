@@ -68,12 +68,15 @@ export const postSalesService = {
     channel?: string
     notes?: string
   }): Promise<PostSale> {
+    const schedDate = data.scheduledDate.includes('T')
+      ? data.scheduledDate.split('T')[0]
+      : data.scheduledDate.trim()
     return await pb.collection('post_sales').create<PostSale>({
       client_id: data.clientId,
       order_id: data.orderId || undefined,
       order_number: data.orderNumber || undefined,
       attendance_id: data.attendanceId || undefined,
-      scheduled_date: data.scheduledDate,
+      scheduled_date: schedDate,
       status: data.status || 'pending',
       task_id: data.taskId || undefined,
       evaluation_token: data.evaluationToken || undefined,

@@ -166,7 +166,7 @@ export default function ClientFormModal({
         })
       } else {
         // New client: set last message timestamp to now if not provided
-        payload.last_message_at = new Date().toISOString()
+        payload.last_message_at = new Date().toISOString().split('T')[0]
         payload.last_message_direction = 'inbound'
         payload.last_message_text = 'Cadastro inicial manual'
         saved = await clientsService.create(payload)

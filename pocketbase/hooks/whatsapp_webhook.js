@@ -105,6 +105,7 @@ routerAdd('GET', '/api/crm/whatsapp-webhook', (e) => {
 
 // 2. Event & Message Receiver endpoint (POST)
 routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
+  const todayStr = new Date().toISOString().split('T')[0]
   const body = e.requestInfo().body || {}
 
   console.log('[Meta Webhook POST] Inbound webhook event received')
@@ -238,7 +239,7 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
     clientRecord.set('priority', 'media')
     clientRecord.set('is_archived', false)
     clientRecord.set('has_returned', false)
-    clientRecord.set('last_message_at', nowIso)
+    clientRecord.set('last_message_at', todayStr)
     clientRecord.set('last_message_direction', 'inbound')
     clientRecord.set('last_message_text', messageText)
     clientRecord.set('notes', 'Criado automaticamente via mensagem do WhatsApp Cloud API.')
@@ -275,13 +276,13 @@ routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
       if (wasArchived || oldStage === 'Venda fechada' || oldStage === 'Não fechou') {
         isReopened = true
         clientRecord.set('has_returned', true)
-        clientRecord.set('reopened_at', nowIso)
+        clientRecord.set('reopened_at', todayStr)
       }
       clientRecord.set('is_archived', false)
       clientRecord.set('stage', 'Precisa responder')
     }
 
-    clientRecord.set('last_message_at', nowIso)
+    clientRecord.set('last_message_at', todayStr)
     clientRecord.set('last_message_direction', 'inbound')
     clientRecord.set('last_message_text', messageText)
     if (
