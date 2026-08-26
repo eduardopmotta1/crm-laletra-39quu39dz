@@ -1,4 +1,4 @@
-import React from 'react'
+import type React from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -7,9 +7,7 @@ import {
   Sparkles,
   Tag,
   ExternalLink,
-  Star,
   Archive,
-  Package,
   Lock,
   MoreVertical,
 } from 'lucide-react'
@@ -23,7 +21,6 @@ import type { Client, Priority, KanbanColumn, SlaConfig } from '@/types/crm'
 import { calculateSlaInfo, formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
-import ProductionOrderModal from './ProductionOrderModal'
 
 interface KanbanCardProps {
   client: Client
@@ -45,7 +42,6 @@ export default function KanbanCard({
   onDragStart,
 }: KanbanCardProps) {
   const { canViewFinancials, isAdmin, hasPermission } = useAuth()
-  const [productionModalOpen, setProductionModalOpen] = React.useState(false)
   const slaInfo = calculateSlaInfo(
     client.last_message_at,
     client.last_message_direction,
@@ -169,23 +165,9 @@ export default function KanbanCard({
           </div>
         )}
 
-        {/* Quick Final Stage Action: Concluir & Arquivar button directly on final cards + Create Production Order */}
+        {/* Quick Final Stage Action: Concluir & Arquivar button directly on final cards */}
         {isFinalStage && (
           <div className="flex flex-col gap-1.5 pt-0.5">
-            {isWon && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setProductionModalOpen(true)
-                }}
-                className="w-full py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
-              >
-                <Package className="h-3.5 w-3.5" />
-                Criar Pedido de Produção
-              </button>
-            )}
-
             {onCompleteAndArchive && (
               <button
                 type="button"
@@ -283,24 +265,6 @@ export default function KanbanCard({
           </div>
         </div>
       </div>
-
-      <ProductionOrderModal
-        isOpen={productionModalOpen}
-        onClose={() => setProductionModalOpen(false)}
-        onSaved={() => {
-          setProductionModalOpen(false)
-          window.dispatchEvent(new CustomEvent('production-order-updated'))
-        }}
-        prefillData={{
-          clientId: client.id,
-          clientName: client.name,
-          clientPhone: client.phone,
-          clientEmail: client.email,
-          product: client.product_interest || '',
-          quoteValue: client.quote_value,
-          notes: client.notes,
-        }}
-      />
     </>
   )
 }
