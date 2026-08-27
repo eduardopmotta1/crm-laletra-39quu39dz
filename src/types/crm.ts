@@ -95,15 +95,42 @@ export type RelationshipStatus =
   | 'recovered'
   | 'neutral'
 
+export interface Attendance {
+  id: string
+  client_id: string
+  stage: KanbanStage
+  assigned_to?: string
+  product_interest?: string
+  quote_value?: number
+  notes?: string
+  source?: string
+  is_archived?: boolean
+  result?: DealResult
+  loss_reason?: string
+  closed_at?: string
+  archived_at?: string
+  last_customer_message_at?: string
+  last_company_message_at?: string
+  last_archived_deal_id?: string
+  expand?: {
+    client_id?: Client
+    assigned_to?: User
+    last_archived_deal_id?: ArchivedDeal
+  }
+  created: string
+  updated: string
+}
+
 export interface Client {
   id: string
   name: string
   phone: string
   email?: string
-  stage: KanbanStage
+  // Legacy / convenience fields on client
+  stage?: KanbanStage
   product_interest?: string
   quote_value?: number
-  priority: Priority
+  priority?: Priority
   assigned_to?: string
   expand?: {
     assigned_to?: User
@@ -197,6 +224,7 @@ export type DealResult = 'Venda fechada' | 'Venda perdida'
 export interface ArchivedDeal {
   id: string
   client_id: string
+  attendance_id?: string
   client_name: string
   client_phone: string
   client_email?: string
@@ -212,6 +240,7 @@ export interface ArchivedDeal {
   duration_days?: number
   expand?: {
     client_id?: Client
+    attendance_id?: Attendance
     assigned_to?: User
     closed_by?: User
   }
@@ -222,6 +251,7 @@ export interface ArchivedDeal {
 export interface StageTransition {
   id: string
   client_id: string
+  attendance_id?: string
   from_stage?: string
   to_stage: string
   from_stage_id?: string
@@ -233,6 +263,7 @@ export interface StageTransition {
   expand?: {
     user_id?: User
     client_id?: Client
+    attendance_id?: Attendance
   }
   created: string
   updated: string
@@ -243,12 +274,14 @@ export interface Task {
   title: string
   description?: string
   client_id: string
+  attendance_id?: string
   assigned_to?: string
   due_date: string
   status: 'pendente' | 'concluida' | 'cancelada'
   priority: 'baixa' | 'media' | 'alta'
   expand?: {
     client_id?: Client
+    attendance_id?: Attendance
     assigned_to?: User
   }
   created: string
@@ -258,12 +291,18 @@ export interface Task {
 export interface Message {
   id: string
   client_id: string
+  attendance_id?: string
   direction: 'inbound' | 'outbound'
   message_text: string
   sender_name?: string
   sent_by_user?: string
   whatsapp_message_id?: string
   status?: 'sent' | 'delivered' | 'read' | 'failed'
+  expand?: {
+    client_id?: Client
+    attendance_id?: Attendance
+    sent_by_user?: User
+  }
   created: string
   updated: string
 }
@@ -378,6 +417,7 @@ export interface ProductionOrder {
   order_number: string // e.g. #001842
   tracking_token: string
   client_id: string
+  attendance_id?: string
   client_name: string
   client_phone: string
   client_email?: string
@@ -407,6 +447,7 @@ export interface ProductionOrder {
   is_archived?: boolean
   expand?: {
     client_id?: Client
+    attendance_id?: Attendance
     deal_origin_id?: ArchivedDeal
     sales_rep_id?: User
     production_rep_id?: User
@@ -502,6 +543,7 @@ export interface PendingItem {
 
   // Entity context
   clientId?: string
+  attendanceId?: string
   clientName: string
   clientPhone: string
   clientEmail?: string
@@ -529,6 +571,7 @@ export interface PendingResolutionRecord {
   item_id: string
   item_title?: string
   client_id?: string
+  attendance_id?: string
   client_name?: string
   assigned_to?: string
   assigned_name?: string
