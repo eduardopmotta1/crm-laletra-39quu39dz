@@ -35,6 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import pb from '@/lib/pocketbase/client'
 import { settingsService } from '@/services/settings'
 import { columnsService } from '@/services/columns'
 import { whatsappService } from '@/services/whatsapp'
@@ -146,6 +147,27 @@ export default function SettingsPage() {
     testedAt?: string
   } | null>(null)
 
+  // Processor Health State
+  const [processorHealth, setProcessorHealth] = useState<{
+    status: 'ok' | 'error' | 'pending'
+    lastRun: string | null
+    nextRun: string | null
+    durationMs: number | null
+    lastError: string | null
+    pendingCount: number
+    lastTotalItems: number | null
+    loading: boolean
+  }>({
+    status: 'pending',
+    lastRun: null,
+    nextRun: null,
+    durationMs: null,
+    lastError: null,
+    pendingCount: 0,
+    lastTotalItems: null,
+    loading: true,
+  })
+
   // Webhook Diagnostics & Publication Status State
   const [publicationStatus, setPublicationStatus] = useState<{
     checked: boolean
@@ -194,7 +216,56 @@ export default function SettingsPage() {
   useEffect(() => {
     loadSettings()
     checkPublicationAndDiagnostics()
+    loadProcessorHealth()
   }, [])
+
+  const loadProcessorHealth = async () => {
+    try {
+      const map = await settingsService.getMap()
+      let pendingCount = 0
+      try {
+        const pendingRes = await pb.collection('pending_resolutions').getList(1, 1, {
+          filter: 'resolved_at = null || resolved_at = ""',
+          requestKey: null,
+        })
+        pendingCount = pendingRes.totalItems
+      } catch (pErr) {
+        console.warn('Could not count pending resolutions:', pErr)
+      }
+
+      const lastRun = map['automation_processor_last_run'] || null
+      const status =
+        (map['automation_processor_status'] as 'ok' | 'error') || (lastRun ? 'ok' : 'pending')
+      const durationMs = map['automation_processor_last_duration_ms']
+        ? Number(map['automation_processor_last_duration_ms'])
+        : null
+      const lastError = map['automation_processor_last_error'] || null
+      const lastTotalItems = map['automation_processor_last_total_items']
+        ? Number(map['automation_processor_last_total_items'])
+        : null
+
+      let nextRun: string | null = null
+      if (lastRun) {
+        const lastDate = new Date(lastRun)
+        const nextDate = new Date(lastDate.getTime() + 5 * 60 * 1000)
+        nextRun = nextDate.toISOString()
+      }
+
+      setProcessorHealth({
+        status,
+        lastRun,
+        nextRun,
+        durationMs,
+        lastError,
+        pendingCount,
+        lastTotalItems,
+        loading: false,
+      })
+    } catch (err) {
+      console.error('Error loading processor health:', err)
+      setProcessorHealth((prev) => ({ ...prev, loading: false }))
+    }
+  }
 
   const checkPublicationAndDiagnostics = async () => {
     setPublicationStatus((prev) => ({ ...prev, checking: true }))
@@ -379,17 +450,7 @@ export default function SettingsPage() {
     e.preventDefault()
     setSaving(true)
     try {
-      await settingsService.saveAutomationConfig(automationConfig)
-      // Save switches
-      await Promise.all(
-        Object.entries(automationSwitches).map(([rule, enabled]) =>
-          settingsService.setKey(
-            `automation_${rule}_enabled`,
-            String(enabled),
-            `Status ativo/inativo da regra de automação: ${rule}`,
-          ),
-        ),
-      )
+      await settingsService.saveAutomationConfig(automationConfig, automationSwitches)
       toast({
         title: 'Regras de Automação salvas!',
         description:
@@ -1364,6 +1425,143 @@ export default function SettingsPage() {
         </TabsContent>
         {/* TAB: AUTOMAÇÕES */}
         <TabsContent value="automations" className="space-y-6">
+          {/* BLOCO: SAÚDE DAS AUTOMAÇÕES & BACKGROUND CRON PROCESSOR */}
+          <Card className="border-slate-200 dark:border-slate-800 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900/60 dark:to-slate-900/20">
+            <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <CardTitle className="text-sm font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                    <Activity className="h-4 w-4 text-emerald-600" />
+                    Saúde do Motor de Automações (Background Cron)
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Monitoramento em tempo real do processador de segundo plano (PocketBase Cron a
+                    cada 5 min).
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={loadProcessorHealth}
+                    className="h-7 text-xs px-2.5"
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Atualizar
+                  </Button>
+                  <Badge
+                    variant="outline"
+                    className={`text-xs px-2.5 py-0.5 font-semibold ${
+                      processorHealth.status === 'ok'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                        : processorHealth.status === 'error'
+                          ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800'
+                          : 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
+                        processorHealth.status === 'ok'
+                          ? 'bg-emerald-500 animate-pulse'
+                          : processorHealth.status === 'error'
+                            ? 'bg-rose-500'
+                            : 'bg-amber-500'
+                      }`}
+                    />
+                    {processorHealth.status === 'ok'
+                      ? '● Ativo e Saudável'
+                      : processorHealth.status === 'error'
+                        ? '🔴 Erro na Execução'
+                        : '🟡 Aguardando Execução'}
+                  </Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                {/* 1. Status do Processador */}
+                <div className="p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-500 block text-[11px]">Status</span>
+                  <div className="mt-1 font-bold flex items-center gap-1.5">
+                    {processorHealth.status === 'ok' ? (
+                      <span className="text-emerald-600 flex items-center gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Operacional
+                      </span>
+                    ) : processorHealth.status === 'error' ? (
+                      <span className="text-rose-600 flex items-center gap-1">
+                        <XCircle className="h-3.5 w-3.5" /> Com Falha
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">Registrado (Cron)</span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Frequência: a cada 5 min
+                  </span>
+                </div>
+
+                {/* 2. Última Execução */}
+                <div className="p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-500 block text-[11px]">Última Execução</span>
+                  <div className="mt-1 font-semibold text-slate-800 dark:text-slate-200 truncate">
+                    {processorHealth.lastRun
+                      ? new Date(processorHealth.lastRun).toLocaleTimeString('pt-BR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                          day: '2-digit',
+                          month: '2-digit',
+                        })
+                      : 'Aguardando 1º ciclo'}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    {processorHealth.durationMs !== null
+                      ? `Duração: ${processorHealth.durationMs}ms`
+                      : 'Background automático'}
+                  </span>
+                </div>
+
+                {/* 3. Próxima Execução */}
+                <div className="p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-500 block text-[11px]">Próxima Execução</span>
+                  <div className="mt-1 font-semibold text-slate-800 dark:text-slate-200 truncate">
+                    {processorHealth.nextRun
+                      ? new Date(processorHealth.nextRun).toLocaleTimeString('pt-BR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })
+                      : 'Em até 5 minutos'}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Automático no servidor
+                  </span>
+                </div>
+
+                {/* 4. Pendências Ativas */}
+                <div className="p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-500 block text-[11px]">Pendências Abertas</span>
+                  <div className="mt-1 font-bold text-slate-900 dark:text-white text-base">
+                    {processorHealth.pendingCount}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Na Central de Pendências
+                  </span>
+                </div>
+              </div>
+
+              {processorHealth.lastError && (
+                <div className="mt-3 p-2.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-lg text-rose-800 dark:text-rose-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                  <span>
+                    <strong>Detalhe do último erro:</strong> {processorHealth.lastError}
+                  </span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <form onSubmit={handleSaveAutomations} className="space-y-6">
             <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
               <CardHeader>
@@ -1377,19 +1575,13 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Yellow Alert for PAGE LOAD */}
-                <div className="p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
-                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                {/* Info Alert */}
+                <div className="p-3.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 flex items-start gap-2.5 text-xs text-blue-900 dark:text-blue-200">
+                  <AlertCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
                   <div>
-                    <strong>Atenção aos Modos de Execução:</strong> Automações marcadas com o selo{' '}
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] font-mono bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/50 dark:text-amber-200"
-                    >
-                      PAGE LOAD
-                    </Badge>{' '}
-                    dependem da abertura de uma tela no CRM para recálculo em tempo de requisição.
-                    Esta automação não é processada continuamente em segundo plano sem requisição.
+                    <strong>Processamento Contínuo em Segundo Plano:</strong> As regras abaixo são
+                    processadas tanto sob demanda na Central de Pendências quanto automaticamente a
+                    cada 5 minutos pelo Background Cron Processor do PocketBase.
                   </div>
                 </div>
 

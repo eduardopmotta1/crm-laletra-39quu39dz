@@ -35,6 +35,9 @@ export const dealsService = {
 
     // 1. Upsert archived deal record (1 client = 1 archived_deal)
     let archived: ArchivedDeal
+    let isNewArchivedRecord = false
+    let previousExistingResult: string | null = null
+
     try {
       const existingList = await pb.collection('archived_deals').getList<ArchivedDeal>(1, 1, {
         filter: `client_id = "${client.id}"`,
@@ -61,11 +64,14 @@ export const dealsService = {
 
       if (existingList.items.length > 0) {
         // PATCH existing record
+        const existingDeal = existingList.items[0]
+        previousExistingResult = existingDeal.result
         archived = await pb
           .collection('archived_deals')
-          .update<ArchivedDeal>(existingList.items[0].id, dealData)
+          .update<ArchivedDeal>(existingDeal.id, dealData)
       } else {
         // POST new record
+        isNewArchivedRecord = true
         archived = await pb.collection('archived_deals').create<ArchivedDeal>({
           client_id: client.id,
           ...dealData,
@@ -92,8 +98,23 @@ export const dealsService = {
     const dealValue =
       payload.quoteValue !== undefined ? payload.quoteValue : client.quote_value || 0
 
-    const currentPurchases = (client.total_purchases || 0) + (isWon ? 1 : 0)
-    const currentTotalValue = (client.total_purchase_value || 0) + (isWon ? dealValue : 0)
+    // Only increment purchases/totalValue if this is a genuinely new won deal:
+    // - POST (first time archiving this deal) AND isWon: increment
+    // - PATCH existing record:
+    //    * If previous record was already 'Venda fechada': DO NOT increment (maintain current values)
+    //    * If previous record was 'Venda perdida' and now is 'Venda fechada': increment
+    let shouldIncrementPurchase = false
+    if (isWon) {
+      if (isNewArchivedRecord) {
+        shouldIncrementPurchase = true
+      } else if (previousExistingResult !== 'Venda fechada') {
+        shouldIncrementPurchase = true
+      }
+    }
+
+    const currentPurchases = (client.total_purchases || 0) + (shouldIncrementPurchase ? 1 : 0)
+    const currentTotalValue =
+      (client.total_purchase_value || 0) + (shouldIncrementPurchase ? dealValue : 0)
     const firstPurchase = client.first_purchase_date || (isWon ? todayDateStr : undefined)
     const lastPurchase = isWon ? todayDateStr : client.last_purchase_date
 
@@ -188,11 +209,12 @@ export const dealsService = {
     const todayDateStr = new Date().toISOString().split('T')[0]
     const client = await pb.collection('clients').getOne(clientId)
     const oldStage = client.stage
+    const hasPurchasedBefore = (client.total_purchases || 0) > 0
 
     await pb.collection('clients').update(clientId, {
       is_archived: false,
       stage: stage,
-      has_returned: true,
+      has_returned: hasPurchasedBefore,
       reopened_at: todayDateStr,
     })
 

@@ -234,10 +234,128 @@ export const settingsService = {
   },
 
   /**
-   * Save automation configuration
+   * Helper to write audit logs without exposing credentials
    */
-  async saveAutomationConfig(config: AutomationConfig): Promise<void> {
-    await Promise.all([
+  async logAudit(data: {
+    action: string
+    module: string
+    recordId: string
+    recordTitle: string
+    details: string
+    previousValue?: any
+    newValue?: any
+  }): Promise<void> {
+    try {
+      const user = pb.authStore.record
+      await pb.collection('audit_logs').create({
+        user_id: user?.id || undefined,
+        user_name: user?.name || user?.email || 'Usuário',
+        user_email: user?.email || '',
+        action: data.action,
+        module: data.module,
+        record_id: data.recordId,
+        record_title: data.recordTitle,
+        details: data.details,
+        previous_value: data.previousValue !== undefined ? data.previousValue : null,
+        new_value: data.newValue !== undefined ? data.newValue : null,
+      })
+    } catch (err) {
+      console.error('Error recording audit log in settingsService:', err)
+    }
+  },
+
+  /**
+   * Friendly titles mapping for automation keys
+   */
+  getAutomationFriendlyNames(): Record<string, string> {
+    return {
+      automation_waiting_response_alta_min: 'Cliente aguardando resposta - Alta (minutos)',
+      automation_waiting_response_urgente_min: 'Cliente aguardando resposta - Urgente (minutos)',
+      automation_quote_no_return_alta_days: 'Orçamento sem retorno - Alta (dias)',
+      automation_quote_no_return_urgente_days: 'Orçamento sem retorno - Urgente (dias)',
+      automation_followup_overdue_urgente_days: 'Follow-up vencido - Urgente (dias)',
+      automation_proof_waiting_alta_days: 'Arte aguardando aprovação - Alta (dias)',
+      automation_proof_waiting_urgente_days: 'Arte aguardando aprovação - Urgente (dias)',
+      automation_order_overdue_urgente_days: 'Pedido atrasado - Urgente (dias)',
+      automation_dissatisfied_urgente_hours: 'Cliente insatisfeito - Urgente (horas)',
+      automation_postsale_alta_days: 'Pós-venda pendente - Alta (dias)',
+      automation_postsale_urgente_days: 'Pós-venda pendente - Urgente (dias)',
+      automation_waiting_response_enabled: 'Automação: Cliente aguardando resposta',
+      automation_quote_no_return_enabled: 'Automação: Orçamento sem retorno',
+      automation_followup_overdue_enabled: 'Automação: Follow-up vencido',
+      automation_proof_waiting_enabled: 'Automação: Arte aguardando aprovação',
+      automation_order_overdue_enabled: 'Automação: Pedido atrasado',
+      automation_dissatisfied_enabled: 'Automação: Cliente insatisfeito',
+      automation_postsale_enabled: 'Automação: Pós-venda pendente',
+    }
+  },
+
+  /**
+   * Save automation configuration with audit logging
+   */
+  async saveAutomationConfig(
+    config: AutomationConfig,
+    switches?: Record<string, boolean>,
+  ): Promise<void> {
+    // 1. Fetch current settings map before applying changes
+    const currentMap = await this.getMap()
+    const friendlyNames = this.getAutomationFriendlyNames()
+
+    // 2. Prepare key-value dictionary for incoming thresholds
+    const newKeys: Record<string, string> = {
+      automation_waiting_response_alta_min: String(config.waitingResponseAltaMinutes),
+      automation_waiting_response_urgente_min: String(config.waitingResponseUrgenteMinutes),
+      automation_quote_no_return_alta_days: String(config.quoteNoReturnAltaDays),
+      automation_quote_no_return_urgente_days: String(config.quoteNoReturnUrgenteDays),
+      automation_followup_overdue_urgente_days: String(config.followupOverdueUrgenteDays),
+      automation_proof_waiting_alta_days: String(config.proofWaitingAltaDays),
+      automation_proof_waiting_urgente_days: String(config.proofWaitingUrgenteDays),
+      automation_order_overdue_urgente_days: String(config.orderOverdueUrgenteDays),
+      automation_dissatisfied_urgente_hours: String(config.dissatisfiedUrgenteHours),
+      automation_postsale_alta_days: String(config.postSaleAltaDays),
+      automation_postsale_urgente_days: String(config.postSaleUrgenteDays),
+    }
+
+    if (switches) {
+      for (const [ruleKey, enabled] of Object.entries(switches)) {
+        newKeys[`automation_${ruleKey}_enabled`] = String(enabled)
+      }
+    }
+
+    // 3. Detect changes and create audit logs
+    const auditPromises: Promise<void>[] = []
+
+    for (const [key, newVal] of Object.entries(newKeys)) {
+      const oldVal = currentMap[key]
+      if (oldVal !== undefined && oldVal !== newVal) {
+        const title = friendlyNames[key] || key
+        let details = `Alterado de ${oldVal} para ${newVal}`
+        if (key.endsWith('_enabled')) {
+          details = newVal === 'true' ? 'Automação ativada' : 'Automação desativada'
+        } else if (key.endsWith('_min')) {
+          details = `Alterado de ${oldVal} para ${newVal} minutos`
+        } else if (key.endsWith('_days')) {
+          details = `Alterado de ${oldVal} para ${newVal} dias`
+        } else if (key.endsWith('_hours')) {
+          details = `Alterado de ${oldVal} para ${newVal} horas`
+        }
+
+        auditPromises.push(
+          this.logAudit({
+            action: 'update_automation_config',
+            module: 'automations',
+            recordId: key,
+            recordTitle: title,
+            details,
+            previousValue: { key, value: oldVal },
+            newValue: { key, value: newVal },
+          }),
+        )
+      }
+    }
+
+    // 4. Save all keys in system_settings
+    const savePromises: Promise<void>[] = [
       this.setKey(
         'automation_waiting_response_alta_min',
         String(config.waitingResponseAltaMinutes),
@@ -293,6 +411,20 @@ export const settingsService = {
         String(config.postSaleUrgenteDays),
         'Dias para prioridade Urgente em Pós-venda pendente',
       ),
-    ])
+    ]
+
+    if (switches) {
+      for (const [rule, enabled] of Object.entries(switches)) {
+        savePromises.push(
+          this.setKey(
+            `automation_${rule}_enabled`,
+            String(enabled),
+            `Status ativo/inativo da regra de automação: ${rule}`,
+          ),
+        )
+      }
+    }
+
+    await Promise.all([...savePromises, ...auditPromises])
   },
 }
