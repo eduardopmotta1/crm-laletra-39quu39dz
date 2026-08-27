@@ -38,7 +38,13 @@ import {
 import { settingsService } from '@/services/settings'
 import { columnsService } from '@/services/columns'
 import { whatsappService } from '@/services/whatsapp'
-import type { SlaConfig, AutoArchiveConfig, KanbanColumn, PostSaleConfig } from '@/types/crm'
+import type {
+  SlaConfig,
+  AutoArchiveConfig,
+  KanbanColumn,
+  PostSaleConfig,
+  AutomationConfig,
+} from '@/types/crm'
 import EditColumnModal from '@/components/EditColumnModal'
 import UsersPermissionsSettings from '@/components/UsersPermissionsSettings'
 import AuditLogsTab from '@/components/AuditLogsTab'
@@ -89,6 +95,33 @@ export default function SettingsPage() {
     whatsappTemplate: 'avaliacao_atendimento',
     customMessage:
       'Olá {{nome}}! Seu pedido foi entregue recentemente pela Laletra. Poderia avaliar sua experiência conosco no link: {{link_avaliacao}} ? Agradecemos muito!',
+  })
+
+  // Automation configuration
+  const [automationConfig, setAutomationConfig] = useState<AutomationConfig>({
+    waitingResponseAltaMinutes: 15,
+    waitingResponseUrgenteMinutes: 60,
+    quoteNoReturnAltaDays: 1,
+    quoteNoReturnUrgenteDays: 3,
+    followupOverdueUrgenteDays: 2,
+    proofWaitingAltaDays: 1,
+    proofWaitingUrgenteDays: 2,
+    orderOverdueUrgenteDays: 1,
+    dissatisfiedUrgenteHours: 24,
+    postSaleAltaDays: 1,
+    postSaleUrgenteDays: 3,
+    executionModes: {},
+  })
+
+  // Enabled switches for automation rules
+  const [automationSwitches, setAutomationSwitches] = useState<Record<string, boolean>>({
+    waiting_response: true,
+    quote_no_return: true,
+    followup_overdue: true,
+    proof_waiting: true,
+    order_overdue: true,
+    dissatisfied: true,
+    postsale: true,
   })
 
   // Kanban Columns Management
@@ -210,12 +243,13 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const [map, sla, autoArch, psCfg, cols] = await Promise.all([
+      const [map, sla, autoArch, psCfg, cols, autoCfg] = await Promise.all([
         settingsService.getMap(),
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
         settingsService.getPostSaleConfig(),
         columnsService.getAll(),
+        settingsService.getAutomationConfig(),
       ])
 
       if (map['company_name']) setCompanyName(map['company_name'])
@@ -241,6 +275,17 @@ export default function SettingsPage() {
       setAutoArchive(autoArch)
       setPostSaleConfig(psCfg)
       setColumns(cols)
+      setAutomationConfig(autoCfg)
+
+      setAutomationSwitches({
+        waiting_response: map['automation_waiting_response_enabled'] !== 'false',
+        quote_no_return: map['automation_quote_no_return_enabled'] !== 'false',
+        followup_overdue: map['automation_followup_overdue_enabled'] !== 'false',
+        proof_waiting: map['automation_proof_waiting_enabled'] !== 'false',
+        order_overdue: map['automation_order_overdue_enabled'] !== 'false',
+        dissatisfied: map['automation_dissatisfied_enabled'] !== 'false',
+        postsale: map['automation_postsale_enabled'] !== 'false',
+      })
     } catch (err) {
       console.error('Error loading settings:', err)
     }
@@ -323,6 +368,37 @@ export default function SettingsPage() {
     } catch (err) {
       toast({
         title: 'Erro ao salvar SLA',
+        variant: 'destructive',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveAutomations = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      await settingsService.saveAutomationConfig(automationConfig)
+      // Save switches
+      await Promise.all(
+        Object.entries(automationSwitches).map(([rule, enabled]) =>
+          settingsService.setKey(
+            `automation_${rule}_enabled`,
+            String(enabled),
+            `Status ativo/inativo da regra de automação: ${rule}`,
+          ),
+        ),
+      )
+      toast({
+        title: 'Regras de Automação salvas!',
+        description:
+          'Thresholds e regras de priorização da Central de Pendências atualizados com sucesso.',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar',
+        description: err?.message,
         variant: 'destructive',
       })
     } finally {
@@ -414,6 +490,12 @@ export default function SettingsPage() {
             <TabsTrigger value="kanban" className="flex items-center gap-1.5 text-xs">
               <Layers className="h-4 w-4" />
               <span>Colunas Kanban</span>
+            </TabsTrigger>
+          )}
+          {canConfigSla && (
+            <TabsTrigger value="automations" className="flex items-center gap-1.5 text-xs">
+              <Zap className="h-4 w-4 text-amber-500" />
+              <span>Automações</span>
             </TabsTrigger>
           )}
           {canConfigSla && (
@@ -1280,6 +1362,505 @@ export default function SettingsPage() {
             </div>
           </form>
         </TabsContent>
+        {/* TAB: AUTOMAÇÕES */}
+        <TabsContent value="automations" className="space-y-6">
+          <form onSubmit={handleSaveAutomations} className="space-y-6">
+            <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-amber-500" />
+                  Camada de Configuração de Automações & Gatilhos
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Configure os prazos, limites de priorização (Alta e Urgente) e monitore o modo de
+                  execução de cada regra do CRM Laletra.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Yellow Alert for PAGE LOAD */}
+                <div className="p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>Atenção aos Modos de Execução:</strong> Automações marcadas com o selo{' '}
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-mono bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/50 dark:text-amber-200"
+                    >
+                      PAGE LOAD
+                    </Badge>{' '}
+                    dependem da abertura de uma tela no CRM para recálculo em tempo de requisição.
+                    Esta automação não é processada continuamente em segundo plano sem requisição.
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Card 1: Cliente aguardando resposta WhatsApp */}
+                  <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xs font-bold text-slate-900 dark:text-white">
+                              Cliente aguardando resposta no WhatsApp
+                            </CardTitle>
+                            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 text-[10px] font-mono border-0">
+                              PAGE LOAD
+                            </Badge>
+                          </div>
+                          <CardDescription className="text-[11px] mt-1">
+                            Monitora mensagens recebidas do cliente sem retorno do atendente.
+                          </CardDescription>
+                        </div>
+                        <Switch
+                          checked={automationSwitches.waiting_response !== false}
+                          onCheckedChange={(c) =>
+                            setAutomationSwitches({ ...automationSwitches, waiting_response: c })
+                          }
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                            Alta a partir de (minutos):
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={1440}
+                            value={automationConfig.waitingResponseAltaMinutes}
+                            onChange={(e) =>
+                              setAutomationConfig({
+                                ...automationConfig,
+                                waitingResponseAltaMinutes: Math.max(
+                                  1,
+                                  Number(e.target.value) || 1,
+                                ),
+                              })
+                            }
+                            className="text-xs font-bold bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                            Urgente a partir de (minutos):
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={1440}
+                            value={automationConfig.waitingResponseUrgenteMinutes}
+                            onChange={(e) =>
+                              setAutomationConfig({
+                                ...automationConfig,
+                                waitingResponseUrgenteMinutes: Math.max(
+                                  1,
+                                  Number(e.target.value) || 1,
+                                ),
+                              })
+                            }
+                            className="text-xs font-bold bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 2: Orçamento sem retorno */}
+                  <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xs font-bold text-slate-900 dark:text-white">
+                              Orçamento sem retorno
+                            </CardTitle>
+                            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 text-[10px] font-mono border-0">
+                              PAGE LOAD
+                            </Badge>
+                          </div>
+                          <CardDescription className="text-[11px] mt-1">
+                            Orçamentos enviados ao cliente aguardando fechamento ou resposta.
+                          </CardDescription>
+                        </div>
+                        <Switch
+                          checked={automationSwitches.quote_no_return !== false}
+                          onCheckedChange={(c) =>
+                            setAutomationSwitches({ ...automationSwitches, quote_no_return: c })
+                          }
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                            Alta a partir de (dias):
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={90}
+                            value={automationConfig.quoteNoReturnAltaDays}
+                            onChange={(e) =>
+                              setAutomationConfig({
+                                ...automationConfig,
+                                quoteNoReturnAltaDays: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="text-xs font-bold bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                            Urgente a partir de (dias):
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={90}
+                            value={automationConfig.quoteNoReturnUrgenteDays}
+                            onChange={(e) =>
+                              setAutomationConfig({
+                                ...automationConfig,
+                                quoteNoReturnUrgenteDays: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="text-xs font-bold bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 3: Follow-up vencido */}
+                  <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xs font-bold text-slate-900 dark:text-white">
+                              Follow-up vencido
+                            </CardTitle>
+                            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 text-[10px] font-mono border-0">
+                              PAGE LOAD
+                            </Badge>
+                          </div>
+                          <CardDescription className="text-[11px] mt-1">
+                            Tarefas e follow-ups com data limite ultrapassada.
+                          </CardDescription>
+                        </div>
+                        <Switch
+                          checked={automationSwitches.followup_overdue !== false}
+                          onCheckedChange={(c) =>
+                            setAutomationSwitches({ ...automationSwitches, followup_overdue: c })
+                          }
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                          Urgente a partir de (dias de atraso):
+                        </Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={automationConfig.followupOverdueUrgenteDays}
+                          onChange={(e) =>
+                            setAutomationConfig({
+                              ...automationConfig,
+                              followupOverdueUrgenteDays: Math.max(1, Number(e.target.value) || 1),
+                            })
+                          }
+                          className="text-xs font-bold bg-white dark:bg-slate-800"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 4: Arte aguardando aprovação */}
+                  <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xs font-bold text-slate-900 dark:text-white">
+                              Arte aguardando aprovação
+                            </CardTitle>
+                            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 text-[10px] font-mono border-0">
+                              PAGE LOAD
+                            </Badge>
+                          </div>
+                          <CardDescription className="text-[11px] mt-1">
+                            Layouts de impressão e provas digitais enviados para aprovação do
+                            cliente.
+                          </CardDescription>
+                        </div>
+                        <Switch
+                          checked={automationSwitches.proof_waiting !== false}
+                          onCheckedChange={(c) =>
+                            setAutomationSwitches({ ...automationSwitches, proof_waiting: c })
+                          }
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                            Alta a partir de (dias):
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={automationConfig.proofWaitingAltaDays}
+                            onChange={(e) =>
+                              setAutomationConfig({
+                                ...automationConfig,
+                                proofWaitingAltaDays: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="text-xs font-bold bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                            Urgente a partir de (dias):
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={automationConfig.proofWaitingUrgenteDays}
+                            onChange={(e) =>
+                              setAutomationConfig({
+                                ...automationConfig,
+                                proofWaitingUrgenteDays: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="text-xs font-bold bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 5: Pedido atrasado na produção */}
+                  <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xs font-bold text-slate-900 dark:text-white">
+                              Pedido atrasado na produção
+                            </CardTitle>
+                            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 text-[10px] font-mono border-0">
+                              PAGE LOAD
+                            </Badge>
+                          </div>
+                          <CardDescription className="text-[11px] mt-1">
+                            Ordens de serviço com prazo prometido vencido não finalizadas.
+                          </CardDescription>
+                        </div>
+                        <Switch
+                          checked={automationSwitches.order_overdue !== false}
+                          onCheckedChange={(c) =>
+                            setAutomationSwitches({ ...automationSwitches, order_overdue: c })
+                          }
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                          Urgente a partir de (dias de atraso):
+                        </Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={automationConfig.orderOverdueUrgenteDays}
+                          onChange={(e) =>
+                            setAutomationConfig({
+                              ...automationConfig,
+                              orderOverdueUrgenteDays: Math.max(1, Number(e.target.value) || 1),
+                            })
+                          }
+                          className="text-xs font-bold bg-white dark:bg-slate-800"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 6: Cliente insatisfeito */}
+                  <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xs font-bold text-slate-900 dark:text-white">
+                              Cliente insatisfeito / Reclamação
+                            </CardTitle>
+                            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 text-[10px] font-mono border-0">
+                              PAGE LOAD
+                            </Badge>
+                          </div>
+                          <CardDescription className="text-[11px] mt-1">
+                            Avaliações negativas (1 a 3 estrelas) pendentes de recuperação e
+                            contato.
+                          </CardDescription>
+                        </div>
+                        <Switch
+                          checked={automationSwitches.dissatisfied !== false}
+                          onCheckedChange={(c) =>
+                            setAutomationSwitches({ ...automationSwitches, dissatisfied: c })
+                          }
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                          Urgente após (horas sem resolução):
+                        </Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={168}
+                          value={automationConfig.dissatisfiedUrgenteHours}
+                          onChange={(e) =>
+                            setAutomationConfig({
+                              ...automationConfig,
+                              dissatisfiedUrgenteHours: Math.max(1, Number(e.target.value) || 1),
+                            })
+                          }
+                          className="text-xs font-bold bg-white dark:bg-slate-800"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 7: Pós-venda pendente */}
+                  <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xs font-bold text-slate-900 dark:text-white">
+                              Pós-venda pendente de envio
+                            </CardTitle>
+                            <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 text-[10px] font-mono border-0">
+                              EVENTO
+                            </Badge>
+                          </div>
+                          <CardDescription className="text-[11px] mt-1">
+                            Disparado automaticamente ao concluir uma ordem de produção vinculada.
+                          </CardDescription>
+                        </div>
+                        <Switch
+                          checked={automationSwitches.postsale !== false}
+                          onCheckedChange={(c) =>
+                            setAutomationSwitches({ ...automationSwitches, postsale: c })
+                          }
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3 pt-0">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                            Alta a partir de (dias atrasados):
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={automationConfig.postSaleAltaDays}
+                            onChange={(e) =>
+                              setAutomationConfig({
+                                ...automationConfig,
+                                postSaleAltaDays: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="text-xs font-bold bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-slate-600 dark:text-slate-400">
+                            Urgente a partir de (dias atrasados):
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={automationConfig.postSaleUrgenteDays}
+                            onChange={(e) =>
+                              setAutomationConfig({
+                                ...automationConfig,
+                                postSaleUrgenteDays: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="text-xs font-bold bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Card 8: SLA Visual */}
+                  <Card className="border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-xs font-bold text-slate-900 dark:text-white">
+                              SLA Visual do Kanban
+                            </CardTitle>
+                            <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200 text-[10px] font-mono border-0">
+                              VISUAL
+                            </Badge>
+                          </div>
+                          <CardDescription className="text-[11px] mt-1">
+                            Bordas e badges coloridos dinâmicos baseados no tempo sem contato ou na
+                            etapa.
+                          </CardDescription>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-emerald-600 border-emerald-300"
+                        >
+                          Sempre ativo
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-2 pt-0 text-xs text-slate-500">
+                      <p>
+                        Para ajustar as horas de tolerância de SLA (Atenção, Alerta, Crítico),
+                        utilize a aba <strong>SLA & Central</strong>.
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </CardContent>
+
+              <CardFooter className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                >
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  {saving ? 'Gravando...' : 'Salvar Regras de Automação'}
+                </Button>
+              </CardFooter>
+            </Card>
+          </form>
+        </TabsContent>
+
         {/* TAB 4: SLA RULES & CENTRAL DE PENDÊNCIAS */}
         <TabsContent value="sla" className="space-y-6">
           <form onSubmit={handleSaveSla} className="space-y-6">

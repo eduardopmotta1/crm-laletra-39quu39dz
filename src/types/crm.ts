@@ -290,6 +290,29 @@ export interface SystemSetting {
   updated: string
 }
 
+export interface AutomationConfig {
+  // Cliente aguardando resposta
+  waitingResponseAltaMinutes: number // default 15
+  waitingResponseUrgenteMinutes: number // default 60
+  // Orçamento sem retorno
+  quoteNoReturnAltaDays: number // default 1
+  quoteNoReturnUrgenteDays: number // default 3
+  // Follow-up vencido
+  followupOverdueUrgenteDays: number // default 2
+  // Arte aguardando aprovação
+  proofWaitingAltaDays: number // default 1
+  proofWaitingUrgenteDays: number // default 2
+  // Pedido atrasado
+  orderOverdueUrgenteDays: number // default 1
+  // Cliente insatisfeito
+  dissatisfiedUrgenteHours: number // default 24
+  // Pós-venda pendente
+  postSaleAltaDays: number // default 1
+  postSaleUrgenteDays: number // default 3
+  // Modo de execução (informativo, não afeta lógica)
+  executionModes: Record<string, 'event' | 'page_load' | 'visual'>
+}
+
 export interface AutoArchiveConfig {
   enabled: boolean
   wonHours: number

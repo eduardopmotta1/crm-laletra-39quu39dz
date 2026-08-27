@@ -1,5 +1,11 @@
 import pb from '@/lib/pocketbase/client'
-import type { SystemSetting, SlaConfig, AutoArchiveConfig, PostSaleConfig } from '@/types/crm'
+import type {
+  SystemSetting,
+  SlaConfig,
+  AutoArchiveConfig,
+  PostSaleConfig,
+  AutomationConfig,
+} from '@/types/crm'
 import { DEFAULT_SLA_CONFIG } from '@/lib/sla'
 
 export const settingsService = {
@@ -167,6 +173,125 @@ export const settingsService = {
         'post_sale_custom_message',
         config.customMessage,
         'Mensagem de pós-venda padrão com link dinâmico de avaliação',
+      ),
+    ])
+  },
+
+  /**
+   * Get automation configuration
+   */
+  async getAutomationConfig(): Promise<AutomationConfig> {
+    try {
+      const map = await this.getMap()
+      return {
+        waitingResponseAltaMinutes: Number(map['automation_waiting_response_alta_min']) || 15,
+        waitingResponseUrgenteMinutes: Number(map['automation_waiting_response_urgente_min']) || 60,
+        quoteNoReturnAltaDays: Number(map['automation_quote_no_return_alta_days']) || 1,
+        quoteNoReturnUrgenteDays: Number(map['automation_quote_no_return_urgente_days']) || 3,
+        followupOverdueUrgenteDays: Number(map['automation_followup_overdue_urgente_days']) || 2,
+        proofWaitingAltaDays: Number(map['automation_proof_waiting_alta_days']) || 1,
+        proofWaitingUrgenteDays: Number(map['automation_proof_waiting_urgente_days']) || 2,
+        orderOverdueUrgenteDays: Number(map['automation_order_overdue_urgente_days']) || 1,
+        dissatisfiedUrgenteHours: Number(map['automation_dissatisfied_urgente_hours']) || 24,
+        postSaleAltaDays: Number(map['automation_postsale_alta_days']) || 1,
+        postSaleUrgenteDays: Number(map['automation_postsale_urgente_days']) || 3,
+        executionModes: {
+          waiting_response: 'page_load',
+          quote_no_return: 'page_load',
+          followup_overdue: 'page_load',
+          proof_waiting: 'page_load',
+          order_overdue: 'page_load',
+          dissatisfied: 'page_load',
+          post_sale: 'event',
+          sla_visual: 'visual',
+        },
+      }
+    } catch {
+      return {
+        waitingResponseAltaMinutes: 15,
+        waitingResponseUrgenteMinutes: 60,
+        quoteNoReturnAltaDays: 1,
+        quoteNoReturnUrgenteDays: 3,
+        followupOverdueUrgenteDays: 2,
+        proofWaitingAltaDays: 1,
+        proofWaitingUrgenteDays: 2,
+        orderOverdueUrgenteDays: 1,
+        dissatisfiedUrgenteHours: 24,
+        postSaleAltaDays: 1,
+        postSaleUrgenteDays: 3,
+        executionModes: {
+          waiting_response: 'page_load',
+          quote_no_return: 'page_load',
+          followup_overdue: 'page_load',
+          proof_waiting: 'page_load',
+          order_overdue: 'page_load',
+          dissatisfied: 'page_load',
+          post_sale: 'event',
+          sla_visual: 'visual',
+        },
+      }
+    }
+  },
+
+  /**
+   * Save automation configuration
+   */
+  async saveAutomationConfig(config: AutomationConfig): Promise<void> {
+    await Promise.all([
+      this.setKey(
+        'automation_waiting_response_alta_min',
+        String(config.waitingResponseAltaMinutes),
+        'Minutos para prioridade Alta em Cliente aguardando resposta',
+      ),
+      this.setKey(
+        'automation_waiting_response_urgente_min',
+        String(config.waitingResponseUrgenteMinutes),
+        'Minutos para prioridade Urgente em Cliente aguardando resposta',
+      ),
+      this.setKey(
+        'automation_quote_no_return_alta_days',
+        String(config.quoteNoReturnAltaDays),
+        'Dias para prioridade Alta em Orçamento sem retorno',
+      ),
+      this.setKey(
+        'automation_quote_no_return_urgente_days',
+        String(config.quoteNoReturnUrgenteDays),
+        'Dias para prioridade Urgente em Orçamento sem retorno',
+      ),
+      this.setKey(
+        'automation_followup_overdue_urgente_days',
+        String(config.followupOverdueUrgenteDays),
+        'Dias de atraso para prioridade Urgente em Follow-up vencido',
+      ),
+      this.setKey(
+        'automation_proof_waiting_alta_days',
+        String(config.proofWaitingAltaDays),
+        'Dias para prioridade Alta em Arte aguardando aprovação',
+      ),
+      this.setKey(
+        'automation_proof_waiting_urgente_days',
+        String(config.proofWaitingUrgenteDays),
+        'Dias para prioridade Urgente em Arte aguardando aprovação',
+      ),
+      this.setKey(
+        'automation_order_overdue_urgente_days',
+        String(config.orderOverdueUrgenteDays),
+        'Dias de atraso para prioridade Urgente em Pedido atrasado',
+      ),
+      this.setKey(
+        'automation_dissatisfied_urgente_hours',
+        String(config.dissatisfiedUrgenteHours),
+        'Horas para prioridade Urgente em Cliente insatisfeito',
+      ),
+      this.setKey(
+        'automation_postsale_alta_days',
+        String(config.postSaleAltaDays),
+        'Dias para prioridade Alta em Pós-venda pendente',
+      ),
+      this.setKey(
+        'automation_postsale_urgente_days',
+        String(config.postSaleUrgenteDays),
+        'Dias para prioridade Urgente em Pós-venda pendente',
       ),
     ])
   },

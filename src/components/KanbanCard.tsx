@@ -88,6 +88,9 @@ export default function KanbanCard({
   const isWon = client.stage === 'Venda fechada'
   const isLost = client.stage === 'Não fechou'
   const isFinalStage = isWon || isLost
+  const isRecurring =
+    (client.total_purchases !== undefined && client.total_purchases > 0) ||
+    client.has_returned === true
 
   return (
     <>
@@ -99,7 +102,7 @@ export default function KanbanCard({
           slaInfo.colorBorderClass
         }`}
       >
-        {/* Top row: Priority Badge + SLA Badge */}
+        {/* Top row: Priority Badge + Novo/Recorrente Badge + SLA Badge */}
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             {client.priority && (
@@ -110,6 +113,15 @@ export default function KanbanCard({
                 }`}
               >
                 {priorityLabels[client.priority]}
+              </Badge>
+            )}
+            {isRecurring ? (
+              <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 text-[10px] px-1.5 py-0 font-bold flex items-center gap-0.5">
+                <span>🔁 Recorrente</span>
+              </Badge>
+            ) : (
+              <Badge className="bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 text-[10px] px-1.5 py-0 font-bold flex items-center gap-0.5">
+                <span>🆕 Novo</span>
               </Badge>
             )}
           </div>

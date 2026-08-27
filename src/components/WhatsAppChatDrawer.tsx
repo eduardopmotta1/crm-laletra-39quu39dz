@@ -301,10 +301,15 @@ export default function WhatsAppChatDrawer({
                   <Badge variant="outline" className="text-xs">
                     {displayClient.stage}
                   </Badge>
-                  {displayClient.has_returned && (
-                    <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0 flex items-center gap-0.5 font-bold">
-                      <RotateCcw className="h-2.5 w-2.5" />
-                      Retornou
+                  {(displayClient.total_purchases !== undefined &&
+                    displayClient.total_purchases > 0) ||
+                  displayClient.has_returned === true ? (
+                    <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 text-[10px] px-1.5 py-0 font-bold flex items-center gap-0.5">
+                      <span>🔁 Recorrente</span>
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 text-[10px] px-1.5 py-0 font-bold flex items-center gap-0.5">
+                      <span>🆕 Novo</span>
                     </Badge>
                   )}
                 </div>
@@ -400,6 +405,75 @@ export default function WhatsAppChatDrawer({
           <div className="flex-1 grid grid-cols-1 md:grid-cols-12 min-h-0 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800">
             {/* LEFT SIDE: WhatsApp Chat Conversation */}
             <div className="md:col-span-7 flex flex-col h-full bg-[#efeae2]/40 dark:bg-slate-950/40">
+              {/* Bloco Pedido em Andamento / Pedido Ativo */}
+              {(() => {
+                const activeProductionOrders = productionOrders.filter(
+                  (o) => !o.is_completed && !o.is_archived,
+                )
+                if (activeProductionOrders.length === 0) return null
+
+                return (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 dark:text-amber-200">
+                        <Package className="h-4 w-4 text-amber-600" />
+                        <span>PEDIDO EM ANDAMENTO ({activeProductionOrders.length})</span>
+                      </div>
+                      <Badge className="bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-100 text-[10px] font-semibold border-amber-300">
+                        Produção Ativa
+                      </Badge>
+                    </div>
+
+                    <div className="space-y-2">
+                      {activeProductionOrders.map((ord) => {
+                        const repUser = ord.expand?.production_rep_id || ord.expand?.sales_rep_id
+                        return (
+                          <div
+                            key={ord.id}
+                            onClick={() => {
+                              setSelectedOrderToEdit(ord)
+                              setOrderModalOpen(true)
+                            }}
+                            className="p-2.5 rounded-lg bg-white/90 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-800/80 hover:border-amber-400 cursor-pointer transition-all text-xs shadow-xs"
+                          >
+                            <div className="flex items-center justify-between gap-1 flex-wrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.2 rounded text-[11px]">
+                                  {ord.order_number}
+                                </span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                  {ord.product}
+                                </span>
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-200"
+                              >
+                                {ord.stage_name}
+                              </Badge>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3 text-amber-600" />
+                                Previsão:{' '}
+                                {ord.promised_deadline
+                                  ? new Date(ord.promised_deadline).toLocaleDateString('pt-BR')
+                                  : 'Sem prazo'}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <User className="h-3 w-3 text-slate-400" />
+                                {repUser?.name || 'Sem responsável'}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* Message List */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {loading ? (

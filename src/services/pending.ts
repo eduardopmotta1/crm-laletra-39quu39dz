@@ -155,6 +155,7 @@ export const pendingService = {
   async getAllPendingItems(): Promise<PendingItem[]> {
     try {
       const slaConfig = await settingsService.getSlaConfig()
+      const autoConfig = await settingsService.getAutomationConfig()
       const now = new Date()
       const todayStr = now.toISOString().split('T')[0]
       const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
@@ -213,9 +214,9 @@ export const pendingService = {
           const waitingMinutes = Math.max(0, Math.floor((now.getTime() - msgTime) / (1000 * 60)))
 
           let priority: PendingPriority = 'normal'
-          if (waitingMinutes >= 60) {
+          if (waitingMinutes >= autoConfig.waitingResponseUrgenteMinutes) {
             priority = 'urgente'
-          } else if (waitingMinutes >= 15) {
+          } else if (waitingMinutes >= autoConfig.waitingResponseAltaMinutes) {
             priority = 'alta'
           }
 
@@ -250,9 +251,9 @@ export const pendingService = {
           const waitingMinutes = Math.max(0, Math.floor((now.getTime() - refTime) / (1000 * 60)))
 
           let priority: PendingPriority = 'normal'
-          if (waitingMinutes >= 60) {
+          if (waitingMinutes >= autoConfig.waitingResponseUrgenteMinutes) {
             priority = 'urgente'
-          } else if (waitingMinutes >= 15) {
+          } else if (waitingMinutes >= autoConfig.waitingResponseAltaMinutes) {
             priority = 'alta'
           }
 
@@ -288,9 +289,9 @@ export const pendingService = {
           const waitingDays = Math.floor(waitingMinutes / (60 * 24))
 
           let priority: PendingPriority = 'normal'
-          if (waitingDays >= 3) {
+          if (waitingDays >= autoConfig.quoteNoReturnUrgenteDays) {
             priority = 'urgente'
-          } else if (waitingDays >= 1) {
+          } else if (waitingDays >= autoConfig.quoteNoReturnAltaDays) {
             priority = 'alta'
           }
 
@@ -330,7 +331,8 @@ export const pendingService = {
         const waitingMinutes = Math.max(0, Math.floor((now.getTime() - createdTime) / (1000 * 60)))
 
         // Cliente insatisfeito é sempre Alta ou Urgente
-        const priority: PendingPriority = waitingMinutes > 24 * 60 ? 'urgente' : 'alta'
+        const priority: PendingPriority =
+          waitingMinutes > autoConfig.dissatisfiedUrgenteHours * 60 ? 'urgente' : 'alta'
 
         items.push({
           id: `eval_${ev.id}`,
@@ -375,7 +377,7 @@ export const pendingService = {
           let priority: PendingPriority = 'normal'
           if (isOverdue) {
             const overdueDays = Math.floor(waitingMinutes / (60 * 24))
-            priority = overdueDays >= 2 ? 'urgente' : 'alta'
+            priority = overdueDays >= autoConfig.followupOverdueUrgenteDays ? 'urgente' : 'alta'
           } else {
             priority = 'normal'
           }
@@ -416,9 +418,9 @@ export const pendingService = {
         const waitingDays = Math.floor(waitingMinutes / (60 * 24))
 
         let priority: PendingPriority = 'normal'
-        if (waitingDays >= 2) {
+        if (waitingDays >= autoConfig.proofWaitingUrgenteDays) {
           priority = 'urgente'
-        } else if (waitingDays >= 1) {
+        } else if (waitingDays >= autoConfig.proofWaitingAltaDays) {
           priority = 'alta'
         }
 
@@ -470,7 +472,12 @@ export const pendingService = {
             categoryLabel: PENDING_CATEGORY_CONFIG.proofs_waiting_approval.label,
             title: `Pedido ${ord.order_number}: Arte aguardando aprovação`,
             subtitle: `Cliente: ${ord.client_name} • ${ord.product} • Aguardando há ${this.formatDuration(waitingMinutes)}`,
-            priority: waitingDays >= 2 ? 'urgente' : waitingDays >= 1 ? 'alta' : 'normal',
+            priority:
+              waitingDays >= autoConfig.proofWaitingUrgenteDays
+                ? 'urgente'
+                : waitingDays >= autoConfig.proofWaitingAltaDays
+                  ? 'alta'
+                  : 'normal',
             createdAt: ord.created,
             referenceDate: ord.updated || ord.created,
             waitingTimeMinutes: waitingMinutes,
@@ -502,7 +509,8 @@ export const pendingService = {
 
           if (deadlineDate < todayStr) {
             // Pedido ATRASADO!
-            const priority: PendingPriority = overdueDays >= 1 ? 'urgente' : 'alta'
+            const priority: PendingPriority =
+              overdueDays >= autoConfig.orderOverdueUrgenteDays ? 'urgente' : 'alta'
 
             items.push({
               id: `order_overdue_${ord.id}`,
@@ -602,9 +610,9 @@ export const pendingService = {
         if (isPastScheduled) {
           const waitingDays = Math.floor(waitingMinutes / (60 * 24))
           let priority: PendingPriority = 'normal'
-          if (waitingDays >= 3) {
+          if (waitingDays >= autoConfig.postSaleUrgenteDays) {
             priority = 'urgente'
-          } else if (waitingDays >= 1) {
+          } else if (waitingDays >= autoConfig.postSaleAltaDays) {
             priority = 'alta'
           }
 
