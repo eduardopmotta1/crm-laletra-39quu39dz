@@ -139,6 +139,7 @@ onRecordAfterCreateSuccess(
   'production_proofs',
   'evaluations',
   'post_sales',
+  'attendances',
 )
 
 // Registrar UPDATES (com previous/new)
@@ -192,6 +193,7 @@ onRecordAfterUpdateSuccess(
   'production_proofs',
   'evaluations',
   'post_sales',
+  'attendances',
 )
 
 // Registrar DELETES
@@ -242,6 +244,7 @@ onRecordAfterDeleteSuccess(
   'production_proofs',
   'evaluations',
   'post_sales',
+  'attendances',
 )
 
 console.log('[AUDIT SECURITY] v2 loaded — safe mode')
