@@ -29,6 +29,7 @@ interface CompleteAndArchiveModalProps {
   isOpen: boolean
   onClose: () => void
   client: Client | null
+  attendanceId?: string
   initialResult?: DealResult
   onSuccess?: () => void
 }
@@ -47,6 +48,7 @@ export default function CompleteAndArchiveModal({
   isOpen,
   onClose,
   client,
+  attendanceId,
   initialResult = 'Venda fechada',
   onSuccess,
 }: CompleteAndArchiveModalProps) {
@@ -101,14 +103,14 @@ export default function CompleteAndArchiveModal({
 
       const archived = await dealsService.completeAndArchive({
         clientId: client.id,
+        attendanceId: attendanceId || client.attendance_id,
         result,
         lossReason: result === 'Venda perdida' ? selectedReason : undefined,
         quoteValue: quoteValue ? Number(quoteValue) : undefined,
         productInterest: productInterest.trim() || undefined,
         finalNotes: finalNotes.trim() || undefined,
-        assignedTo: client.assigned_to,
+        closedAt: new Date().toISOString(),
       })
-
       setCreatedArchivedDealId(archived.id)
 
       toast({

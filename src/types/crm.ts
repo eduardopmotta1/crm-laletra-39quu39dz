@@ -520,6 +520,16 @@ export type PendingCategory =
   | 'proofs_waiting_approval' // Artes aguardando aprovação
   | 'orders_overdue' // Pedidos atrasados na produção
   | 'orders_due_today' // Pedidos que vencem hoje
+  | 'first_contact'
+  | 'client_reply'
+  | 'quote_followup'
+  | 'commercial_followup'
+  | 'task_overdue'
+  | 'production_delayed'
+  | 'proof_approval'
+  | 'post_sale'
+  | 'inactive_client'
+  | (string & {})
   | 'orders_due_tomorrow' // Pedidos que vencem amanhã
   | 'pending_post_sales' // Pós-vendas pendentes
   | 'dissatisfied_clients' // Clientes insatisfeitos (nota <= 3 ou reclamação aberta)
@@ -588,16 +598,21 @@ export interface PendingResolutionRecord {
 }
 
 export interface EfficiencyMetrics {
-  avgFirstResponseMinutes: number
-  totalOverdueAttendances: number
-  resolvedTodayCount: number
-  avgResolutionMinutes: number
-  percentResponsesOnTime: number
-  percentOrdersDeliveredOnTime: number
-  percentFollowupsCompleted: number
-  totalPendingCount: number
-  totalUrgentCount: number
-  totalHighCount: number
+  averageResolutionMinutes?: number
+  resolvedToday?: number
+  resolvedThisWeek?: number
+  totalResolved?: number
+  byPriority?: Record<string, number>
+  avgFirstResponseMinutes?: number
+  totalOverdueAttendances?: number
+  resolvedTodayCount?: number
+  avgResolutionMinutes?: number
+  percentResponsesOnTime?: number
+  percentOrdersDeliveredOnTime?: number
+  percentFollowupsCompleted?: number
+  totalPendingCount?: number
+  totalUrgentCount?: number
+  totalHighCount?: number
 }
 
 /**

@@ -35,6 +35,23 @@ export const tasksService = {
     if (typeof sanitized.due_date === 'string' && sanitized.due_date.includes('T')) {
       sanitized.due_date = sanitized.due_date.split('T')[0]
     }
+
+    // When creating a task for a client, if there's an active attendance and no attendance_id set, set attendance_id
+    if (!sanitized.attendance_id && sanitized.client_id) {
+      try {
+        const activeAtts = await pb.collection('attendances').getList(1, 1, {
+          filter: `client_id = "${sanitized.client_id}" && is_archived != true`,
+          sort: '-created',
+          requestKey: null,
+        })
+        if (activeAtts.items.length > 0) {
+          sanitized.attendance_id = activeAtts.items[0].id
+        }
+      } catch (attErr) {
+        console.error('Error attaching active attendance to task:', attErr)
+      }
+    }
+
     return await pb.collection('tasks').create<Task>(sanitized)
   },
 

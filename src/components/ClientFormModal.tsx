@@ -18,7 +18,9 @@ import {
 } from '@/components/ui/select'
 import { KANBAN_STAGES, type Client, type KanbanStage, type Priority, type User } from '@/types/crm'
 import { clientsService } from '@/services/clients'
+import { attendancesService } from '@/services/attendances'
 import { usersService } from '@/services/whatsapp'
+import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
 import { UserPlus, UserCheck, Trash2, MessageSquare, Sparkles } from 'lucide-react'
@@ -160,6 +162,26 @@ export default function ClientFormModal({
       let saved: Client
       if (clientToEdit) {
         saved = await clientsService.update(clientToEdit.id, payload)
+
+        // When EDITING a client: if there's an active attendance, update its fields too
+        try {
+          const activeAtts = await pb.collection('attendances').getList(1, 1, {
+            filter: `client_id = "${clientToEdit.id}" && is_archived != true`,
+            sort: '-created',
+            requestKey: null,
+          })
+          if (activeAtts.items.length > 0) {
+            await attendancesService.update(activeAtts.items[0].id, {
+              product_interest: payload.product_interest,
+              quote_value: payload.quote_value,
+              assigned_to: payload.assigned_to,
+              stage: payload.stage,
+            })
+          }
+        } catch (attErr) {
+          console.error('Error updating active attendance on client edit:', attErr)
+        }
+
         toast({
           title: 'Cliente atualizado',
           description: `Os dados de "${saved.name}" foram salvos com sucesso.`,

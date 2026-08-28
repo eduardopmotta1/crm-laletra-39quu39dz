@@ -63,15 +63,16 @@ interface WhatsAppChatDrawerProps {
   isOpen: boolean
   onClose: () => void
   client: Client | null
-  slaConfig: SlaConfig
+  activeAttendance?: Attendance | null
+  slaConfig?: SlaConfig
   onClientUpdated?: () => void
 }
-
 export default function WhatsAppChatDrawer({
   isOpen,
   onClose,
   client,
-  slaConfig,
+  activeAttendance,
+  slaConfig = { urgentMinutes: 1440, warningMinutes: 720, noticeMinutes: 360 },
   onClientUpdated,
 }: WhatsAppChatDrawerProps) {
   const { user, isAdmin, hasPermission, canViewFinancials } = useAuth()
@@ -299,7 +300,7 @@ export default function WhatsAppChatDrawer({
                     {displayClient.name}
                   </h3>
                   <Badge variant="outline" className="text-xs">
-                    {displayClient.stage}
+                    {activeAttendance?.stage || displayClient.stage}
                   </Badge>
                   {(displayClient.total_purchases !== undefined &&
                     displayClient.total_purchases > 0) ||
@@ -346,7 +347,11 @@ export default function WhatsAppChatDrawer({
                   variant="outline"
                   size="sm"
                   onClick={async () => {
-                    await dealsService.reopenClient(displayClient.id, 'Precisa responder')
+                    await dealsService.reopenClient(
+                      displayClient.id,
+                      'Precisa responder',
+                      activeAttendance?.id,
+                    )
                     toast({
                       title: 'Atendimento Reaberto!',
                       description: 'Cliente retornado ao funil ativo na etapa "Precisa responder".',
@@ -772,14 +777,24 @@ export default function WhatsAppChatDrawer({
                       <div>
                         <span className="text-slate-400 block text-[10px]">Produto / Demanda</span>
                         <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          {displayClient.product_interest || 'Não informado'}
+                          {activeAttendance?.product_interest !== undefined
+                            ? activeAttendance.product_interest || 'Não informado'
+                            : displayClient.product_interest || 'Não informado'}
                         </span>
                       </div>
                       <div>
                         <span className="text-slate-400 block text-[10px]">Valor do Orçamento</span>
                         <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                          {displayClient.quote_value
-                            ? formatCurrency(displayClient.quote_value)
+                          {(
+                            activeAttendance?.quote_value !== undefined
+                              ? activeAttendance.quote_value
+                              : displayClient.quote_value
+                          )
+                            ? formatCurrency(
+                                (activeAttendance?.quote_value !== undefined
+                                  ? activeAttendance.quote_value
+                                  : displayClient.quote_value) || 0,
+                              )
                             : 'Não cotado'}
                         </span>
                       </div>
@@ -1421,6 +1436,7 @@ export default function WhatsAppChatDrawer({
         isOpen={archiveModalOpen}
         onClose={() => setArchiveModalOpen(false)}
         client={displayClient}
+        attendanceId={activeAttendance?.id}
         onSuccess={() => {
           if (onClientUpdated) onClientUpdated()
           loadClientData(displayClient.id)

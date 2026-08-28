@@ -17,13 +17,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { Client, Priority, KanbanColumn, SlaConfig } from '@/types/crm'
+import type { Client, Attendance, Priority, KanbanColumn, SlaConfig } from '@/types/crm'
 import { calculateSlaInfo, formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
 
 interface KanbanCardProps {
   client: Client
+  attendance?: Attendance
   slaConfig: SlaConfig
   column?: KanbanColumn
   onClick: () => void
@@ -34,6 +35,7 @@ interface KanbanCardProps {
 
 export default function KanbanCard({
   client,
+  attendance,
   slaConfig,
   column,
   onClick,
@@ -42,10 +44,19 @@ export default function KanbanCard({
   onDragStart,
 }: KanbanCardProps) {
   const { canViewFinancials, isAdmin, hasPermission } = useAuth()
+
+  const currentStage = attendance?.stage || client.stage
+  const productInterest =
+    attendance?.product_interest !== undefined
+      ? attendance.product_interest
+      : client.product_interest
+  const quoteValue =
+    attendance?.quote_value !== undefined ? attendance.quote_value : client.quote_value
+
   const slaInfo = calculateSlaInfo(
     client.last_message_at,
     client.last_message_direction,
-    client.stage,
+    currentStage,
     slaConfig,
   )
 
@@ -85,8 +96,8 @@ export default function KanbanCard({
     })
   }
 
-  const isWon = client.stage === 'Venda fechada'
-  const isLost = client.stage === 'Não fechou'
+  const isWon = currentStage === 'Venda fechada'
+  const isLost = currentStage === 'Não fechou'
   const isFinalStage = isWon || isLost
   const isRecurring =
     (client.total_purchases !== undefined && client.total_purchases > 0) ||
@@ -142,10 +153,10 @@ export default function KanbanCard({
             {client.name}
           </h4>
 
-          {client.product_interest ? (
+          {productInterest ? (
             <div className="flex items-center text-xs text-slate-600 dark:text-slate-300 gap-1.5 font-medium">
               <Tag className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span className="truncate">{client.product_interest}</span>
+              <span className="truncate">{productInterest}</span>
             </div>
           ) : (
             <p className="text-xs text-slate-400 italic">Sem produto definido</p>
@@ -153,14 +164,14 @@ export default function KanbanCard({
         </div>
 
         {/* Quote Value Badge (Protected: Completely hidden if user lacks financial permission) */}
-        {canViewFinancials && client.quote_value ? (
+        {canViewFinancials && quoteValue ? (
           <div className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60">
             <span className="text-[10px] text-slate-500 font-medium">Orçamento:</span>
             <span className="font-bold text-emerald-700 dark:text-emerald-400">
-              {formatCurrency(client.quote_value)}
+              {formatCurrency(quoteValue)}
             </span>
           </div>
-        ) : !canViewFinancials && client.quote_value ? (
+        ) : !canViewFinancials && quoteValue ? (
           <div className="flex items-center justify-between text-[11px] py-1 px-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700">
             <span className="flex items-center gap-1">
               <Lock className="h-3 w-3 text-slate-400" />
