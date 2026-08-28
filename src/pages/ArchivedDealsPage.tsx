@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { dealsService } from '@/services/deals'
 import { clientsService } from '@/services/clients'
+import { attendancesService } from '@/services/attendances'
 import { usersService } from '@/services/whatsapp'
 import type { ArchivedDeal, DealResult, User as CRMUser, Client } from '@/types/crm'
 import { formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
@@ -50,7 +51,7 @@ import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 
 export default function ArchivedDealsPage() {
   const [deals, setDeals] = useState<ArchivedDeal[]>([])
-  const [archivedClientIds, setArchivedClientIds] = useState<Set<string>>(new Set())
+  const [archivedAttendanceIds, setArchivedAttendanceIds] = useState<Set<string>>(new Set())
   const [users, setUsers] = useState<CRMUser[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -77,15 +78,15 @@ export default function ArchivedDealsPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [dealsList, usersList, clientsList] = await Promise.all([
+      const [dealsList, usersList, attendancesList] = await Promise.all([
         dealsService.getArchivedDeals(),
         usersService.getAll(),
-        clientsService.getAll(undefined, '-last_message_at', { includeArchived: true }),
+        attendancesService.getAll(undefined, '-created', { includeArchived: true }),
       ])
-      const activeArchivedIds = new Set(
-        clientsList.filter((c) => c.is_archived === true).map((c) => c.id),
+      const activeArchivedAttIds = new Set(
+        attendancesList.filter((a) => a.is_archived === true).map((a) => a.id),
       )
-      setArchivedClientIds(activeArchivedIds)
+      setArchivedAttendanceIds(activeArchivedAttIds)
       setDeals(dealsList)
       setUsers(usersList)
     } catch (err) {
@@ -99,8 +100,13 @@ export default function ArchivedDealsPage() {
     loadData()
   }, [])
 
-  // Deals whose clients are currently archived (is_archived === true)
-  const currentlyArchivedDeals = deals.filter((deal) => archivedClientIds.has(deal.client_id))
+  // Deals whose attendances are currently archived (is_archived === true)
+  const currentlyArchivedDeals = deals.filter((deal) => {
+    if (deal.attendance_id) {
+      return archivedAttendanceIds.has(deal.attendance_id)
+    }
+    return true
+  })
 
   // Loss reasons present in currently archived data
   const distinctLossReasons = Array.from(
@@ -169,7 +175,11 @@ export default function ArchivedDealsPage() {
     if (!dealToReopen) return
     setReopening(true)
     try {
-      await dealsService.reopenClient(dealToReopen.client_id, 'Precisa responder')
+      await dealsService.reopenClient(
+        dealToReopen.client_id,
+        'Precisa responder',
+        dealToReopen.attendance_id,
+      )
       toast({
         title: 'Atendimento Reaberto!',
         description: `O cliente "${dealToReopen.client_name}" foi desarquivado e movido para "Precisa responder" no funil Kanban com destaque de retorno.`,
@@ -602,9 +612,9 @@ export default function ArchivedDealsPage() {
               Reabrir Atendimento?
             </DialogTitle>
             <DialogDescription>
-              O cliente <strong>"{dealToReopen?.client_name}"</strong> será desarquivado e retornado
-              ao funil Kanban principal na coluna <strong>"Precisa responder"</strong>, mantendo
-              todo o histórico de mensagens e negociações anteriores.
+              O atendimento de <strong>"{dealToReopen?.client_name}"</strong> será reaberto e
+              retornado ao funil Kanban principal na coluna <strong>"Precisa responder"</strong>,
+              mantendo todo o histórico de mensagens e negociações anteriores.
             </DialogDescription>
           </DialogHeader>
 

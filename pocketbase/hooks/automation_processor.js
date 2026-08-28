@@ -101,6 +101,7 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
           rec.set('item_id', data.itemId)
           rec.set('item_title', data.itemTitle || '')
           if (data.clientId) rec.set('client_id', data.clientId)
+          if (data.attendanceId) rec.set('attendance_id', data.attendanceId)
           rec.set('client_name', data.clientName || '')
           if (data.assignedTo) rec.set('assigned_to', data.assignedTo)
           rec.set('assigned_name', data.assignedName || '')
@@ -141,30 +142,43 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
       return false
     }
 
-    // A) CLIENTES AGUARDANDO RESPOSTA
+    // A) ATENDIMENTOS / CLIENTES AGUARDANDO RESPOSTA (consultando attendances)
     if (isWaitingEnabled) {
       try {
-        const clients = $app.findRecordsByFilter(
-          'clients',
+        const attendances = $app.findRecordsByFilter(
+          'attendances',
           'is_archived != true && stage != "Venda fechada" && stage != "Não fechou"',
-          '-last_message_at',
+          '-updated',
           200,
           0,
         )
 
-        for (let i = 0; i < clients.length; i++) {
-          const c = clients[i]
-          const lastMsgAt = c.getString('last_message_at')
-          const lastDir = c.getString('last_message_direction')
-          const itemId = 'client_reply_' + c.id
+        for (let i = 0; i < attendances.length; i++) {
+          const att = attendances[i]
+          const clientId = att.getString('client_id')
+          let clientRec = null
+          if (clientId) {
+            try {
+              clientRec = $app.findFirstRecordByData('clients', 'id', clientId)
+            } catch (_) {}
+          }
 
-          if (lastMsgAt && lastDir === 'inbound') {
+          const clientName = clientRec ? clientRec.getString('name') : 'Cliente'
+          const lastMsgAt =
+            (clientRec ? clientRec.getString('last_message_at') : '') ||
+            att.getString('last_customer_message_at') ||
+            att.getString('updated') ||
+            att.getString('created')
+          const lastDir = clientRec ? clientRec.getString('last_message_direction') : 'inbound'
+          const itemId = 'client_reply_' + att.id
+
+          if (lastMsgAt && (lastDir === 'inbound' || !lastDir)) {
             const msgMs = new Date(lastMsgAt).getTime()
             const diffMin = Math.max(0, Math.floor((nowMs - msgMs) / (1000 * 60)))
 
             if (diffMin >= waitingAltaMin) {
               const priority = diffMin >= waitingUrgenteMin ? 'urgente' : 'alta'
-              const lastMsgText = c.getString('last_message_text')
+              const lastMsgText = clientRec ? clientRec.getString('last_message_text') : ''
               const subtitle = lastMsgText
                 ? '"' + lastMsgText.substring(0, 70) + '"'
                 : 'Cliente aguardando resposta no WhatsApp'
@@ -172,10 +186,13 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
               const res = upsertPendingResolution({
                 category: 'clients_waiting_response',
                 itemId: itemId,
-                itemTitle: c.getString('name') + ' - ' + subtitle,
-                clientId: c.id,
-                clientName: c.getString('name'),
-                assignedTo: c.getString('assigned_to'),
+                itemTitle: clientName + ' - ' + subtitle,
+                clientId: clientId,
+                attendanceId: att.id,
+                clientName: clientName,
+                assignedTo:
+                  att.getString('assigned_to') ||
+                  (clientRec ? clientRec.getString('assigned_to') : ''),
                 itemCreatedAt: lastMsgAt.split('T')[0],
                 priority: priority,
                 waitingMinutes: diffMin,
@@ -197,37 +214,57 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
         ' pendências criadas/atualizadas',
     )
 
-    // B) ORÇAMENTO SEM RETORNO
+    // B) ORÇAMENTO SEM RETORNO (consultando attendances)
     if (isQuotesEnabled) {
       try {
-        const quoteClients = $app.findRecordsByFilter(
-          'clients',
+        const quoteAttendances = $app.findRecordsByFilter(
+          'attendances',
           'is_archived != true && (stage = "Orçamento enviado" || stage = "Aguardando cliente")',
           '-updated',
           200,
           0,
         )
 
-        for (let i = 0; i < quoteClients.length; i++) {
-          const c = quoteClients[i]
-          const refTimeStr = c.getString('updated') || c.getString('created')
+        for (let i = 0; i < quoteAttendances.length; i++) {
+          const att = quoteAttendances[i]
+          const clientId = att.getString('client_id')
+          let clientRec = null
+          if (clientId) {
+            try {
+              clientRec = $app.findFirstRecordByData('clients', 'id', clientId)
+            } catch (_) {}
+          }
+
+          const clientName = clientRec ? clientRec.getString('name') : 'Cliente'
+          const refTimeStr = att.getString('updated') || att.getString('created')
           const refMs = new Date(refTimeStr).getTime()
           const diffDays = Math.max(0, Math.floor((nowMs - refMs) / (1000 * 60 * 60 * 24)))
           const diffMin = Math.max(0, Math.floor((nowMs - refMs) / (1000 * 60)))
 
           if (diffDays >= quoteAltaDays) {
             const priority = diffDays >= quoteUrgenteDays ? 'urgente' : 'alta'
-            const quoteVal = c.get('quote_value')
+            const quoteVal =
+              att.get('quote_value') !== undefined
+                ? att.get('quote_value')
+                : clientRec
+                  ? clientRec.get('quote_value')
+                  : 0
             const quoteValStr = quoteVal ? 'R$ ' + Number(quoteVal).toFixed(2) : ''
-            const prod = c.getString('product_interest') || 'Orçamento'
+            const prod =
+              att.getString('product_interest') ||
+              (clientRec ? clientRec.getString('product_interest') : '') ||
+              'Orçamento'
 
             const res = upsertPendingResolution({
               category: 'quotes_waiting_return',
-              itemId: 'client_quote_' + c.id,
-              itemTitle: c.getString('name') + ' - ' + prod + ' ' + quoteValStr,
-              clientId: c.id,
-              clientName: c.getString('name'),
-              assignedTo: c.getString('assigned_to'),
+              itemId: 'client_quote_' + att.id,
+              itemTitle: clientName + ' - ' + prod + ' ' + quoteValStr,
+              clientId: clientId,
+              attendanceId: att.id,
+              clientName: clientName,
+              assignedTo:
+                att.getString('assigned_to') ||
+                (clientRec ? clientRec.getString('assigned_to') : ''),
               itemCreatedAt: refTimeStr.split('T')[0],
               priority: priority,
               waitingMinutes: diffMin,
@@ -262,6 +299,7 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
               itemId: itemId,
               itemTitle: 'Follow-up vencido: ' + t.getString('title'),
               clientId: t.getString('client_id'),
+              attendanceId: t.getString('attendance_id'),
               assignedTo: t.getString('assigned_to'),
               itemCreatedAt: t.getString('created').split('T')[0],
               priority: priority,

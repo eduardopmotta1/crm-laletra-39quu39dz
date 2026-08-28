@@ -257,7 +257,9 @@ export const dealsService = {
   },
 
   /**
-   * Reopen an archived deal / client manually
+   * Reopen an archived deal / attendance manually
+   * Reopens attendance (is_archived = false) and places back in Kanban.
+   * Does NOT alter client's permanent record purchases, does NOT create new archived_deal or new purchase.
    */
   async reopenClient(
     clientId: string,
@@ -265,14 +267,23 @@ export const dealsService = {
     attendanceId?: string,
   ): Promise<void> {
     const todayDateStr = new Date().toISOString().split('T')[0]
-    const client = await pb.collection('clients').getOne(clientId)
-    const oldStage = client.stage
-    const hasPurchasedBefore = (client.total_purchases || 0) > 0
+    let client: any = null
+    try {
+      client = await pb.collection('clients').getOne(clientId)
+    } catch {
+      /* intentionally ignored */
+    }
 
-    // 1. If attendanceId provided, un-archive it. Else create a new active attendance or unarchive latest
+    const oldStage = client?.stage || 'Fechado'
+    const hasPurchasedBefore = (client?.total_purchases || 0) > 0
+
+    // 1. If attendanceId provided, un-archive it. Else find latest archived attendance or create active attendance
     let activeAttendanceId = attendanceId
+    let attendanceRec: any = null
+
     if (activeAttendanceId) {
       try {
+        attendanceRec = await pb.collection('attendances').getOne(activeAttendanceId)
         await pb.collection('attendances').update(activeAttendanceId, {
           is_archived: false,
           stage: stage,
@@ -294,9 +305,14 @@ export const dealsService = {
         })
         if (existingAtts.items.length > 0) {
           activeAttendanceId = existingAtts.items[0].id
+          attendanceRec = existingAtts.items[0]
           await pb.collection('attendances').update(activeAttendanceId, {
             is_archived: false,
             stage: stage,
+            result: null,
+            loss_reason: '',
+            closed_at: null,
+            archived_at: null,
           })
         } else {
           // Create a new attendance
@@ -304,9 +320,9 @@ export const dealsService = {
             client_id: clientId,
             stage: stage,
             is_archived: false,
-            assigned_to: client.assigned_to || undefined,
-            product_interest: client.product_interest || '',
-            quote_value: client.quote_value || 0,
+            assigned_to: client?.assigned_to || undefined,
+            product_interest: client?.product_interest || '',
+            quote_value: client?.quote_value || 0,
           })
           activeAttendanceId = newAtt.id
         }
@@ -315,18 +331,25 @@ export const dealsService = {
       }
     }
 
-    await pb.collection('clients').update(clientId, {
-      is_archived: false,
-      stage: stage,
-      has_returned: hasPurchasedBefore,
-      reopened_at: todayDateStr,
-    })
+    // Update client flags (reopened_at, has_returned) without corrupting permanent history or resetting total_purchases
+    if (clientId) {
+      try {
+        await pb.collection('clients').update(clientId, {
+          is_archived: false,
+          stage: stage,
+          has_returned: hasPurchasedBefore,
+          reopened_at: todayDateStr,
+        })
+      } catch (clientErr) {
+        console.warn('Error updating client on reopen:', clientErr)
+      }
+    }
 
     try {
       await pb.collection('stage_transitions').create({
         client_id: clientId,
         attendance_id: activeAttendanceId || undefined,
-        from_stage: `${oldStage || 'Fechado'} (Arquivado)`,
+        from_stage: `${attendanceRec?.stage || oldStage || 'Fechado'} (Arquivado)`,
         to_stage: stage,
         change_type: 'manual',
         user_id: pb.authStore.record?.id || undefined,

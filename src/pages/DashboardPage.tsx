@@ -16,11 +16,12 @@ import {
   Plus,
 } from 'lucide-react'
 import { clientsService } from '@/services/clients'
+import { attendancesService } from '@/services/attendances'
 import { tasksService } from '@/services/tasks'
 import { settingsService } from '@/services/settings'
 import { evaluationsService } from '@/services/evaluations'
 import { calculateSlaInfo, formatCurrency, formatDateTime } from '@/lib/sla'
-import type { Client, Task, SlaConfig, Evaluation } from '@/types/crm'
+import type { Client, Attendance, Task, SlaConfig, Evaluation } from '@/types/crm'
 import { ShieldAlert } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -42,25 +43,34 @@ export default function DashboardPage() {
 
   // Selected client for drawer / modal
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
+  const [selectedAttendance, setSelectedAttendance] = useState<Attendance | null>(null)
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
   const [newClientOpen, setNewClientOpen] = useState(false)
 
+  const [attendances, setAttendances] = useState<Attendance[]>([])
+
   const loadData = async () => {
     try {
-      const [cls, tks, cfg, autoArchiveCfg, evals] = await Promise.all([
+      const [cls, atts, tks, cfg, autoArchiveCfg, evals] = await Promise.all([
         clientsService.getAll(undefined, '-last_message_at', { includeArchived: true }),
+        attendancesService.getAll(undefined, '-created', { includeArchived: true }),
         tasksService.getAll(),
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
         evaluationsService.getAll('overall_rating <= 3 && overall_rating > 0 && resolved = false'),
       ])
+
       setClients(cls)
+      setAttendances(atts)
       setTasks(tks)
       setSlaConfig(cfg)
       setDissatisfiedEvaluations(evals)
 
       if (autoArchiveCfg.enabled) {
-        await clientsService.runAutoArchiveCheck(autoArchiveCfg.wonHours, autoArchiveCfg.lostHours)
+        await attendancesService.runAutoArchiveCheck(
+          autoArchiveCfg.wonHours,
+          autoArchiveCfg.lostHours,
+        )
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err)
@@ -75,73 +85,87 @@ export default function DashboardPage() {
     return () => window.removeEventListener('crm-client-updated', handleUpdate)
   }, [])
 
-  // Metrics computation
-  const waitingClients = clients.filter(
-    (c) =>
-      c.stage !== 'Venda fechada' &&
-      c.stage !== 'Não fechou' &&
-      c.last_message_direction === 'inbound',
-  )
+  // Active attendances for commercial funnel & response KPIs
+  const activeAttendances = attendances.filter((a) => !a.is_archived)
 
-  const urgentClients = clients.filter((c) => {
-    if (c.stage === 'Venda fechada' || c.stage === 'Não fechou') return false
-    const sla = calculateSlaInfo(c.last_message_at, c.last_message_direction, c.stage, slaConfig)
+  // Metrics computation from attendances
+  const waitingAttendances = activeAttendances.filter((a) => {
+    if (a.stage === 'Venda fechada' || a.stage === 'Não fechou') return false
+    const client = a.expand?.client_id
+    const dir = client?.last_message_direction || 'inbound'
+    return dir === 'inbound'
+  })
+
+  const urgentAttendances = activeAttendances.filter((a) => {
+    if (a.stage === 'Venda fechada' || a.stage === 'Não fechou') return false
+    const client = a.expand?.client_id
+    const lastMsgAt = client?.last_message_at || a.last_customer_message_at || a.created
+    const lastDir = client?.last_message_direction || 'inbound'
+    const sla = calculateSlaInfo(lastMsgAt, lastDir, a.stage, slaConfig)
     return sla.status === 'urgent'
   })
 
-  const warningClients = clients.filter((c) => {
-    if (c.stage === 'Venda fechada' || c.stage === 'Não fechou') return false
-    const sla = calculateSlaInfo(c.last_message_at, c.last_message_direction, c.stage, slaConfig)
+  const warningAttendances = activeAttendances.filter((a) => {
+    if (a.stage === 'Venda fechada' || a.stage === 'Não fechou') return false
+    const client = a.expand?.client_id
+    const lastMsgAt = client?.last_message_at || a.last_customer_message_at || a.created
+    const lastDir = client?.last_message_direction || 'inbound'
+    const sla = calculateSlaInfo(lastMsgAt, lastDir, a.stage, slaConfig)
     return sla.status === 'warning'
   })
 
-  const openQuotes = clients.filter(
-    (c) =>
-      c.stage === 'Orçamento enviado' ||
-      c.stage === 'Aguardando cliente' ||
-      c.stage === 'Em atendimento',
+  const openQuotesAttendances = activeAttendances.filter(
+    (a) =>
+      a.stage === 'Orçamento enviado' ||
+      a.stage === 'Aguardando cliente' ||
+      a.stage === 'Em atendimento',
   )
-  const openQuotesTotal = openQuotes.reduce((acc, c) => acc + (c.quote_value || 0), 0)
+  const openQuotesTotal = openQuotesAttendances.reduce((acc, a) => acc + (a.quote_value || 0), 0)
 
-  const wonClients = clients.filter((c) => c.stage === 'Venda fechada')
-  const wonTotal = wonClients.reduce((acc, c) => acc + (c.quote_value || 0), 0)
+  // Won / Lost stats: can count active or all attendances in stage
+  const wonAttendances = attendances.filter((a) => a.stage === 'Venda fechada')
+  const wonTotal = wonAttendances.reduce((acc, a) => acc + (a.quote_value || 0), 0)
 
-  // Stage distribution for funnel graph
+  // Stage distribution for funnel graph based on active attendances (or all attendances)
   const stageStats = [
     {
       stage: 'Novo contato',
-      count: clients.filter((c) => c.stage === 'Novo contato').length,
+      count: activeAttendances.filter((a) => a.stage === 'Novo contato').length,
       color: 'bg-blue-500',
     },
     {
       stage: 'Contato iniciado',
-      count: clients.filter((c) => c.stage === 'Contato iniciado').length,
+      count: activeAttendances.filter((a) => a.stage === 'Contato iniciado').length,
       color: 'bg-cyan-500',
     },
     {
       stage: 'Precisa responder',
-      count: clients.filter((c) => c.stage === 'Precisa responder').length,
+      count: activeAttendances.filter((a) => a.stage === 'Precisa responder').length,
       color: 'bg-rose-500',
     },
     {
       stage: 'Em atendimento',
-      count: clients.filter((c) => c.stage === 'Em atendimento').length,
+      count: activeAttendances.filter((a) => a.stage === 'Em atendimento').length,
       color: 'bg-amber-500',
     },
     {
       stage: 'Orçamento enviado',
-      count: clients.filter((c) => c.stage === 'Orçamento enviado').length,
+      count: activeAttendances.filter((a) => a.stage === 'Orçamento enviado').length,
       color: 'bg-purple-500',
     },
     {
       stage: 'Aguardando cliente',
-      count: clients.filter((c) => c.stage === 'Aguardando cliente').length,
+      count: activeAttendances.filter((a) => a.stage === 'Aguardando cliente').length,
       color: 'bg-indigo-500',
     },
-    { stage: 'Venda fechada', count: wonClients.length, color: 'bg-emerald-500' },
+    {
+      stage: 'Venda fechada',
+      count: activeAttendances.filter((a) => a.stage === 'Venda fechada').length,
+      color: 'bg-emerald-500',
+    },
     {
       stage: 'Não fechou',
-      count: clients.filter((c) => c.stage === 'Não fechou').length,
+      count: activeAttendances.filter((a) => a.stage === 'Não fechou').length,
       color: 'bg-slate-400',
     },
   ]
@@ -213,7 +237,7 @@ export default function DashboardPage() {
       )}
 
       {/* Critical SLA Alert Box if any */}
-      {urgentClients.length > 0 && (
+      {urgentAttendances.length > 0 && (
         <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="p-2 bg-rose-500 text-white rounded-xl">
@@ -221,9 +245,11 @@ export default function DashboardPage() {
             </div>
             <div>
               <h3 className="font-bold text-rose-900 dark:text-rose-200 text-sm">
-                Atenção: {urgentClients.length}{' '}
-                {urgentClients.length === 1 ? 'cliente estourou' : 'clientes estouraram'} o SLA de{' '}
-                {slaConfig.urgentMinutes ?? 1440}min!
+                Atenção: {urgentAttendances.length}{' '}
+                {urgentAttendances.length === 1
+                  ? 'atendimento estourou'
+                  : 'atendimentos estouraram'}{' '}
+                o SLA de {slaConfig.urgentMinutes ?? 1440}min!
               </h3>
               <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
                 Mensagens de WhatsApp sem resposta podem resultar em perda de orçamentos para
@@ -244,7 +270,7 @@ export default function DashboardPage() {
 
       {/* 4 Summary Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Clientes Aguardando Resposta */}
+        {/* Card 1: Atendimentos Aguardando Resposta */}
         <Card className="border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -256,12 +282,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900 dark:text-white">
-              {waitingClients.length}
+              {waitingAttendances.length}
             </div>
             <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-              {urgentClients.length > 0 ? (
+              {urgentAttendances.length > 0 ? (
                 <span className="text-rose-600 font-semibold flex items-center">
-                  <AlertTriangle className="h-3 w-3 mr-0.5" /> {urgentClients.length} críticos
+                  <AlertTriangle className="h-3 w-3 mr-0.5" /> {urgentAttendances.length} críticos
                 </span>
               ) : (
                 <span className="text-emerald-600 font-medium">Todos em dia</span>
@@ -285,7 +311,7 @@ export default function DashboardPage() {
               {formatCurrency(openQuotesTotal)}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              {openQuotes.length} propostas em negociação
+              {openQuotesAttendances.length} propostas em negociação
             </p>
           </CardContent>
         </Card>
@@ -304,7 +330,9 @@ export default function DashboardPage() {
             <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {formatCurrency(wonTotal)}
             </div>
-            <p className="text-xs text-slate-500 mt-1">{wonClients.length} pedidos em produção</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {wonAttendances.length} atendimentos convertidos
+            </p>
           </CardContent>
         </Card>
 
@@ -320,10 +348,10 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900 dark:text-white">
-              {urgentClients.length}
+              {urgentAttendances.length}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              +{warningClients.length} em nível de alerta
+              +{warningAttendances.length} em nível de alerta
             </p>
           </CardContent>
         </Card>
@@ -340,7 +368,7 @@ export default function DashboardPage() {
                   Distribuição do Funil de Atendimento
                 </CardTitle>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Volume de clientes ativos em cada uma das etapas do processo
+                  Volume de atendimentos ativos em cada uma das etapas do processo
                 </p>
               </div>
               <Button
@@ -363,7 +391,7 @@ export default function DashboardPage() {
                       {stat.stage}
                     </span>
                     <span className="font-bold text-slate-900 dark:text-white">
-                      {stat.count} {stat.count === 1 ? 'cliente' : 'clientes'}
+                      {stat.count} {stat.count === 1 ? 'atendimento' : 'atendimentos'}
                     </span>
                   </div>
                   <div className="w-full bg-slate-100 dark:bg-slate-800 h-3 rounded-full overflow-hidden flex">
@@ -378,7 +406,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Priority Clients Pending Response (lg:col-span-5) */}
+        {/* Priority Attendances Pending Response (lg:col-span-5) */}
         <Card className="lg:col-span-5 border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -388,33 +416,36 @@ export default function DashboardPage() {
                   Prioridade de Resposta
                 </CardTitle>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Clientes ordenados pelo tempo sem atendimento
+                  Atendimentos ordenados pelo tempo sem resposta
                 </p>
               </div>
               <Badge variant="outline" className="text-xs font-semibold">
-                {waitingClients.length} na fila
+                {waitingAttendances.length} na fila
               </Badge>
             </div>
           </CardHeader>
           <CardContent className="flex-1 overflow-y-auto space-y-2.5 max-h-[380px] pr-1">
-            {waitingClients.length === 0 ? (
+            {waitingAttendances.length === 0 ? (
               <div className="py-12 text-center text-xs text-slate-400">
-                🎉 Nenhum cliente aguardando resposta no momento!
+                🎉 Nenhum atendimento aguardando resposta no momento!
               </div>
             ) : (
-              waitingClients.slice(0, 6).map((client) => {
-                const sla = calculateSlaInfo(
-                  client.last_message_at,
-                  client.last_message_direction,
-                  client.stage,
-                  slaConfig,
-                )
+              waitingAttendances.slice(0, 6).map((att) => {
+                const client = att.expand?.client_id || clients.find((c) => c.id === att.client_id)
+                const clientName = client?.name || 'Cliente'
+                const lastMsgAt =
+                  client?.last_message_at || att.last_customer_message_at || att.created
+                const lastDir = client?.last_message_direction || 'inbound'
+                const sla = calculateSlaInfo(lastMsgAt, lastDir, att.stage, slaConfig)
                 return (
                   <div
-                    key={client.id}
+                    key={att.id}
                     onClick={() => {
-                      setSelectedClient(client)
-                      setChatDrawerOpen(true)
+                      if (client) {
+                        setSelectedClient(client)
+                        setSelectedAttendance(att)
+                        setChatDrawerOpen(true)
+                      }
                     }}
                     className={`p-3 rounded-xl border transition-all cursor-pointer hover:shadow-sm flex items-center justify-between gap-3 ${
                       sla.status === 'urgent'
@@ -427,11 +458,11 @@ export default function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                          {client.name}
+                          {clientName}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                        {client.product_interest || client.phone}
+                        {att.product_interest || client?.product_interest || client?.phone}
                       </p>
                     </div>
 
@@ -504,8 +535,12 @@ export default function DashboardPage() {
       {/* WhatsApp Chat & Details Drawer */}
       <WhatsAppChatDrawer
         isOpen={chatDrawerOpen}
-        onClose={() => setChatDrawerOpen(false)}
+        onClose={() => {
+          setChatDrawerOpen(false)
+          setSelectedAttendance(null)
+        }}
         client={selectedClient}
+        activeAttendance={selectedAttendance}
         slaConfig={slaConfig}
         onClientUpdated={() => loadData()}
       />

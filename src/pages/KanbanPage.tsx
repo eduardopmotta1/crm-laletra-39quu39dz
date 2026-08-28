@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import type { Client, KanbanColumn, SlaConfig } from '@/types/crm'
+import type { Attendance, Client, KanbanColumn, KanbanStage, SlaConfig } from '@/types/crm'
+import { attendancesService } from '@/services/attendances'
 import { clientsService } from '@/services/clients'
 import { columnsService } from '@/services/columns'
 import { settingsService } from '@/services/settings'
@@ -15,17 +16,13 @@ import { Badge } from '@/components/ui/badge'
 import {
   Search,
   Plus,
-  Filter,
   Layers,
   AlertTriangle,
-  Clock,
-  Sparkles,
   RefreshCw,
   Edit2,
   Archive,
   RotateCcw,
   SlidersHorizontal,
-  ChevronRight,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { useNavigate } from 'react-router-dom'
@@ -33,7 +30,7 @@ import { useNavigate } from 'react-router-dom'
 export default function KanbanPage() {
   const navigate = useNavigate()
   const [columns, setColumns] = useState<KanbanColumn[]>([])
-  const [clients, setClients] = useState<Client[]>([])
+  const [attendances, setAttendances] = useState<Attendance[]>([])
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
     urgentMinutes: 1440,
     warningMinutes: 720,
@@ -46,11 +43,14 @@ export default function KanbanPage() {
   const [returnedFilterOnly, setReturnedFilterOnly] = useState(false)
 
   // Drag & drop state
-  const [draggedClientId, setDraggedClientId] = useState<string | null>(null)
+  const [draggedAttendanceId, setDraggedAttendanceId] = useState<string | null>(null)
   const [dragOverStageName, setDragOverStageName] = useState<string | null>(null)
 
   // Modals state
   const [selectedClientForChat, setSelectedClientForChat] = useState<Client | null>(null)
+  const [selectedAttendanceForChat, setSelectedAttendanceForChat] = useState<Attendance | null>(
+    null,
+  )
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
@@ -64,31 +64,31 @@ export default function KanbanPage() {
   // Complete & Archive Modal
   const [archiveModalOpen, setArchiveModalOpen] = useState(false)
   const [clientToArchive, setClientToArchive] = useState<Client | null>(null)
+  const [attendanceToArchive, setAttendanceToArchive] = useState<Attendance | null>(null)
 
   const loadData = async () => {
     try {
-      const [cols, cls, cfg, autoArchiveCfg] = await Promise.all([
+      const [cols, atts, cfg, autoArchiveCfg] = await Promise.all([
         columnsService.getVisible(),
-        clientsService.getAll(undefined, '-last_message_at', { includeArchived: false }),
+        attendancesService.getAll(undefined, '-created', { includeArchived: false }),
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
       ])
       setColumns(cols)
-      setClients(cls)
+      setAttendances(atts)
       setSlaConfig(cfg)
 
-      // Auto-archive check if configured
+      // Auto-archive check on attendances if configured
       if (autoArchiveCfg.enabled) {
-        const archivedCount = await clientsService.runAutoArchiveCheck(
+        const archivedCount = await attendancesService.runAutoArchiveCheck(
           autoArchiveCfg.wonHours,
           autoArchiveCfg.lostHours,
         )
         if (archivedCount > 0) {
-          // Re-fetch active clients if any were auto-archived
-          const refreshedClients = await clientsService.getAll(undefined, '-last_message_at', {
+          const refreshed = await attendancesService.getAll(undefined, '-created', {
             includeArchived: false,
           })
-          setClients(refreshedClients)
+          setAttendances(refreshed)
         }
       }
     } catch (err) {
@@ -105,22 +105,56 @@ export default function KanbanPage() {
     return () => window.removeEventListener('crm-client-updated', handleUpdate)
   }, [])
 
-  // Filter clients
-  const filteredClients = clients.filter((c) => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone.includes(searchTerm) ||
-      (c.product_interest && c.product_interest.toLowerCase().includes(searchTerm.toLowerCase()))
+  // Helper to get client identity object from attendance expand or fallback
+  const getClientFromAttendance = (att: Attendance): Client => {
+    if (att.expand?.client_id) {
+      const c = att.expand.client_id
+      return {
+        ...c,
+        stage: att.stage,
+        product_interest: att.product_interest || c.product_interest,
+        quote_value: att.quote_value !== undefined ? att.quote_value : c.quote_value,
+        assigned_to: att.assigned_to || c.assigned_to,
+        attendance_id: att.id,
+      }
+    }
 
-    const matchesPriority = priorityFilter === 'all' || c.priority === priorityFilter
+    return {
+      id: att.client_id,
+      name: 'Cliente',
+      phone: '',
+      stage: att.stage,
+      product_interest: att.product_interest,
+      quote_value: att.quote_value,
+      assigned_to: att.assigned_to,
+      attendance_id: att.id,
+    } as Client
+  }
+
+  // Filter attendances
+  const filteredAttendances = attendances.filter((att) => {
+    const client = att.expand?.client_id
+    const clientName = client?.name || ''
+    const clientPhone = client?.phone || ''
+    const product = att.product_interest || client?.product_interest || ''
+
+    const matchesSearch =
+      clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      clientPhone.includes(searchTerm) ||
+      product.toLowerCase().includes(searchTerm.toLowerCase())
+
+    const clientPriority = client?.priority || 'media'
+    const matchesPriority = priorityFilter === 'all' || clientPriority === priorityFilter
 
     if (!matchesSearch || !matchesPriority) return false
 
-    if (returnedFilterOnly && !c.has_returned) return false
+    if (returnedFilterOnly && !client?.has_returned) return false
 
     if (slaFilterOnly) {
-      if (c.stage === 'Venda fechada' || c.stage === 'Não fechou') return false
-      const sla = calculateSlaInfo(c.last_message_at, c.last_message_direction, c.stage, slaConfig)
+      if (att.stage === 'Venda fechada' || att.stage === 'Não fechou') return false
+      const lastMsgAt = client?.last_message_at || att.last_customer_message_at || att.created
+      const lastDir = client?.last_message_direction || 'inbound'
+      const sla = calculateSlaInfo(lastMsgAt, lastDir, att.stage, slaConfig)
       return sla.status === 'urgent' || sla.status === 'warning'
     }
 
@@ -128,9 +162,9 @@ export default function KanbanPage() {
   })
 
   // Drag Handlers
-  const handleDragStart = (e: React.DragEvent, clientId: string) => {
-    e.dataTransfer.setData('text/plain', clientId)
-    setDraggedClientId(clientId)
+  const handleDragStart = (e: React.DragEvent, attendanceId: string) => {
+    e.dataTransfer.setData('text/plain', attendanceId)
+    setDraggedAttendanceId(attendanceId)
   }
 
   const handleDragOver = (e: React.DragEvent, stageName: string) => {
@@ -147,26 +181,31 @@ export default function KanbanPage() {
   const handleDrop = async (e: React.DragEvent, targetStageName: string) => {
     e.preventDefault()
     setDragOverStageName(null)
-    const clientId = e.dataTransfer.getData('text/plain') || draggedClientId
-    if (!clientId) return
+    const attendanceId = e.dataTransfer.getData('text/plain') || draggedAttendanceId
+    if (!attendanceId) return
 
-    const currentClient = clients.find((c) => c.id === clientId)
-    if (!currentClient || currentClient.stage === targetStageName) return
+    const currentAttendance = attendances.find((a) => a.id === attendanceId)
+    if (!currentAttendance || currentAttendance.stage === targetStageName) return
+
+    const clientName = currentAttendance.expand?.client_id?.name || 'Cliente'
 
     // Optimistic UI update
-    setClients((prev) =>
-      prev.map((c) => (c.id === clientId ? { ...c, stage: targetStageName } : c)),
+    setAttendances((prev) =>
+      prev.map((a) =>
+        a.id === attendanceId ? { ...a, stage: targetStageName as KanbanStage } : a,
+      ),
     )
 
     try {
-      await clientsService.updateStage(clientId, targetStageName, {
+      await attendancesService.updateStage(attendanceId, targetStageName as KanbanStage, {
         changeType: 'manual',
-        fromStage: currentClient.stage,
-        notes: `Card arrastado manualmente de "${currentClient.stage}" para "${targetStageName}".`,
+        fromStage: currentAttendance.stage,
+        notes: `Card arrastado manualmente de "${currentAttendance.stage}" para "${targetStageName}".`,
       })
+
       toast({
         title: 'Etapa atualizada',
-        description: `Cliente "${currentClient.name}" movido para "${targetStageName}".`,
+        description: `Atendimento de "${clientName}" movido para "${targetStageName}".`,
       })
       window.dispatchEvent(new CustomEvent('crm-client-updated'))
     } catch (err) {
@@ -178,7 +217,7 @@ export default function KanbanPage() {
       })
       loadData()
     } finally {
-      setDraggedClientId(null)
+      setDraggedAttendanceId(null)
     }
   }
 
@@ -204,7 +243,9 @@ export default function KanbanPage() {
     }
   }
 
-  const returnedClientsCount = clients.filter((c) => c.has_returned).length
+  const returnedAttendancesCount = attendances.filter(
+    (a) => a.expand?.client_id?.has_returned,
+  ).length
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -220,11 +261,11 @@ export default function KanbanPage() {
                 Funil de Atendimentos WhatsApp
               </h1>
               <Badge variant="secondary" className="text-xs font-semibold">
-                {clients.length} ativos
+                {attendances.length} ativos
               </Badge>
             </div>
             <p className="text-xs text-slate-500">
-              Apenas atendimentos em andamento. Clientes finalizados vão para o arquivo histórico.
+              Atendimentos em andamento por etapa. Ciclos encerrados vão para o histórico.
             </p>
           </div>
         </div>
@@ -251,7 +292,7 @@ export default function KanbanPage() {
             SLAs Críticos
           </Button>
 
-          {returnedClientsCount > 0 && (
+          {returnedAttendancesCount > 0 && (
             <Button
               variant={returnedFilterOnly ? 'default' : 'outline'}
               size="sm"
@@ -263,7 +304,7 @@ export default function KanbanPage() {
               }`}
             >
               <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-              Retornaram ({returnedClientsCount})
+              Retornaram ({returnedAttendancesCount})
             </Button>
           )}
 
@@ -310,7 +351,7 @@ export default function KanbanPage() {
             className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 shadow-sm"
           >
             <Plus className="h-4 w-4 mr-1.5" />
-            Novo Cliente
+            Novo Atendimento
           </Button>
         </div>
       </div>
@@ -323,30 +364,28 @@ export default function KanbanPage() {
         >
           {columns.map((column) => {
             const stageName = column.name
-            const stageItems = filteredClients.filter(
-              (c) =>
-                c.stage === stageName ||
+            const stageItems = filteredAttendances.filter(
+              (a) =>
+                a.stage === stageName ||
                 (column.internal_id === 'new_contact' &&
-                  (c.stage === 'Novo contato' || c.stage === stageName)) ||
+                  (a.stage === 'Novo contato' || a.stage === stageName)) ||
                 (column.internal_id === 'won' &&
-                  (c.stage === 'Venda fechada' || c.stage === stageName)) ||
+                  (a.stage === 'Venda fechada' || a.stage === stageName)) ||
                 (column.internal_id === 'lost' &&
-                  (c.stage === 'Não fechou' || c.stage === stageName)),
+                  (a.stage === 'Não fechou' || a.stage === stageName)),
             )
 
-            const totalStageValue = stageItems.reduce((sum, c) => sum + (c.quote_value || 0), 0)
+            const totalStageValue = stageItems.reduce((sum, a) => sum + (a.quote_value || 0), 0)
             const isTarget = dragOverStageName === stageName
             const isFinalStage = column.stage_type === 'final'
 
-            // Check if column has urgent clients
-            const urgentInStage = stageItems.filter((c) => {
+            // Check if column has urgent attendances
+            const urgentInStage = stageItems.filter((a) => {
               if (isFinalStage) return false
-              const sla = calculateSlaInfo(
-                c.last_message_at,
-                c.last_message_direction,
-                c.stage,
-                slaConfig,
-              )
+              const client = a.expand?.client_id
+              const lastMsgAt = client?.last_message_at || a.last_customer_message_at || a.created
+              const lastDir = client?.last_message_direction || 'inbound'
+              const sla = calculateSlaInfo(lastMsgAt, lastDir, a.stage, slaConfig)
               return sla.status === 'urgent'
             }).length
 
@@ -429,28 +468,34 @@ export default function KanbanPage() {
                       <span className="text-[11px] text-slate-400">Adicionar card</span>
                     </div>
                   ) : (
-                    stageItems.map((client) => (
-                      <KanbanCard
-                        key={client.id}
-                        client={client}
-                        column={column}
-                        slaConfig={slaConfig}
-                        onDragStart={(e) => handleDragStart(e, client.id)}
-                        onClick={() => {
-                          setClientToEdit(client)
-                          setEditModalOpen(true)
-                        }}
-                        onOpenChat={(e) => {
-                          e.stopPropagation()
-                          setSelectedClientForChat(client)
-                          setChatDrawerOpen(true)
-                        }}
-                        onCompleteAndArchive={(c) => {
-                          setClientToArchive(c)
-                          setArchiveModalOpen(true)
-                        }}
-                      />
-                    ))
+                    stageItems.map((att) => {
+                      const clientObj = getClientFromAttendance(att)
+                      return (
+                        <KanbanCard
+                          key={att.id}
+                          client={clientObj}
+                          attendance={att}
+                          column={column}
+                          slaConfig={slaConfig}
+                          onDragStart={(e) => handleDragStart(e, att.id)}
+                          onClick={() => {
+                            setClientToEdit(clientObj)
+                            setEditModalOpen(true)
+                          }}
+                          onOpenChat={(e) => {
+                            e.stopPropagation()
+                            setSelectedClientForChat(clientObj)
+                            setSelectedAttendanceForChat(att)
+                            setChatDrawerOpen(true)
+                          }}
+                          onCompleteAndArchive={(c) => {
+                            setClientToArchive(c)
+                            setAttendanceToArchive(att)
+                            setArchiveModalOpen(true)
+                          }}
+                        />
+                      )
+                    })
                   )}
                 </div>
 
@@ -478,8 +523,12 @@ export default function KanbanPage() {
       {/* WhatsApp Chat & Interaction Drawer */}
       <WhatsAppChatDrawer
         isOpen={chatDrawerOpen}
-        onClose={() => setChatDrawerOpen(false)}
+        onClose={() => {
+          setChatDrawerOpen(false)
+          setSelectedAttendanceForChat(null)
+        }}
         client={selectedClientForChat}
+        activeAttendance={selectedAttendanceForChat}
         slaConfig={slaConfig}
         onClientUpdated={() => loadData()}
       />
@@ -521,8 +570,10 @@ export default function KanbanPage() {
         onClose={() => {
           setArchiveModalOpen(false)
           setClientToArchive(null)
+          setAttendanceToArchive(null)
         }}
         client={clientToArchive}
+        attendanceId={attendanceToArchive?.id}
         onSuccess={() => loadData()}
       />
     </div>

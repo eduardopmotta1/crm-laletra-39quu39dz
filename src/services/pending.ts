@@ -525,17 +525,6 @@ export const pendingService = {
     return true
   },
 
-  async getResolutionHistory(limit: number = 20): Promise<PendingResolutionRecord[]> {
-    return await pb
-      .collection('pending_resolutions')
-      .getList<PendingResolutionRecord>(1, limit, {
-        sort: '-created',
-        expand: 'client_id,attendance_id,resolved_by',
-        requestKey: null,
-      })
-      .then((res) => res.items)
-  },
-
   async getEfficiencyMetrics(period?: any): Promise<any> {
     try {
       const history = await this.getResolutionHistory(100)

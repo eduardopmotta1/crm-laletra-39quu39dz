@@ -28,11 +28,12 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
+import { attendancesService } from '@/services/attendances'
 import { settingsService } from '@/services/settings'
 import { evaluationsService } from '@/services/evaluations'
 import { pendingService } from '@/services/pending'
 import { calculateSlaInfo } from '@/lib/sla'
-import type { Client, SlaConfig } from '@/types/crm'
+import type { Client, Attendance, SlaConfig } from '@/types/crm'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -80,10 +81,10 @@ export default function AppLayout() {
 
   const loadSlaAlerts = async () => {
     try {
-      const [cfg, autoArchiveCfg, clients, evals, pendingItems] = await Promise.all([
+      const [cfg, autoArchiveCfg, attendances, evals, pendingItems] = await Promise.all([
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
-        clientsService.getAll(),
+        attendancesService.getAll(undefined, '-created', { includeArchived: false }),
         evaluationsService.getAll('overall_rating <= 3 && overall_rating > 0 && resolved = false'),
         pendingService.getAllPendingItems(),
       ])
@@ -98,14 +99,20 @@ export default function AppLayout() {
 
       // Run automatic archiving check if enabled
       if (autoArchiveCfg.enabled) {
-        await clientsService.runAutoArchiveCheck(autoArchiveCfg.wonHours, autoArchiveCfg.lostHours)
+        await attendancesService.runAutoArchiveCheck(
+          autoArchiveCfg.wonHours,
+          autoArchiveCfg.lostHours,
+        )
       }
 
       let urgent = 0
       let warning = 0
-      for (const c of clients) {
-        if (c.stage === 'Venda fechada' || c.stage === 'Não fechou') continue
-        const sla = calculateSlaInfo(c.last_message_at, c.last_message_direction, c.stage, cfg)
+      for (const att of attendances) {
+        if (att.stage === 'Venda fechada' || att.stage === 'Não fechou') continue
+        const client = att.expand?.client_id
+        const lastMsgAt = client?.last_message_at || att.last_customer_message_at || att.created
+        const lastDir = client?.last_message_direction || 'inbound'
+        const sla = calculateSlaInfo(lastMsgAt, lastDir, att.stage, cfg)
         if (sla.status === 'urgent') urgent++
         else if (sla.status === 'warning') warning++
       }
