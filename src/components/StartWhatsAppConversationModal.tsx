@@ -159,8 +159,18 @@ export default function StartWhatsAppConversationModal({
 
     setSending(true)
     try {
+      // 1. Resolve canonical client if target client is a merged/consolidated record
+      let targetClientId = client.id
+      if (client.notes) {
+        const match = client.notes.match(/\[DUPLICADO_CONSOLIDADO\s*->\s*([a-zA-Z0-9_-]+)\]/i)
+        if (match && match[1]) {
+          targetClientId = match[1]
+        }
+      }
+
+      // 2. Disparar template
       const res = await whatsappService.sendTemplateMessage({
-        clientId: client.id,
+        clientId: targetClientId,
         templateName: selectedTemplate.name,
         templateLanguage: selectedTemplate.language || 'pt_BR',
         templateVariables: templateVars,
@@ -169,6 +179,33 @@ export default function StartWhatsAppConversationModal({
       })
 
       if (res.success) {
+        // 3. Garantir que se o cliente não possuía attendance ativo ou estava arquivado,
+        // criamos/reativamos o attendance para este ciclo de conversa
+        try {
+          const activeAtts = await pb.collection('attendances').getList(1, 1, {
+            filter: `client_id = "${targetClientId}" && is_archived != true`,
+            sort: '-created',
+            requestKey: null,
+          })
+
+          if (activeAtts.items.length === 0) {
+            // Cria attendance ativo para o client existente
+            await attendancesService.createForClient(targetClientId, {
+              stage: targetStage as any,
+              product_interest: client.product_interest || 'Contato via WhatsApp',
+              assigned_to: client.assigned_to || '',
+              source: 'whatsapp_outbound_template',
+            })
+          } else {
+            // Atualiza etapa do atendimento ativo
+            await attendancesService.updateStage(activeAtts.items[0].id, targetStage as any, {
+              notes: `Template de WhatsApp enviado: ${selectedTemplate.name}`,
+            })
+          }
+        } catch (attErr) {
+          console.warn('Error verifying active attendance on start chat:', attErr)
+        }
+
         toast({
           title: '💬 Conversa Iniciada no WhatsApp!',
           description: `Mensagem enviada com sucesso para ${client.name}. Etapa atualizada para "${targetStage}".`,

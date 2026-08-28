@@ -55,6 +55,101 @@ export const attendancesService = {
     }
   },
 
+  /**
+   * Cria um NOVO atendimento para um CLIENTE EXISTENTE.
+   * Valida o cliente, resolve registro canonical se for merged,
+   * NÃO cria outro registro na collection 'clients',
+   * atualiza o client para refletir o ciclo comercial ativo (desarquivado)
+   * e retorna o attendance criado.
+   */
+  async createForClient(
+    clientId: string,
+    data: {
+      stage?: KanbanStage
+      assigned_to?: string
+      product_interest?: string
+      quote_value?: number
+      notes?: string
+      source?: string
+    },
+  ): Promise<Attendance> {
+    // 1. Validar e resolver client canônico
+    let targetClientId = clientId
+    try {
+      const client = await pb.collection('clients').getOne(clientId)
+      if (client.notes) {
+        const match = client.notes.match(/\[DUPLICADO_CONSOLIDADO\s*->\s*([a-zA-Z0-9_-]+)\]/i)
+        if (match && match[1]) {
+          targetClientId = match[1]
+        }
+      }
+    } catch (err) {
+      console.warn(`[attendancesService] Could not resolve client ${clientId}:`, err)
+    }
+
+    const stage = data.stage || 'Novo contato'
+    const todayDateStr = new Date().toISOString().split('T')[0]
+
+    // 2. Criar attendance vinculado ao client canônico
+    const payload: Partial<Attendance> = {
+      client_id: targetClientId,
+      stage,
+      assigned_to: data.assigned_to || '',
+      product_interest: data.product_interest || '',
+      quote_value: data.quote_value || 0,
+      notes: data.notes || '',
+      source: data.source || 'manual',
+      is_archived: false,
+    }
+
+    const record = await pb.collection('attendances').create<Attendance>(payload)
+
+    // 3. Atualizar o cliente para refletir o novo ciclo comercial ativo
+    try {
+      const clientRec = await pb.collection('clients').getOne(targetClientId)
+      const hasPurchasesBefore = (clientRec.total_purchases || 0) > 0
+
+      await pb.collection('clients').update(targetClientId, {
+        is_archived: false,
+        stage: stage,
+        product_interest: data.product_interest || clientRec.product_interest || '',
+        quote_value: data.quote_value !== undefined ? data.quote_value : clientRec.quote_value,
+        assigned_to: data.assigned_to || clientRec.assigned_to || '',
+        notes: data.notes
+          ? `${clientRec.notes ? clientRec.notes + '\n---\n' : ''}${data.notes}`
+          : clientRec.notes,
+        has_returned: hasPurchasesBefore,
+        last_message_at: todayDateStr,
+        last_message_direction: 'inbound',
+        last_message_text: `Novo atendimento iniciado: ${data.product_interest || 'Geral'}`,
+      })
+    } catch (clientErr) {
+      console.warn(
+        '[attendancesService] Error syncing client metadata on new attendance:',
+        clientErr,
+      )
+    }
+
+    // 4. Log stage transition
+    try {
+      await dealsService.logTransition({
+        attendanceId: record.id,
+        clientId: targetClientId,
+        fromStage: undefined,
+        toStage: stage,
+        changeType: 'manual',
+        notes: `Novo atendimento criado (${data.product_interest || 'Geral'})`,
+      })
+    } catch (transErr) {
+      console.warn('[attendancesService] Error logging transition for attendance:', transErr)
+    }
+
+    return record
+  },
+
+  /**
+   * Alias de compatibilidade
+   */
   async create(data: {
     client_id: string
     stage?: KanbanStage
@@ -64,31 +159,7 @@ export const attendancesService = {
     notes?: string
     source?: string
   }): Promise<Attendance> {
-    const stage = data.stage || 'Precisa responder'
-    const payload: Partial<Attendance> = {
-      client_id: data.client_id,
-      stage,
-      assigned_to: data.assigned_to || '',
-      product_interest: data.product_interest || '',
-      quote_value: data.quote_value || 0,
-      notes: data.notes || '',
-      source: data.source || 'whatsapp',
-      is_archived: false,
-    }
-
-    const record = await pb.collection('attendances').create<Attendance>(payload)
-
-    // Log transition on attendance
-    await dealsService.logTransition({
-      attendance_id: record.id,
-      client_id: data.client_id,
-      from_stage: undefined,
-      to_stage: stage,
-      change_type: 'manual',
-      notes: 'Atendimento criado',
-    })
-
-    return record
+    return this.createForClient(data.client_id, data)
   },
 
   async update(id: string, data: Partial<Attendance>): Promise<Attendance> {

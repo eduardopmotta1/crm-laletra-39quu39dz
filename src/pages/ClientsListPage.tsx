@@ -70,12 +70,29 @@ export default function ClientsListPage() {
 
   const [showArchived, setShowArchived] = useState(false)
 
+  const [attendancesByClient, setAttendancesByClient] = useState<
+    Record<string, { total: number; active: number }>
+  >({})
+
   const loadClients = async () => {
     try {
-      const [cls, cfg] = await Promise.all([
+      const [cls, cfg, atts] = await Promise.all([
         clientsService.getAll(undefined, '-last_message_at', { includeArchived: true }),
         settingsService.getSlaConfig(),
+        pb.collection('attendances').getFullList({ requestKey: null }),
       ])
+
+      const attMap: Record<string, { total: number; active: number }> = {}
+      for (const a of atts) {
+        const cId = (a as any).client_id
+        if (!cId) continue
+        if (!attMap[cId]) attMap[cId] = { total: 0, active: 0 }
+        attMap[cId].total++
+        if (!(a as any).is_archived) {
+          attMap[cId].active++
+        }
+      }
+      setAttendancesByClient(attMap)
       setClients(cls)
       setSlaConfig(cfg)
     } catch (err) {
@@ -203,8 +220,8 @@ export default function ClientsListPage() {
             <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold uppercase tracking-wider">
               <tr>
                 <th className="py-3.5 px-4">Cliente & Contato</th>
-                <th className="py-3.5 px-4">Etapa do Funil</th>
-                <th className="py-3.5 px-4">Produto & Orçamento</th>
+                <th className="py-3.5 px-4">Atendimentos & Status</th>
+                <th className="py-3.5 px-4">Histórico de Compras</th>
                 <th className="py-3.5 px-4">Última Msg & SLA</th>
                 <th className="py-3.5 px-4">Responsável</th>
                 <th className="py-3.5 px-4 text-right">Ações</th>
@@ -292,27 +309,58 @@ export default function ClientsListPage() {
                           )}
                         </div>
                       </td>
-                      {/* Stage Badge */}
+                      {/* Atendimentos & Status */}
                       <td className="py-3 px-4">
-                        <Badge
-                          variant="secondary"
-                          className="font-medium text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                        >
-                          {client.stage}
-                        </Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge
+                            variant="secondary"
+                            className="font-medium text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 w-fit"
+                          >
+                            {client.stage}
+                          </Badge>
+                          <span className="text-[11px] text-slate-500">
+                            {attendancesByClient[client.id]?.active ? (
+                              <span className="text-emerald-600 font-semibold">
+                                ● 1 ativo ({attendancesByClient[client.id]?.total || 1} no total)
+                              </span>
+                            ) : (
+                              <span>
+                                ○ {attendancesByClient[client.id]?.total || 0} ciclos arquivados
+                              </span>
+                            )}
+                          </span>
+                        </div>
                       </td>
 
-                      {/* Product & Value */}
+                      {/* Histórico de Compras & Faturamento */}
                       <td className="py-3 px-4">
-                        <div className="font-medium text-slate-800 dark:text-slate-200 line-clamp-1 max-w-[220px]">
-                          {client.product_interest || '-'}
-                        </div>
-                        <div className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px] mt-0.5">
-                          {canViewFinancials
-                            ? client.quote_value
-                              ? formatCurrency(client.quote_value)
-                              : 'Sem valor'
-                            : 'Valor restrito'}
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">
+                            {client.total_purchases ? (
+                              <span>
+                                {client.total_purchases}{' '}
+                                {client.total_purchases === 1
+                                  ? 'compra concluída'
+                                  : 'compras concluídas'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 font-normal">Nenhuma compra</span>
+                            )}
+                          </span>
+                          <div className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                            {canViewFinancials
+                              ? client.total_purchase_value
+                                ? `Total: ${formatCurrency(client.total_purchase_value)}`
+                                : client.quote_value
+                                  ? `Orçamento: ${formatCurrency(client.quote_value)}`
+                                  : 'R$ 0,00'
+                              : 'Valor restrito'}
+                          </div>
+                          {client.last_purchase_date && (
+                            <span className="text-[10px] text-slate-400">
+                              Última: {formatDateTime(client.last_purchase_date)}
+                            </span>
+                          )}
                         </div>
                       </td>
 
