@@ -67,7 +67,6 @@ export const usersAdminService = {
       email: data.email.trim(),
       password: data.password || 'Skip@Pass',
       passwordConfirm: data.password || 'Skip@Pass',
-      verified: true,
       phone: data.phone?.trim() || '',
       role_id: data.role_id && data.role_id.trim() ? data.role_id.trim() : null,
       role_slug: data.role_slug || 'custom',
