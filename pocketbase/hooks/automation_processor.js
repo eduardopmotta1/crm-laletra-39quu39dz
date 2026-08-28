@@ -79,7 +79,7 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
         }
 
         if (existing) {
-          // If already marked resolved, do not recreate
+          // If already marked resolved, do not recreate this exact event
           if (existing.getString('resolved_at')) {
             return false
           }
@@ -170,10 +170,12 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
             att.getString('updated') ||
             att.getString('created')
           const lastDir = clientRec ? clientRec.getString('last_message_direction') : 'inbound'
-          const itemId = 'client_reply_' + att.id
+          const msgMs = lastMsgAt ? new Date(lastMsgAt).getTime() : 0
+          const eventTimeKey = Math.floor(msgMs / 1000)
+          const itemId = 'client_reply_' + att.id + '_' + eventTimeKey
+          const legacyItemId = 'client_reply_' + att.id
 
           if (lastMsgAt && (lastDir === 'inbound' || !lastDir)) {
-            const msgMs = new Date(lastMsgAt).getTime()
             const diffMin = Math.max(0, Math.floor((nowMs - msgMs) / (1000 * 60)))
 
             if (diffMin >= waitingAltaMin) {
@@ -202,6 +204,7 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
           } else if (lastDir === 'outbound') {
             // Client was replied to -> Auto resolve pending item
             resolvePendingItem(itemId, 'Cliente respondido via WhatsApp')
+            resolvePendingItem(legacyItemId, 'Cliente respondido via WhatsApp')
           }
         }
       } catch (err) {
@@ -238,6 +241,7 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
           const clientName = clientRec ? clientRec.getString('name') : 'Cliente'
           const refTimeStr = att.getString('updated') || att.getString('created')
           const refMs = new Date(refTimeStr).getTime()
+          const eventTimeKey = Math.floor(refMs / 1000)
           const diffDays = Math.max(0, Math.floor((nowMs - refMs) / (1000 * 60 * 60 * 24)))
           const diffMin = Math.max(0, Math.floor((nowMs - refMs) / (1000 * 60)))
 
@@ -257,7 +261,7 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
 
             const res = upsertPendingResolution({
               category: 'quotes_waiting_return',
-              itemId: 'client_quote_' + att.id,
+              itemId: 'client_quote_' + att.id + '_' + eventTimeKey,
               itemTitle: clientName + ' - ' + prod + ' ' + quoteValStr,
               clientId: clientId,
               attendanceId: att.id,

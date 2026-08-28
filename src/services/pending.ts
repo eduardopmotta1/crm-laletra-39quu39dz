@@ -139,7 +139,11 @@ export const pendingService = {
     const replyThresholdMinutes = parseInt(settingsMap.sla_waiting_reply_minutes || '60', 10)
     const quoteFollowupHours = parseInt(settingsMap.sla_quote_followup_hours || '24', 10)
 
+    // Map of resolution per exact event item_id
     const resolvedMap = new Map<string, PendingResolutionRecord>()
+    // Map of latest resolution record per attendance + category
+    const latestResolutionByAttAndCat = new Map<string, PendingResolutionRecord>()
+
     try {
       const resolutions = await pb
         .collection('pending_resolutions')
@@ -148,7 +152,19 @@ export const pendingService = {
           requestKey: null,
         })
       for (const res of resolutions) {
-        resolvedMap.set(res.item_id, res)
+        // Only consider resolved records
+        const isResolvedRecord = Boolean(res.resolved_at || res.action_taken || res.resolved_by)
+        if (isResolvedRecord) {
+          if (!resolvedMap.has(res.item_id)) {
+            resolvedMap.set(res.item_id, res)
+          }
+          if (res.attendance_id && res.category) {
+            const attCatKey = `${res.attendance_id}_${res.category}`
+            if (!latestResolutionByAttAndCat.has(attCatKey)) {
+              latestResolutionByAttAndCat.set(attCatKey, res)
+            }
+          }
+        }
       }
     } catch {
       // ignore
@@ -172,14 +188,53 @@ export const pendingService = {
       const clientPhone = client?.phone || ''
       const clientEmail = client?.email
 
+      // Helper function to extract reliable epoch timestamp from resolution record
+      const getResolutionEpoch = (resRecord?: PendingResolutionRecord): number => {
+        if (!resRecord) return 0
+        if (resRecord.created) {
+          const t = new Date(resRecord.created).getTime()
+          if (!isNaN(t) && t > 0) return t
+        }
+        if (resRecord.resolved_at) {
+          const t = new Date(resRecord.resolved_at).getTime()
+          if (!isNaN(t) && t > 0) return t
+        }
+        return 0
+      }
+
       // 1. Novo Contato
       if (att.stage === 'Novo contato') {
         const createdDate = new Date(att.created)
-        const diffMinutes = Math.round((now.getTime() - createdDate.getTime()) / (1000 * 60))
+        const eventEpoch = createdDate.getTime()
+        const diffMinutes = Math.round((now.getTime() - eventEpoch) / (1000 * 60))
 
         if (diffMinutes >= firstContactMinutes) {
-          const itemId = `att_first_contact_${att.id}`
-          if (!resolvedMap.has(itemId)) {
+          const eventTimeKey = Math.floor(eventEpoch / 1000)
+          const itemId = `att_first_contact_${att.id}_${eventTimeKey}`
+          const legacyItemId = `att_first_contact_${att.id}`
+
+          let isResolved = resolvedMap.has(itemId)
+
+          if (!isResolved && resolvedMap.has(legacyItemId)) {
+            const legacyRes = resolvedMap.get(legacyItemId)
+            const resEpoch = getResolutionEpoch(legacyRes)
+            // If legacy resolution was recorded at or after the contact was created, consider it resolved
+            if (resEpoch >= eventEpoch) {
+              isResolved = true
+            }
+          }
+
+          if (!isResolved) {
+            const latestRes = latestResolutionByAttAndCat.get(`${att.id}_first_contact`)
+            if (latestRes) {
+              const resEpoch = getResolutionEpoch(latestRes)
+              if (resEpoch >= eventEpoch) {
+                isResolved = true
+              }
+            }
+          }
+
+          if (!isResolved) {
             items.push({
               id: itemId,
               category: 'first_contact',
@@ -204,20 +259,50 @@ export const pendingService = {
         }
       }
 
-      // 2. Precisa Responder
-      if (
+      // 2. Precisa Responder — Recorrência por evento/mensagem do cliente
+      // Condição: estágio 'Precisa responder' OU cliente enviou mensagem posterior à última resposta da empresa
+      const isAwaitingReply =
         att.stage === 'Precisa responder' ||
         (att.last_customer_message_at &&
           (!att.last_company_message_at ||
             new Date(att.last_customer_message_at) > new Date(att.last_company_message_at)))
-      ) {
+
+      if (isAwaitingReply) {
         const refDateStr = att.last_customer_message_at || att.updated || att.created
         const refDate = new Date(refDateStr)
-        const diffMinutes = Math.round((now.getTime() - refDate.getTime()) / (1000 * 60))
+        const eventEpoch = refDate.getTime()
+        const diffMinutes = Math.round((now.getTime() - eventEpoch) / (1000 * 60))
 
         if (diffMinutes >= replyThresholdMinutes) {
-          const itemId = `client_reply_${att.id}`
-          if (!resolvedMap.has(itemId)) {
+          const eventTimeKey = Math.floor(eventEpoch / 1000)
+          const itemId = `client_reply_${att.id}_${eventTimeKey}`
+          const legacyItemId = `client_reply_${att.id}`
+
+          let isResolved = resolvedMap.has(itemId)
+
+          if (!isResolved && resolvedMap.has(legacyItemId)) {
+            // Se existir resolução legada por ID simples, verificar se foi resolvida em data/hora igual ou posterior a este evento
+            const legacyRes = resolvedMap.get(legacyItemId)
+            const resEpoch = getResolutionEpoch(legacyRes)
+            if (resEpoch >= eventEpoch) {
+              isResolved = true
+            }
+          }
+
+          // Se tiver uma resolução mais recente para client_reply/clients_waiting_response neste attendance, verificar se foi resolvida após este evento
+          if (!isResolved) {
+            const latestRes =
+              latestResolutionByAttAndCat.get(`${att.id}_client_reply`) ||
+              latestResolutionByAttAndCat.get(`${att.id}_clients_waiting_response`)
+            if (latestRes) {
+              const resEpoch = getResolutionEpoch(latestRes)
+              if (resEpoch >= eventEpoch) {
+                isResolved = true
+              }
+            }
+          }
+
+          if (!isResolved) {
             items.push({
               id: itemId,
               category: 'client_reply',
@@ -242,14 +327,40 @@ export const pendingService = {
         }
       }
 
-      // 3. Orçamento sem retorno
+      // 3. Orçamento sem retorno — Recorrência por atualização de proposta
       if (att.stage === 'Orçamento enviado') {
         const updatedDate = new Date(att.updated || att.created)
-        const diffHours = (now.getTime() - updatedDate.getTime()) / (1000 * 60 * 60)
+        const eventEpoch = updatedDate.getTime()
+        const diffHours = (now.getTime() - eventEpoch) / (1000 * 60 * 60)
 
         if (diffHours >= quoteFollowupHours) {
-          const itemId = `client_quote_${att.id}`
-          if (!resolvedMap.has(itemId)) {
+          const eventTimeKey = Math.floor(eventEpoch / 1000)
+          const itemId = `client_quote_${att.id}_${eventTimeKey}`
+          const legacyItemId = `client_quote_${att.id}`
+
+          let isResolved = resolvedMap.has(itemId)
+
+          if (!isResolved && resolvedMap.has(legacyItemId)) {
+            const legacyRes = resolvedMap.get(legacyItemId)
+            const resEpoch = getResolutionEpoch(legacyRes)
+            if (resEpoch >= eventEpoch) {
+              isResolved = true
+            }
+          }
+
+          if (!isResolved) {
+            const latestRes =
+              latestResolutionByAttAndCat.get(`${att.id}_quote_followup`) ||
+              latestResolutionByAttAndCat.get(`${att.id}_quotes_waiting_return`)
+            if (latestRes) {
+              const resEpoch = getResolutionEpoch(latestRes)
+              if (resEpoch >= eventEpoch) {
+                isResolved = true
+              }
+            }
+          }
+
+          if (!isResolved) {
             items.push({
               id: itemId,
               category: 'quote_followup',
@@ -277,11 +388,37 @@ export const pendingService = {
       // 4. Atendimento Parado
       if (att.stage === 'Em atendimento' || att.stage === 'Aguardando cliente') {
         const updatedDate = new Date(att.updated || att.created)
-        const diffHours = (now.getTime() - updatedDate.getTime()) / (1000 * 60 * 60)
+        const eventEpoch = updatedDate.getTime()
+        const diffHours = (now.getTime() - eventEpoch) / (1000 * 60 * 60)
 
         if (diffHours >= 48) {
-          const itemId = `client_att_${att.id}`
-          if (!resolvedMap.has(itemId)) {
+          const eventTimeKey = Math.floor(eventEpoch / 1000)
+          const itemId = `client_att_${att.id}_${eventTimeKey}`
+          const legacyItemId = `client_att_${att.id}`
+
+          let isResolved = resolvedMap.has(itemId)
+
+          if (!isResolved && resolvedMap.has(legacyItemId)) {
+            const legacyRes = resolvedMap.get(legacyItemId)
+            const resEpoch = getResolutionEpoch(legacyRes)
+            if (resEpoch >= eventEpoch) {
+              isResolved = true
+            }
+          }
+
+          if (!isResolved) {
+            const latestRes =
+              latestResolutionByAttAndCat.get(`${att.id}_commercial_followup`) ||
+              latestResolutionByAttAndCat.get(`${att.id}_overdue_followups`)
+            if (latestRes) {
+              const resEpoch = getResolutionEpoch(latestRes)
+              if (resEpoch >= eventEpoch) {
+                isResolved = true
+              }
+            }
+          }
+
+          if (!isResolved) {
             items.push({
               id: itemId,
               category: 'commercial_followup',
