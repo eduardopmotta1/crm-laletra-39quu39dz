@@ -1,8 +1,151 @@
 // Audit & Security Hook — v2 segura
 // NUNCA intercepta nem modifica request body
 
-// ===== CONTROLE DE ACESSO =====
-// Bloquear não-admins de modificar roles
+// Automation trigger test on serve
+onServe((e) => {
+  console.log('[DEBUG SERVE HOOK TRIGGERED]')
+  try {
+    const pbUrl = $os.getenv('PB_INSTANCE_URL') || 'http://127.0.0.1:8090'
+    const adminToken = $os.getenv('PB_SUPERUSER_TOKEN')
+    console.log('[DEBUG SERVE] PB_INSTANCE_URL:', pbUrl, 'HAS_ADMIN_TOKEN:', !!adminToken)
+
+    // 1. Minimum test anonymously
+    const t1 = $http.send({
+      url: pbUrl + '/api/collections/users/records',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'serve_test_min_' + Date.now() + '@test.com',
+        password: 'Skip@Pass123',
+        passwordConfirm: 'Skip@Pass123',
+      }),
+      timeout: 5,
+    })
+    console.log('[DEBUG SERVE T1 anon min]: status=' + t1.statusCode + ' raw=' + t1.raw)
+    if (t1.json && t1.json.id) {
+      $app.delete($app.findRecordById('users', t1.json.id))
+    }
+
+    // 2. Full frontend payload test anonymously
+    const t2 = $http.send({
+      url: pbUrl + '/api/collections/users/records',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'QA Usuario CRM',
+        email: 'serve_test_front_' + Date.now() + '@test.com',
+        password: 'Skip@Pass',
+        passwordConfirm: 'Skip@Pass',
+        verified: true,
+        phone: '',
+        role_id: null,
+        role_slug: 'comercial',
+        is_active: true,
+        custom_permissions: {},
+      }),
+      timeout: 5,
+    })
+    console.log('[DEBUG SERVE T2 front anon]: status=' + t2.statusCode + ' raw=' + t2.raw)
+    if (t2.json && t2.json.id) {
+      $app.delete($app.findRecordById('users', t2.json.id))
+    }
+
+    // 3. Frontend payload with role_id: undefined / omitted
+    const t3 = $http.send({
+      url: pbUrl + '/api/collections/users/records',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'QA Usuario CRM 3',
+        email: 'serve_test_front3_' + Date.now() + '@test.com',
+        password: 'Skip@Pass',
+        passwordConfirm: 'Skip@Pass',
+        verified: true,
+        phone: '',
+        role_slug: 'comercial',
+        is_active: true,
+        custom_permissions: {},
+      }),
+      timeout: 5,
+    })
+    console.log('[DEBUG SERVE T3 front omit role_id]: status=' + t3.statusCode + ' raw=' + t3.raw)
+    if (t3.json && t3.json.id) {
+      $app.delete($app.findRecordById('users', t3.json.id))
+    }
+
+    // 4. Test field role_id: null vs role_id: "" vs valid role_id
+    const t4 = $http.send({
+      url: pbUrl + '/api/collections/users/records',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'serve_test_role_null_' + Date.now() + '@test.com',
+        password: 'Skip@Pass123',
+        passwordConfirm: 'Skip@Pass123',
+        role_id: null,
+      }),
+      timeout: 5,
+    })
+    console.log('[DEBUG SERVE T4 role_id null]: status=' + t4.statusCode + ' raw=' + t4.raw)
+
+    const t4b = $http.send({
+      url: pbUrl + '/api/collections/users/records',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'serve_test_role_empty_' + Date.now() + '@test.com',
+        password: 'Skip@Pass123',
+        passwordConfirm: 'Skip@Pass123',
+        role_id: '',
+      }),
+      timeout: 5,
+    })
+    console.log('[DEBUG SERVE T4b role_id empty]: status=' + t4b.statusCode + ' raw=' + t4b.raw)
+    if (t4b.json && t4b.json.id) {
+      $app.delete($app.findRecordById('users', t4b.json.id))
+    }
+
+    const t4c = $http.send({
+      url: pbUrl + '/api/collections/users/records',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'serve_test_role_valid_' + Date.now() + '@test.com',
+        password: 'Skip@Pass123',
+        passwordConfirm: 'Skip@Pass123',
+        role_id: 'jp4xwmxgw4dpw50',
+      }),
+      timeout: 5,
+    })
+    console.log('[DEBUG SERVE T4c role_id valid]: status=' + t4c.statusCode + ' raw=' + t4c.raw)
+    if (t4c.json && t4c.json.id) {
+      $app.delete($app.findRecordById('users', t4c.json.id))
+    }
+
+    // 5. Test verified: true
+    const t5 = $http.send({
+      url: pbUrl + '/api/collections/users/records',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'serve_test_verified_' + Date.now() + '@test.com',
+        password: 'Skip@Pass123',
+        passwordConfirm: 'Skip@Pass123',
+        verified: true,
+      }),
+      timeout: 5,
+    })
+    console.log('[DEBUG SERVE T5 verified true]: status=' + t5.statusCode + ' raw=' + t5.raw)
+    if (t5.json && t5.json.id) {
+      $app.delete($app.findRecordById('users', t5.json.id))
+    }
+  } catch (err) {
+    console.log('[DEBUG SERVE ERR]', err && err.message)
+  }
+  return e.next()
+})
+
+// ===== CONTROLE DE ACESSO =====// Bloquear não-admins de modificar roles
 onRecordCreateRequest((e) => {
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
   if (!auth || !auth.get('role_slug')) {
@@ -42,12 +185,25 @@ onRecordDeleteRequest((e) => {
 // 1. Requisição pública não autenticada (cadastro/register público do CRM)
 // 2. OU se autenticada, o usuário precisa ser administrador (role_slug === 'admin')
 onRecordCreateRequest((e) => {
-  const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
-  if (auth) {
-    // Se autenticado, somente admin pode criar novos usuários via painel/settings
-    if (auth.get('role_slug') !== 'admin') {
-      throw new ForbiddenError('Apenas administradores podem criar novos usuários')
+  try {
+    const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
+    const reqInfo = e.requestInfo ? e.requestInfo() : null
+    const reqBody = reqInfo ? reqInfo.body : null
+    console.log(
+      '[USER-CREATE-BEFORE] auth:',
+      auth ? auth.id + ' role:' + auth.get('role_slug') : 'null/anon',
+      'body:',
+      JSON.stringify(reqBody),
+    )
+    if (auth) {
+      // Se autenticado, somente admin pode criar novos usuários via painel/settings
+      if (auth.get('role_slug') !== 'admin') {
+        throw new ForbiddenError('Apenas administradores podem criar novos usuários')
+      }
     }
+  } catch (err) {
+    console.log('[USER-CREATE-HOOK-ERROR]', err && err.message)
+    throw err
   }
   return e.next()
 }, 'users')
@@ -77,6 +233,472 @@ onRecordDeleteRequest((e) => {
 }, 'users')
 
 // ===== ENDPOINT AUDIT-LOG MANUAL (para logins e ações manuais do app) =====
+onRecordCreateRequest((e) => {
+  try {
+    const info = e.requestInfo ? e.requestInfo() : {}
+    console.log(
+      '[DIAG-USERS-REQ-BODY]',
+      JSON.stringify(info.body || {}),
+      'headers:',
+      JSON.stringify(info.headers || {}),
+    )
+  } catch (err) {
+    console.log('[DIAG-REQ-ERR]', err && err.message)
+  }
+  return e.next()
+}, 'users')
+
+onRecordValidate((e) => {
+  try {
+    console.log(
+      '[DIAG-ON-VALIDATE-USERS]',
+      e.record ? JSON.stringify(e.record.publicExport()) : 'no record',
+    )
+  } catch (err) {
+    console.log('[DIAG-VAL-ERR]', err && err.message)
+  }
+  return e.next()
+}, 'users')
+
+onRecordCreate((e) => {
+  try {
+    console.log(
+      '[DIAG-ON-RECORD-CREATE-MODEL]',
+      e.record ? JSON.stringify(e.record.publicExport()) : 'no record',
+    )
+  } catch (err) {
+    console.log('[DIAG-CREATE-ERR]', err && err.message)
+  }
+  return e.next()
+}, 'users')
+
+onRecordCreateError((e) => {
+  try {
+    console.log(
+      '[DIAG-CREATE-ERROR-EVENT]',
+      e.error
+        ? e.error.message +
+            ' | data:' +
+            JSON.stringify(e.error.data || {}) +
+            ' | raw:' +
+            JSON.stringify(e.error)
+        : 'no error',
+    )
+  } catch (err) {
+    console.log('[DIAG-ERR-HOOK-ERR]', err && err.message)
+  }
+  return e.next()
+}, 'users')
+
+routerAdd('POST', '/api/debug-test-user-create', (e) => {
+  try {
+    const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
+    const body = (e.requestInfo && e.requestInfo().body) || {}
+    const adminToken = $os.getenv('PB_SUPERUSER_TOKEN')
+    const pbUrl = $os.getenv('PB_INSTANCE_URL') || 'http://127.0.0.1:8090'
+    const headers = { 'Content-Type': 'application/json' }
+    if (adminToken) {
+      headers['Authorization'] = adminToken
+    }
+    const res = $http.send({
+      url: pbUrl + '/api/collections/users/records',
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: headers,
+      timeout: 10,
+    })
+    return e.json(res.statusCode, {
+      requestPayload: body,
+      statusCode: res.statusCode,
+      responseJson: res.json,
+      rawBody: res.raw,
+    })
+  } catch (err) {
+    return e.json(500, { error: err.message })
+  }
+})
+
+routerAdd('GET', '/api/run-all-user-tests-matrix', (e) => {
+  const adminToken = $os.getenv('PB_SUPERUSER_TOKEN')
+  const pbUrl = $os.getenv('PB_INSTANCE_URL') || 'http://127.0.0.1:8090'
+  const baseHeaders = { 'Content-Type': 'application/json' }
+  const authHeaders = { 'Content-Type': 'application/json', Authorization: adminToken || '' }
+
+  const results = []
+
+  // Test cases:
+  // 1. Minimum payload (email, password, passwordConfirm) without auth
+  const t1_email = 't1_min_' + Date.now() + '@test.com'
+  const t1 = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t1_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+    }),
+    headers: baseHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '1. Minimum payload (anon)',
+    status: t1.statusCode,
+    json: t1.json,
+    body: t1.raw,
+  })
+  if (t1.json && t1.json.id) {
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t1.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+  }
+
+  // 2. Minimum payload (email, password, passwordConfirm) with admin auth
+  const t2_email = 't2_min_auth_' + Date.now() + '@test.com'
+  const t2 = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t2_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '2. Minimum payload (admin auth)',
+    status: t2.statusCode,
+    json: t2.json,
+    body: t2.raw,
+  })
+  if (t2.json && t2.json.id) {
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t2.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+  }
+
+  // 3. Frontend exact payload with admin auth
+  const t3_email = 't3_front_' + Date.now() + '@test.com'
+  const t3_payload = {
+    name: 'Teste Frontend User',
+    email: t3_email,
+    password: 'Skip@Pass',
+    passwordConfirm: 'Skip@Pass',
+    verified: true,
+    phone: '',
+    role_id: null,
+    role_slug: 'comercial',
+    is_active: true,
+    custom_permissions: {},
+  }
+  const t3 = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify(t3_payload),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '3. Frontend payload (role_id null, password "Skip@Pass")',
+    status: t3.statusCode,
+    json: t3.json,
+    body: t3.raw,
+  })
+  if (t3.json && t3.json.id) {
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t3.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+  }
+
+  // 4. Test field by field additions to minimum payload:
+  // 4a. + name
+  const t4a_email = 't4a_' + Date.now() + '@test.com'
+  const t4a = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4a_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      name: 'Nome Teste',
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({ test: '4a. + name', status: t4a.statusCode, json: t4a.json })
+  if (t4a.json && t4a.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4a.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4b. + phone
+  const t4b_email = 't4b_' + Date.now() + '@test.com'
+  const t4b = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4b_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      phone: '+55 11 99999-9999',
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({ test: '4b. + phone', status: t4b.statusCode, json: t4b.json })
+  if (t4b.json && t4b.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4b.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4c. + role_slug
+  const t4c_email = 't4c_' + Date.now() + '@test.com'
+  const t4c = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4c_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      role_slug: 'comercial',
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({ test: '4c. + role_slug', status: t4c.statusCode, json: t4c.json })
+  if (t4c.json && t4c.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4c.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4d. + is_active
+  const t4d_email = 't4d_' + Date.now() + '@test.com'
+  const t4d = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4d_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      is_active: true,
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({ test: '4d. + is_active', status: t4d.statusCode, json: t4d.json })
+  if (t4d.json && t4d.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4d.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4e. + custom_permissions ({})
+  const t4e_email = 't4e_' + Date.now() + '@test.com'
+  const t4e = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4e_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      custom_permissions: {},
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({ test: '4e. + custom_permissions {}', status: t4e.statusCode, json: t4e.json })
+  if (t4e.json && t4e.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4e.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4f. + custom_permissions with keys
+  const t4f_email = 't4f_' + Date.now() + '@test.com'
+  const t4f = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4f_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      custom_permissions: { attendance_view: true },
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({ test: '4f. + custom_permissions filled', status: t4f.statusCode, json: t4f.json })
+  if (t4f.json && t4f.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4f.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4g. + verified: true
+  const t4g_email = 't4g_' + Date.now() + '@test.com'
+  const t4g = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4g_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      verified: true,
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '4g. + verified: true',
+    status: t4g.statusCode,
+    json: t4g.json,
+    body: t4g.raw,
+  })
+  if (t4g.json && t4g.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4g.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4h. + role_id: "jp4xwmxgw4dpw50" (valid role ID)
+  const t4h_email = 't4h_' + Date.now() + '@test.com'
+  const t4h = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4h_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      role_id: 'jp4xwmxgw4dpw50',
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '4h. + role_id valid',
+    status: t4h.statusCode,
+    json: t4h.json,
+    body: t4h.raw,
+  })
+  if (t4h.json && t4h.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4h.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4i. + role_id: null
+  const t4i_email = 't4i_' + Date.now() + '@test.com'
+  const t4i = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4i_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      role_id: null,
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '4i. + role_id null',
+    status: t4i.statusCode,
+    json: t4i.json,
+    body: t4i.raw,
+  })
+  if (t4i.json && t4i.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4i.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 4j. + role_id: "" (empty string)
+  const t4j_email = 't4j_' + Date.now() + '@test.com'
+  const t4j = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({
+      email: t4j_email,
+      password: 'Skip@Pass123',
+      passwordConfirm: 'Skip@Pass123',
+      role_id: '',
+    }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '4j. + role_id empty string',
+    status: t4j.statusCode,
+    json: t4j.json,
+    body: t4j.raw,
+  })
+  if (t4j.json && t4j.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t4j.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 5. Test password lengths/patterns:
+  // 5a. password: 'Skip@Pass' (9 chars)
+  const t5a_email = 't5a_' + Date.now() + '@test.com'
+  const t5a = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({ email: t5a_email, password: 'Skip@Pass', passwordConfirm: 'Skip@Pass' }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '5a. password "Skip@Pass"',
+    status: t5a.statusCode,
+    json: t5a.json,
+    body: t5a.raw,
+  })
+  if (t5a.json && t5a.json.id)
+    $http.send({
+      url: pbUrl + '/api/collections/users/records/' + t5a.json.id,
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+
+  // 5b. password empty ''
+  const t5b_email = 't5b_' + Date.now() + '@test.com'
+  const t5b = $http.send({
+    url: pbUrl + '/api/collections/users/records',
+    method: 'POST',
+    body: JSON.stringify({ email: t5b_email, password: '', passwordConfirm: '' }),
+    headers: authHeaders,
+    timeout: 5,
+  })
+  results.push({
+    test: '5b. password empty',
+    status: t5b.statusCode,
+    json: t5b.json,
+    body: t5b.raw,
+  })
+
+  return e.json(200, { results: results })
+})
+
 routerAdd('POST', '/api/crm/audit-log', (e) => {
   try {
     const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)

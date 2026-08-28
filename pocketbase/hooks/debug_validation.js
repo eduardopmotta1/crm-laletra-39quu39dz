@@ -65,28 +65,23 @@ onRecordAfterDeleteSuccess(
   'production_orders',
 )
 
-onRecordAfterCreateError(
-  (e) => {
-    try {
-      const colName =
-        (e.collection && e.collection.name) ||
-        (e.record && e.record.collection && e.record.collection().name) ||
-        'unknown'
-      const reqBody = (e.requestInfo && e.requestInfo().body) || null
-      const errMsg =
-        (e.response && e.response.message) ||
-        (e.error && e.error.message) ||
-        String(e.error || 'unknown')
-      const safe = typeof reqBody === 'object' ? JSON.stringify(reqBody) : String(reqBody || '')
-      const msg = 'CREATE ' + colName + ' ERROR: ' + errMsg + ' | body: ' + safe
-      console.log('[DEBUG]', msg.substring(0, 1000))
-    } catch (_) {}
-    return e.next()
-  },
-  'clients',
-  'archived_deals',
-  'production_orders',
-)
+onRecordCreate((e) => {
+  try {
+    console.log('[ON-RECORD-CREATE users fired!]')
+  } catch (e) {}
+  return e.next()
+}, 'users')
+
+onRecordCreateError((e) => {
+  try {
+    console.log(
+      '[ON-RECORD-CREATE-ERROR users fired!]',
+      e.error && e.error.message,
+      JSON.stringify(e.error),
+    )
+  } catch (e) {}
+  return e.next()
+}, 'users')
 
 onRecordAfterUpdateError(
   (e) => {
