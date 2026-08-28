@@ -7,6 +7,7 @@ import type {
   ProductionStageInternalId,
 } from '@/types/crm'
 import { productionStagesService } from './productionStages'
+import { settingsService } from './settings'
 
 export interface CreateProductionOrderPayload {
   clientId: string
@@ -398,7 +399,6 @@ export const productionService = {
    * Checks for duplicate post-sales for the same production order.
    */
   async triggerPostSaleForOrder(order: ProductionOrder): Promise<void> {
-    const { settingsService } = await import('./settings')
     const postSaleCfg = await settingsService.getPostSaleConfig()
 
     if (!postSaleCfg.enabled) {

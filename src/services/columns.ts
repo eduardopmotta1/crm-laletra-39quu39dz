@@ -1,5 +1,6 @@
 import pb from '@/lib/pocketbase/client'
-import type { KanbanColumn } from '@/types/crm'
+import type { Attendance, KanbanColumn, KanbanStage } from '@/types/crm'
+import { attendancesService } from './attendances'
 
 export const defaultKanbanColumns: Omit<KanbanColumn, 'id'>[] = [
   {
@@ -132,8 +133,10 @@ export const columnsService = {
   },
 
   /**
-   * Safe deletion: Checks if there are clients linked to this column name/internal_id.
-   * If moveClientsTo is supplied, it reassigns clients to that stage first before deletion.
+   * Safe deletion: Checks if there are active attendances linked to this column stage.
+   * If moveClientsToStageName is supplied, it moves only the active attendances linked
+   * to this column to the target stage, recording stage_transitions with attendance_id.
+   * Client legacy stage is mirrored for compatibility without deleting any attendance or client.
    */
   async safeDelete(
     columnId: string,
@@ -141,44 +144,48 @@ export const columnsService = {
     moveClientsToStageName?: string,
   ): Promise<{ success: boolean; movedCount: number; error?: string }> {
     try {
-      // Find all clients in this column
-      const linkedClients = await pb.collection('clients').getFullList({
-        filter: `stage = "${columnName}"`,
+      // Find active attendances linked to this column stage
+      const activeAttendances = await pb.collection('attendances').getFullList<Attendance>({
+        filter: `is_archived != true && stage = "${columnName}"`,
         requestKey: null,
       })
 
-      if (linkedClients.length > 0) {
+      if (activeAttendances.length > 0) {
         if (!moveClientsToStageName) {
           return {
             success: false,
             movedCount: 0,
-            error: `Existem ${linkedClients.length} atendimentos nesta coluna. Escolha outra etapa para movê-los antes de excluir.`,
+            error: `Existem ${activeAttendances.length} atendimentos ativos nesta coluna. Escolha outra etapa para movê-los antes de excluir.`,
           }
         }
 
-        // Move all clients to target stage
-        for (const client of linkedClients) {
-          await pb.collection('clients').update(client.id, {
-            stage: moveClientsToStageName,
-          })
-          // Log transition
-          try {
-            await pb.collection('stage_transitions').create({
-              client_id: client.id,
-              from_stage: columnName,
-              to_stage: moveClientsToStageName,
-              change_type: 'manual',
-              user_name: 'Exclusão de coluna',
+        // Move each active attendance to target stage using attendancesService.updateStage
+        for (const attendance of activeAttendances) {
+          await attendancesService.updateStage(
+            attendance.id,
+            moveClientsToStageName as KanbanStage,
+            {
+              changeType: 'manual',
+              fromStage: columnName,
               notes: `Atendimento remanejado devido à exclusão da coluna "${columnName}".`,
-            })
-          } catch {
-            /* intentionally ignored */
+            },
+          )
+
+          // Mirror stage on client record for legacy compatibility
+          if (attendance.client_id) {
+            try {
+              await pb.collection('clients').update(attendance.client_id, {
+                stage: moveClientsToStageName,
+              })
+            } catch {
+              /* non-fatal legacy mirror */
+            }
           }
         }
       }
 
       await pb.collection('kanban_columns').delete(columnId)
-      return { success: true, movedCount: linkedClients.length }
+      return { success: true, movedCount: activeAttendances.length }
     } catch (error: any) {
       console.error('Error safe deleting column:', error)
       return {
