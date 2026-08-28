@@ -68,17 +68,25 @@ export const usersAdminService = {
       password: data.password || 'Skip@Pass',
       passwordConfirm: data.password || 'Skip@Pass',
       verified: true,
-      phone: data.phone || '',
-      role_id: data.role_id || null,
+      phone: data.phone?.trim() || '',
+      role_id: data.role_id && data.role_id.trim() ? data.role_id.trim() : null,
       role_slug: data.role_slug || 'custom',
-      is_active: data.is_active !== undefined ? data.is_active : true,
+      is_active: data.is_active !== undefined ? Boolean(data.is_active) : true,
       custom_permissions: data.custom_permissions || {},
     }
     return await pb.collection('users').create<User>(payload)
   },
 
   async update(id: string, data: UpdateUserData): Promise<User> {
-    const payload: any = { ...data }
+    const payload: any = {}
+    if (data.name !== undefined) payload.name = data.name.trim()
+    if (data.email !== undefined) payload.email = data.email.trim()
+    if (data.phone !== undefined) payload.phone = data.phone.trim()
+    if (data.role_id !== undefined)
+      payload.role_id = data.role_id && data.role_id.trim() ? data.role_id.trim() : null
+    if (data.role_slug !== undefined) payload.role_slug = data.role_slug
+    if (data.is_active !== undefined) payload.is_active = Boolean(data.is_active)
+    if (data.custom_permissions !== undefined) payload.custom_permissions = data.custom_permissions
     if (data.password) {
       payload.password = data.password
       payload.passwordConfirm = data.password

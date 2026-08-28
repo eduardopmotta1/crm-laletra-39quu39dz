@@ -131,8 +131,8 @@ export default function UsersPermissionsSettings() {
     if (u) {
       setUserToEdit(u)
       setUserFormData({
-        name: u.name,
-        email: u.email,
+        name: u.name || '',
+        email: u.email || '',
         phone: u.phone || '',
         password: '',
         role_id: u.role_id || '',
@@ -164,10 +164,10 @@ export default function UsersPermissionsSettings() {
       if (userToEdit) {
         // Update
         const payload: any = {
-          name: userFormData.name,
-          email: userFormData.email,
-          phone: userFormData.phone,
-          role_id: userFormData.role_id,
+          name: userFormData.name.trim(),
+          email: userFormData.email.trim(),
+          phone: userFormData.phone.trim(),
+          role_id: userFormData.role_id || undefined,
           role_slug: roleSlug,
           is_active: userFormData.is_active,
         }
@@ -182,11 +182,11 @@ export default function UsersPermissionsSettings() {
         // Preset custom_permissions from role default
         const initialPerms = selectedRole ? { ...selectedRole.permissions } : {}
         await usersAdminService.create({
-          name: userFormData.name,
-          email: userFormData.email,
-          phone: userFormData.phone,
+          name: userFormData.name.trim(),
+          email: userFormData.email.trim(),
+          phone: userFormData.phone.trim(),
           password: userFormData.password || 'Skip@Pass',
-          role_id: userFormData.role_id,
+          role_id: userFormData.role_id || undefined,
           role_slug: roleSlug,
           is_active: userFormData.is_active,
           custom_permissions: initialPerms,
@@ -201,9 +201,15 @@ export default function UsersPermissionsSettings() {
       loadData()
       refreshUser()
     } catch (err: any) {
+      const errorMsg =
+        err?.data?.data?.email?.message ||
+        err?.data?.data?.password?.message ||
+        err?.data?.message ||
+        err?.message ||
+        'Verifique se o email já está cadastrado.'
       toast({
         title: 'Erro ao salvar usuário',
-        description: err?.message || 'Verifique se o email já está cadastrado.',
+        description: errorMsg,
         variant: 'destructive',
       })
     }

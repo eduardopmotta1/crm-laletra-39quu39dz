@@ -37,6 +37,22 @@ onRecordDeleteRequest((e) => {
 }, 'roles')
 
 // Bloquear não-admins de modificar usuários (exceto a si mesmo)
+// Controle de Criação de Usuários via API:
+// Permite se:
+// 1. Requisição pública não autenticada (cadastro/register público do CRM)
+// 2. OU se autenticada, o usuário precisa ser administrador (role_slug === 'admin')
+onRecordCreateRequest((e) => {
+  const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
+  if (auth) {
+    // Se autenticado, somente admin pode criar novos usuários via painel/settings
+    if (auth.get('role_slug') !== 'admin') {
+      throw new ForbiddenError('Apenas administradores podem criar novos usuários')
+    }
+  }
+  return e.next()
+}, 'users')
+
+// Bloquear não-admins de modificar usuários (exceto a si mesmo)
 onRecordUpdateRequest((e) => {
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
   if (!auth) {
