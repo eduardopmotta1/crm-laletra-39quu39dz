@@ -540,16 +540,17 @@ export type PendingPriority = 'baixa' | 'normal' | 'alta' | 'urgente'
 export interface PendingItem {
   id: string
   category: PendingCategory
-  categoryLabel: string
+  categoryLabel?: string
   title: string
   subtitle?: string
   description?: string
   priority: PendingPriority
   createdAt: string
   referenceDate?: string
-  waitingTimeFormatted: string
-  waitingTimeMinutes: number
+  waitingTimeFormatted?: string
+  waitingTimeMinutes?: number
   slaMinutes?: number
+  isDelayed?: boolean
   dueDate?: string
   assignedToId?: string
   assignedToName?: string

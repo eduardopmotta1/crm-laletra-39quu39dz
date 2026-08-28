@@ -456,6 +456,7 @@ export const pendingService = {
     notes?: string
     initialPriority?: string
     assignedTo?: string
+    waitingMinutes?: number
   }): Promise<PendingResolutionRecord> {
     const currentUserId = pb.authStore.record?.id
     const currentUserName =
@@ -475,6 +476,8 @@ export const pendingService = {
       action_taken: data.actionTaken,
       notes: data.notes || '',
       resolved_at: todayDateStr,
+      resolution_time_minutes: data.waitingMinutes ?? 0,
+      initial_priority: data.initialPriority,
     })
   },
 
