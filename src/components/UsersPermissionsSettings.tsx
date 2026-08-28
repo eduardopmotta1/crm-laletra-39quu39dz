@@ -77,6 +77,14 @@ export default function UsersPermissionsSettings() {
     role_slug: 'comercial',
     is_active: true,
   })
+  // INSTRUMENTAÇÃO TEMPORÁRIA DE DIAGNÓSTICO: armazena erro bruto da criação/edição de usuário
+  const [userDiagnosticError, setUserDiagnosticError] = useState<{
+    status?: number
+    message?: string
+    data?: any
+    response?: any
+    fullJson?: string
+  } | null>(null)
 
   // Role modal state
   const [roleModalOpen, setRoleModalOpen] = useState(false)
@@ -128,6 +136,7 @@ export default function UsersPermissionsSettings() {
 
   // --- USER HANDLERS ---
   const handleOpenUserModal = (u?: User) => {
+    setUserDiagnosticError(null)
     if (u) {
       setUserToEdit(u)
       setUserFormData({
@@ -200,7 +209,72 @@ export default function UsersPermissionsSettings() {
       setUserModalOpen(false)
       loadData()
       refreshUser()
+      setUserDiagnosticError(null)
     } catch (err: any) {
+      /* ========================================================================
+       * INSTRUMENTAÇÃO TEMPORÁRIA DE DIAGNÓSTICO
+       * Captura o erro completo retornado pelo PocketBase na criação/edição de usuário.
+       * Mascarar credenciais sensíveis (password, Authorization, token, cookie).
+       * ======================================================================== */
+      const sanitizeObject = (obj: any, seen = new WeakSet()): any => {
+        if (obj === null || typeof obj !== 'object') return obj
+        if (seen.has(obj)) return '[Circular]'
+        seen.add(obj)
+        if (Array.isArray(obj)) return obj.map((item) => sanitizeObject(item, seen))
+        const clean: Record<string, any> = {}
+        for (const key of Object.keys(obj)) {
+          const lowerKey = key.toLowerCase()
+          if (
+            lowerKey.includes('password') ||
+            lowerKey.includes('authorization') ||
+            lowerKey.includes('token') ||
+            lowerKey.includes('cookie') ||
+            lowerKey.includes('secret')
+          ) {
+            clean[key] = '[REDACTED]'
+          } else {
+            clean[key] = sanitizeObject(obj[key], seen)
+          }
+        }
+        return clean
+      }
+
+      const rawStatus = err?.status ?? err?.response?.status ?? err?.statusCode
+      const rawMessage = err?.message ?? 'Unknown error'
+      const rawData = err?.data ?? err?.response?.data
+      const rawResponse = err?.response
+
+      const sanitizedData = sanitizeObject(rawData)
+      const sanitizedResponse = sanitizeObject(rawResponse)
+      const sanitizedFullError = sanitizeObject({
+        name: err?.name,
+        message: err?.message,
+        status: rawStatus,
+        url: err?.url,
+        data: rawData,
+        response: rawResponse,
+        originalError: err?.originalError ? String(err.originalError) : undefined,
+      })
+
+      // 1. Console.error detalhado para diagnóstico
+      console.error('[INSTRUMENTAÇÃO TEMPORÁRIA] Erro completo na criação de usuário:', {
+        status: rawStatus,
+        message: rawMessage,
+        data: sanitizedData,
+        response: sanitizedResponse,
+        fullError: sanitizedFullError,
+        rawErr: err,
+      })
+
+      // 2. Armazena no state para exibição na tela (modal/formulário)
+      setUserDiagnosticError({
+        status: rawStatus,
+        message: rawMessage,
+        data: sanitizedData,
+        response: sanitizedResponse,
+        fullJson: JSON.stringify(sanitizedData || sanitizedResponse || sanitizedFullError, null, 2),
+      })
+
       const errorMsg =
         err?.data?.data?.email?.message ||
         err?.data?.data?.password?.message ||
@@ -1140,6 +1214,51 @@ export default function UsersPermissionsSettings() {
                 }
               />
             </div>
+
+            {/* ========================================================================
+             * INSTRUMENTAÇÃO TEMPORÁRIA DE DIAGNÓSTICO: Exibição visual do erro PocketBase
+             * ======================================================================== */}
+            {userDiagnosticError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg text-xs space-y-2">
+                <div className="flex items-center justify-between font-bold text-rose-800 dark:text-rose-300">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldAlert className="h-4 w-4" />
+                    <span>[DIAGNÓSTICO TEMPORÁRIO] Erro do PocketBase:</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[10px] px-2 py-0 border-rose-300 text-rose-700 hover:bg-rose-100 dark:text-rose-300"
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        userDiagnosticError.fullJson ||
+                          JSON.stringify(userDiagnosticError, null, 2),
+                      )
+                      toast({ title: 'Objeto de erro copiado para a área de transferência!' })
+                    }}
+                  >
+                    Copiar JSON
+                  </Button>
+                </div>
+                <div className="text-[11px] text-rose-700 dark:text-rose-300">
+                  <div>
+                    <strong>HTTP Status:</strong> {userDiagnosticError.status ?? 'N/A'}
+                  </div>
+                  <div>
+                    <strong>Mensagem:</strong> {userDiagnosticError.message || 'Sem mensagem'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold text-rose-900 dark:text-rose-200 uppercase tracking-wider mb-1">
+                    error.data (Erros por campo):
+                  </div>
+                  <pre className="p-2 bg-slate-900 text-rose-300 rounded text-[10px] font-mono overflow-x-auto max-h-40 select-all whitespace-pre-wrap break-all">
+                    {userDiagnosticError.fullJson}
+                  </pre>
+                </div>
+              </div>
+            )}
 
             <DialogFooter className="pt-3">
               <Button type="button" variant="outline" onClick={() => setUserModalOpen(false)}>
