@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   X,
   Send,
@@ -29,6 +30,7 @@ import {
   ShoppingCart,
   ShieldCheck as ShieldCheckIcon,
   Package,
+  Calculator,
 } from 'lucide-react'
 import type {
   Client,
@@ -76,6 +78,7 @@ export default function WhatsAppChatDrawer({
   slaConfig = { urgentMinutes: 1440, warningMinutes: 720, noticeMinutes: 360 },
   onClientUpdated,
 }: WhatsAppChatDrawerProps) {
+  const navigate = useNavigate()
   const { user, isAdmin, hasPermission, canViewFinancials } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
@@ -353,6 +356,24 @@ export default function WhatsAppChatDrawer({
 
             {/* Action buttons */}
             <div className="flex items-center gap-2">
+              {activeAttendance?.id && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const clientId = displayClient.id
+                    const attId = activeAttendance.id
+                    navigate(
+                      `/orcamentos/novo?attendance_id=${encodeURIComponent(attId)}&client_id=${encodeURIComponent(clientId)}`,
+                    )
+                  }}
+                  className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                >
+                  <Calculator className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                  Novo orçamento
+                </Button>
+              )}
+
               {displayClient.is_archived ? (
                 <Button
                   variant="outline"
