@@ -7,7 +7,7 @@ export const quotesService = {
       return await pb.collection('quotes').getFullList<Quote>({
         filter,
         sort,
-        expand: 'client_id,user_id',
+        expand: 'client_id,attendance_id,user_id',
       })
     } catch (err) {
       console.error('Error fetching quotes:', err)
@@ -18,7 +18,7 @@ export const quotesService = {
   async getById(id: string): Promise<Quote | null> {
     try {
       return await pb.collection('quotes').getOne<Quote>(id, {
-        expand: 'client_id,user_id',
+        expand: 'client_id,attendance_id,user_id',
       })
     } catch (err) {
       console.error(`Error fetching quote ${id}:`, err)
@@ -49,14 +49,14 @@ export const quotesService = {
         status: data.status || 'rascunho',
       },
       {
-        expand: 'client_id,user_id',
+        expand: 'client_id,attendance_id,user_id',
       },
     )
   },
 
   async update(id: string, data: Partial<Quote>): Promise<Quote> {
     return await pb.collection('quotes').update<Quote>(id, data, {
-      expand: 'client_id,user_id',
+      expand: 'client_id,attendance_id,user_id',
     })
   },
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T23:12:35.945Z",
+  "generatedAt": "2026-08-28T23:41:33.954Z",
   "collections": [
     {
       "name": "users",
@@ -2474,12 +2474,20 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "attendance_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "attendances"
         }
       ],
       "indexes": [
         "CREATE UNIQUE INDEX idx_quotes_code ON quotes (code)",
         "CREATE INDEX idx_quotes_client ON quotes (client_id)",
-        "CREATE INDEX idx_quotes_status ON quotes (status)"
+        "CREATE INDEX idx_quotes_status ON quotes (status)",
+        "CREATE INDEX `idx_quotes_attendance` ON `quotes` (attendance_id)"
       ]
     }
   ]

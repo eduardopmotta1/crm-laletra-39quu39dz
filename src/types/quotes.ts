@@ -136,6 +136,7 @@ export interface Quote {
   id: string
   code: string
   client_id?: string
+  attendance_id?: string
   client_name: string
   client_phone?: string
   client_email?: string
@@ -159,6 +160,12 @@ export interface Quote {
       name: string
       phone: string
       email?: string
+    }
+    attendance_id?: {
+      id: string
+      stage?: string
+      product_interest?: string
+      quote_value?: number
     }
     user_id?: {
       id: string

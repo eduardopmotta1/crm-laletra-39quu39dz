@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   Calculator,
   Plus,
@@ -53,6 +53,9 @@ import { toast } from '@/hooks/use-toast'
 
 export default function NewQuotePage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const location = useLocation()
+
   const [products, setProducts] = useState<QuoteProduct[]>([])
   const [materials, setMaterials] = useState<QuoteMaterial[]>([])
   const [additionals, setAdditionals] = useState<QuoteAdditional[]>([])
@@ -60,9 +63,21 @@ export default function NewQuotePage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // Explicit attendance_id from navigation (query param or router state)
+  const [attendanceId, setAttendanceId] = useState<string>(() => {
+    const fromQuery = searchParams.get('attendance_id') || searchParams.get('attendanceId')
+    const fromState =
+      (location.state as any)?.attendance_id || (location.state as any)?.attendanceId
+    return fromQuery || fromState || ''
+  })
+
   // Header form: Client & Info
   const [clientSearch, setClientSearch] = useState('')
-  const [selectedClientId, setSelectedClientId] = useState<string>('')
+  const [selectedClientId, setSelectedClientId] = useState<string>(() => {
+    const fromQuery = searchParams.get('client_id') || searchParams.get('clientId')
+    const fromState = (location.state as any)?.client_id || (location.state as any)?.clientId
+    return fromQuery || fromState || ''
+  })
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
   const [clientEmail, setClientEmail] = useState('')
@@ -98,6 +113,23 @@ export default function NewQuotePage() {
 
       if (prods.length > 0) {
         selectProductForBuilder(prods[0])
+      }
+
+      // If clientId was passed via query params or state, prefill client details
+      const initialClientId =
+        searchParams.get('client_id') ||
+        searchParams.get('clientId') ||
+        (location.state as any)?.client_id ||
+        (location.state as any)?.clientId
+
+      if (initialClientId) {
+        const found = cls.find((c) => c.id === initialClientId)
+        if (found) {
+          setSelectedClientId(found.id)
+          setClientName(found.name)
+          setClientPhone(found.phone || '')
+          setClientEmail(found.email || '')
+        }
       }
     } catch (err) {
       console.error('Error loading quote builder data:', err)
@@ -243,6 +275,7 @@ export default function NewQuotePage() {
     try {
       await quotesService.create({
         client_id: selectedClientId || undefined,
+        attendance_id: attendanceId.trim() || undefined,
         client_name: clientName.trim(),
         client_phone: clientPhone.trim(),
         client_email: clientEmail.trim(),
@@ -334,6 +367,27 @@ export default function NewQuotePage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {attendanceId && (
+                  <div className="sm:col-span-3">
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs">
+                      <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
+                        <Tag className="h-3.5 w-3.5" />
+                        <span>
+                          Vinculado ao Atendimento:{' '}
+                          <strong className="font-mono">{attendanceId}</strong>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAttendanceId('')}
+                        className="text-emerald-600 hover:text-emerald-800 text-[11px] underline"
+                      >
+                        Desvincular
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
