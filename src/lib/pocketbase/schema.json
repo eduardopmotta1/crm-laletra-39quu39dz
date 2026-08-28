@@ -1,15 +1,15 @@
 {
-  "generatedAt": "2026-08-28T11:33:39.603Z",
+  "generatedAt": "2026-08-28T12:09:38.061Z",
   "collections": [
     {
-      "name": "attendances",
-      "type": "base",
+      "name": "users",
+      "type": "auth",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role_slug = 'admin'"
+        "list": "id = @request.auth.id",
+        "view": "id = @request.auth.id",
+        "create": "",
+        "update": "id = @request.auth.id",
+        "delete": "id = @request.auth.id"
       },
       "fields": [
         {

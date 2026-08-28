@@ -249,10 +249,20 @@ export default function WhatsAppChatDrawer({
     e.preventDefault()
     if (!newTaskTitle.trim()) return
 
+    if (!activeAttendance) {
+      toast({
+        title: 'Atendimento não encontrado',
+        description: 'Não há atendimento ativo vinculado para associar esta tarefa comercial.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     try {
       await tasksService.create({
         title: newTaskTitle.trim(),
         client_id: displayClient.id,
+        attendance_id: activeAttendance.id,
         assigned_to: user?.id,
         due_date: newTaskDueDate || new Date().toISOString().split('T')[0],
         status: 'pendente',

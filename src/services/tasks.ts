@@ -36,19 +36,20 @@ export const tasksService = {
       sanitized.due_date = sanitized.due_date.split('T')[0]
     }
 
-    // When creating a task for a client, if there's an active attendance and no attendance_id set, set attendance_id
+    // Se attendance_id NÃO foi informado mas client_id existe, NÃO usar '-created' para adivinhar.
+    // SOMENTE vincular automaticamente se existir EXATAMENTE UM atendimento ativo (100% não ambíguo).
+    // Se houver 0 ou mais de 1 atendimento ativo, NÃO vincular por adivinhação.
     if (!sanitized.attendance_id && sanitized.client_id) {
       try {
-        const activeAtts = await pb.collection('attendances').getList(1, 1, {
+        const activeAtts = await pb.collection('attendances').getList(1, 2, {
           filter: `client_id = "${sanitized.client_id}" && is_archived != true`,
-          sort: '-created',
           requestKey: null,
         })
-        if (activeAtts.items.length > 0) {
+        if (activeAtts.totalItems === 1 && activeAtts.items.length === 1) {
           sanitized.attendance_id = activeAtts.items[0].id
         }
       } catch (attErr) {
-        console.error('Error attaching active attendance to task:', attErr)
+        console.error('Error checking active attendance for task fallback:', attErr)
       }
     }
 
