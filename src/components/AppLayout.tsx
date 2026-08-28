@@ -139,7 +139,7 @@ export default function AppLayout() {
     setSimLoading(true)
     try {
       const res = await whatsappService.simulateInboundMessage(simPhone, simMessage, simName)
-      if (res.success) {
+      if (res) {
         toast({
           title: '💬 Mensagem de WhatsApp Recebida!',
           description: `Novo contato "${simName}" entrou na etapa "Precisa responder" com SLA ativo.`,
@@ -153,7 +153,7 @@ export default function AppLayout() {
       } else {
         toast({
           title: 'Erro ao simular',
-          description: res.error || 'Não foi possível registrar mensagem simulada.',
+          description: 'Não foi possível registrar mensagem simulada.',
           variant: 'destructive',
         })
       }

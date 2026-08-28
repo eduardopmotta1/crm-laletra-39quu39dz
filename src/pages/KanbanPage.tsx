@@ -128,7 +128,9 @@ export default function KanbanPage() {
       quote_value: att.quote_value,
       assigned_to: att.assigned_to,
       attendance_id: att.id,
-    } as Client
+      created: att.created,
+      updated: att.updated,
+    }
   }
 
   // Filter attendances

@@ -170,11 +170,11 @@ export const attendancesService = {
 
     if (data.stage && oldStage && data.stage !== oldStage) {
       await dealsService.logTransition({
-        attendance_id: id,
-        client_id: record.client_id,
-        from_stage: oldStage,
-        to_stage: data.stage,
-        change_type: 'manual',
+        attendanceId: id,
+        clientId: record.client_id,
+        fromStage: oldStage,
+        toStage: data.stage,
+        changeType: 'manual',
         notes: 'Etapa atualizada via update',
       })
     }
@@ -204,11 +204,11 @@ export const attendancesService = {
 
     // Log transition with attendance_id
     await dealsService.logTransition({
-      attendance_id: id,
-      client_id: record.client_id,
-      from_stage: fromStage,
-      to_stage: stage,
-      change_type: options?.changeType || 'manual',
+      attendanceId: id,
+      clientId: record.client_id,
+      fromStage,
+      toStage: stage,
+      changeType: options?.changeType || 'manual',
       notes: options?.notes,
     })
 
@@ -263,9 +263,9 @@ export const attendancesService = {
                 attendanceId: att.id,
                 clientId: att.client_id,
                 result: resultType === 'won' ? 'Venda fechada' : 'Venda perdida',
-                loss_reason:
+                lossReason:
                   resultType === 'lost' ? 'Arquivado automaticamente por inatividade' : undefined,
-                notes: `Arquivado automaticamente pelo sistema após ${limitHours}h da conclusão.`,
+                finalNotes: `Arquivado automaticamente pelo sistema após ${limitHours}h da conclusão.`,
               })
 
               archivedCount++

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import type {
   Client,
+  Attendance,
   Message,
   Task,
   SlaConfig,

@@ -73,7 +73,7 @@ export default function ClientFormModal({
   const [checkingPhone, setCheckingPhone] = useState(false)
   const [phoneMatch, setPhoneMatch] = useState<FindClientByPhoneResult | null>(null)
   const [confirmMultipleAttendance, setConfirmMultipleAttendance] = useState(false)
-  const phoneDebounceRef = useRef<NodeJS.Timeout | null>(null)
+  const phoneDebounceRef = useRef<any>(null)
 
   const [formData, setFormData] = useState<{
     name: string
@@ -279,14 +279,17 @@ export default function ClientFormModal({
       } else if (existingClient) {
         // CLIENTE EXISTENTE ENCONTRADO:
         // NÃO CRIA CLIENT (+0 clients). Cria somente o novo attendance (+1 attendance).
-        const newAttendance = await attendancesService.createForClient(existingClient.id, {
-          stage: formData.stage,
-          assigned_to: formData.assigned_to || existingClient.assigned_to || '',
-          product_interest: formData.product_interest || '',
-          quote_value: payload.quote_value || 0,
-          notes: formData.notes || '',
-          source: 'manual',
-        })
+        const newAttendance = await clientsService.createAttendanceForExistingClient(
+          existingClient.id,
+          {
+            stage: formData.stage,
+            assigned_to: formData.assigned_to || existingClient.assigned_to || '',
+            product_interest: formData.product_interest || '',
+            quote_value: payload.quote_value || 0,
+            notes: formData.notes || '',
+            source: 'manual',
+          },
+        )
 
         // Atualizar campos complementares de identidade se informados
         const clientUpdateData: Partial<Client> = {}

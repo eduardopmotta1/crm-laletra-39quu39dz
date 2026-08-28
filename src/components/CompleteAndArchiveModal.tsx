@@ -109,7 +109,6 @@ export default function CompleteAndArchiveModal({
         quoteValue: quoteValue ? Number(quoteValue) : undefined,
         productInterest: productInterest.trim() || undefined,
         finalNotes: finalNotes.trim() || undefined,
-        closedAt: new Date().toISOString(),
       })
       setCreatedArchivedDealId(archived.id)
 

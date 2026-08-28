@@ -218,7 +218,7 @@ export const clientsService = {
           product_interest: data.product_interest || '',
           quote_value: data.quote_value || 0,
           notes: data.notes || '',
-          source: data.source || 'manual',
+          source: (data as any).source || 'manual',
         })
 
         // Atualiza dados opcionais do cliente se fornecidos (sem duplicar registro)
@@ -261,13 +261,31 @@ export const clientsService = {
         product_interest: createdClient.product_interest || '',
         quote_value: createdClient.quote_value || 0,
         notes: createdClient.notes || '',
-        source: data.source || 'manual',
+        source: (data as any).source || 'manual',
       })
       return { client: createdClient, attendance }
     } catch (attErr) {
       console.error('Error creating initial attendance for new client:', attErr)
       throw new Error('Cliente criado, mas falha ao vincular atendimento inicial. Tente novamente.')
     }
+  },
+
+  /**
+   * Alias explícito para criação de novo atendimento para cliente existente.
+   * Não duplica o registro de cliente e delega para o attendancesService.createForClient.
+   */
+  async createAttendanceForExistingClient(
+    clientId: string,
+    data: {
+      stage?: KanbanStage
+      assigned_to?: string
+      product_interest?: string
+      quote_value?: number
+      notes?: string
+      source?: string
+    },
+  ): Promise<Attendance> {
+    return attendancesService.createForClient(clientId, data)
   },
 
   /**

@@ -24,6 +24,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import pb from '@/lib/pocketbase/client'
 import { clientsService } from '@/services/clients'
 import { settingsService } from '@/services/settings'
 import { dealsService } from '@/services/deals'

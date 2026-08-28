@@ -233,17 +233,22 @@ export default function SettingsPage() {
         console.warn('Could not count pending resolutions:', pErr)
       }
 
-      const lastRun = map['automation_processor_last_run'] || null
+      const lastRun =
+        typeof map['automation_processor_last_run'] === 'string'
+          ? map['automation_processor_last_run']
+          : null
       const status =
         (map['automation_processor_status'] as 'ok' | 'error') || (lastRun ? 'ok' : 'pending')
       const durationMs = map['automation_processor_last_duration_ms']
         ? Number(map['automation_processor_last_duration_ms'])
         : null
-      const lastError = map['automation_processor_last_error'] || null
+      const lastError =
+        typeof map['automation_processor_last_error'] === 'string'
+          ? map['automation_processor_last_error']
+          : null
       const lastTotalItems = map['automation_processor_last_total_items']
         ? Number(map['automation_processor_last_total_items'])
         : null
-
       let nextRun: string | null = null
       if (lastRun) {
         const lastDate = new Date(lastRun)
@@ -280,7 +285,7 @@ export default function SettingsPage() {
         checked: true,
         checking: false,
         isPublished: pubRes.isPublished,
-        status: pubRes.status,
+        status: String(pubRes.status),
         service: pubRes.service,
         timestamp: pubRes.timestamp,
         error: pubRes.error,

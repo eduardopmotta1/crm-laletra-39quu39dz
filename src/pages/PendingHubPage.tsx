@@ -151,7 +151,7 @@ export default function PendingHubPage() {
       const [pendingList, effMetrics, resHistory, userList, slaCfg] = await Promise.all([
         pendingService.getAllPendingItems(),
         pendingService.getEfficiencyMetrics(efficiencyPeriod),
-        pendingService.getResolutionHistory('', 50),
+        pendingService.getResolutionHistory(50),
         pb.collection('users').getFullList<UserType>({ requestKey: null }),
         settingsService.getSlaConfig(),
       ])
@@ -297,7 +297,6 @@ export default function PendingHubPage() {
           clientId: itemToReschedule.clientId,
           clientName: itemToReschedule.clientName,
           assignedTo: itemToReschedule.assignedToId,
-          assignedName: itemToReschedule.assignedToName,
           actionTaken: `Reagendado para ${new Date(rescheduleDate).toLocaleDateString('pt-BR')}`,
           waitingMinutes: itemToReschedule.waitingTimeMinutes,
         })
@@ -331,7 +330,6 @@ export default function PendingHubPage() {
           clientId: itemToAssign.clientId,
           clientName: itemToAssign.clientName,
           assignedTo: assignUserId,
-          assignedName: userName,
           actionTaken: `Responsável atribuído para: ${userName}`,
           waitingMinutes: itemToAssign.waitingTimeMinutes,
         })

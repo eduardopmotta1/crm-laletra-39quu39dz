@@ -29,7 +29,9 @@ import {
   Clock,
 } from 'lucide-react'
 import type { Client, WhatsAppTemplate } from '@/types/crm'
+import pb from '@/lib/pocketbase/client'
 import { whatsappService } from '@/services/whatsapp'
+import { attendancesService } from '@/services/attendances'
 import {
   whatsappTemplatesService,
   extractVariablesFromBody,

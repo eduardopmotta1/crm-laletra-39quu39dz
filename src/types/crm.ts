@@ -126,6 +126,7 @@ export interface Client {
   name: string
   phone: string
   email?: string
+  attendance_id?: string
   // Legacy / convenience fields on client
   stage?: KanbanStage
   product_interest?: string
@@ -542,11 +543,14 @@ export interface PendingItem {
   categoryLabel: string
   title: string
   subtitle?: string
+  description?: string
   priority: PendingPriority
   createdAt: string
   referenceDate?: string
   waitingTimeFormatted: string
   waitingTimeMinutes: number
+  slaMinutes?: number
+  dueDate?: string
   assignedToId?: string
   assignedToName?: string
   assignedToAvatar?: string
