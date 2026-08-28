@@ -48,6 +48,7 @@ export const clientsService = {
 
   /**
    * Localiza cliente por telefone normalizado.
+   * Utiliza consulta direta pelo campo `normalized_phone` e fallback em memória.
    * Não considera nome ou e-mail como critério de unificação automática.
    * Se encontrar um registro consolidado (merged), resolve para o canônico.
    */
@@ -64,31 +65,50 @@ export const clientsService = {
     }
 
     try {
-      // Buscar todos os clientes (inclusive arquivados) para varredura por telefone normalizado
-      const allClients = await pb.collection('clients').getFullList<Client>({
-        requestKey: null,
-      })
-
-      const matchedClients = allClients.filter((c) => {
-        const cNorm = normalizePhone(c.phone)
-        return cNorm && cNorm === norm
-      })
-
-      if (matchedClients.length === 0) {
-        return {
-          client: null,
-          isMerged: false,
-          canonicalClient: null,
-          activeAttendance: null,
-          attendancesCount: 0,
+      // 1. Tentar busca indexada direta pelo campo normalized_phone
+      let matched: Client | null = null
+      try {
+        const directMatches = await pb.collection('clients').getFullList<Client>({
+          filter: `normalized_phone = "${norm}"`,
+          requestKey: null,
+        })
+        if (directMatches.length > 0) {
+          const nonMerged = directMatches.filter((c) => !this.extractCanonicalId(c))
+          matched = nonMerged.length > 0 ? nonMerged[0] : directMatches[0]
         }
+      } catch (directErr) {
+        console.warn(
+          'Direct query by normalized_phone failed, falling back to full list scan:',
+          directErr,
+        )
       }
 
-      // Se houver mais de um, preferir não consolidado ou o que tenha mais compras/dados
-      let matched = matchedClients[0]
-      const nonMerged = matchedClients.filter((c) => !this.extractCanonicalId(c))
-      if (nonMerged.length > 0) {
-        matched = nonMerged[0]
+      // 2. Fallback de varredura se busca indexada não retornou (ou se houver registros legados)
+      if (!matched) {
+        const allClients = await pb.collection('clients').getFullList<Client>({
+          requestKey: null,
+        })
+
+        const matchedClients = allClients.filter((c) => {
+          const cNorm = c.normalized_phone || normalizePhone(c.phone)
+          return (
+            cNorm &&
+            (cNorm === norm || (cNorm === `merged_${c.id}` && normalizePhone(c.phone) === norm))
+          )
+        })
+
+        if (matchedClients.length === 0) {
+          return {
+            client: null,
+            isMerged: false,
+            canonicalClient: null,
+            activeAttendance: null,
+            attendancesCount: 0,
+          }
+        }
+
+        const nonMerged = matchedClients.filter((c) => !this.extractCanonicalId(c))
+        matched = nonMerged.length > 0 ? nonMerged[0] : matchedClients[0]
       }
 
       const canonicalId = this.extractCanonicalId(matched)
@@ -197,8 +217,10 @@ export const clientsService = {
   },
 
   /**
-   * Cria CLIENT NOVO + ATENDIMENTO INICIAL com proteção centralizada contra duplicidade.
-   * Se o telefone já existir, NÃO duplica: reutiliza o cliente canônico existente e cria novo atendimento.
+   * Cria CLIENT NOVO + ATENDIMENTO INICIAL com proteção centralizada contra duplicidade e concorrência.
+   * Se o telefone já existir ou se houver corrida concorrente (UNIQUE constraint no backend),
+   * NÃO duplica: reutiliza o cliente canônico existente e cria o atendimento solicitado vinculado.
+   * Não exibe erro de duplicidade ao usuário quando for apenas corrida de concorrência.
    */
   async createClientWithInitialAttendance(
     data: Partial<Client>,
@@ -206,54 +228,58 @@ export const clientsService = {
     const rawPhone = data.phone || ''
     const norm = normalizePhone(rawPhone)
 
-    // Proteção centralizada contra duplicidade: verificar se cliente já existe por telefone normalizado
+    // 1 & 2. Normalizar telefone e verificar se cliente já existe pelo normalized_phone
     if (norm && norm.length >= 8) {
       const searchResult = await this.findByNormalizedPhone(rawPhone)
       if (searchResult.canonicalClient) {
         const existingClient = searchResult.canonicalClient
-        // Cria somente o novo atendimento para o cliente existente
-        const attendance = await attendancesService.createForClient(existingClient.id, {
-          stage: (data.stage as KanbanStage) || 'Novo contato',
-          assigned_to: data.assigned_to || existingClient.assigned_to || '',
-          product_interest: data.product_interest || '',
-          quote_value: data.quote_value || 0,
-          notes: data.notes || '',
-          source: (data as any).source || 'manual',
-        })
-
-        // Atualiza dados opcionais do cliente se fornecidos (sem duplicar registro)
-        const updatePayload: Partial<Client> = {}
-        if (data.name && data.name.trim() && data.name !== existingClient.name) {
-          updatePayload.name = data.name.trim()
-        }
-        if (data.email && data.email.trim() && !existingClient.email) {
-          updatePayload.email = data.email.trim()
-        }
-        if (Object.keys(updatePayload).length > 0) {
-          try {
-            await pb.collection('clients').update(existingClient.id, updatePayload)
-          } catch {
-            /* non-fatal */
-          }
-        }
-
-        return { client: existingClient, attendance }
+        return this.attachAttendanceToClient(existingClient, data)
       }
     }
 
-    // Cliente realmente novo
+    // 4. Tentativa de criação de cliente novo
     const sanitizedData = this.sanitizeDateFields(data as Record<string, any>)
     const clientPayload: Record<string, any> = {
       ...sanitizedData,
+      normalized_phone: norm && norm.length >= 8 ? norm : '',
       is_archived: false,
       has_returned: false,
       total_purchases: 0,
       total_purchase_value: 0,
     }
 
-    const createdClient = await pb.collection('clients').create<Client>(clientPayload)
+    let createdClient: Client
+    try {
+      createdClient = await pb.collection('clients').create<Client>(clientPayload)
+    } catch (createErr: any) {
+      // 5. Se o CREATE falhar por conflito de UNIQUE ou erro de validação de duplicidade (outra requisição venceu a corrida):
+      const errStr = JSON.stringify(
+        createErr?.data || createErr?.response || createErr?.message || '',
+      )
+      const isUniqueOrDuplicate =
+        createErr?.status === 400 ||
+        createErr?.status === 409 ||
+        errStr.toLowerCase().includes('unique') ||
+        errStr.toLowerCase().includes('normalized_phone') ||
+        errStr.toLowerCase().includes('phone')
 
-    // Criar atendimento inicial vinculado
+      if (isUniqueOrDuplicate && norm && norm.length >= 8) {
+        console.info(
+          `[Concurrency Protection] Caught potential duplicate/race condition for normalized_phone ${norm}. Resolving existing canonical client...`,
+        )
+        // 5 & 6. Buscar novamente pelo normalized_phone e reutilizar o client vencedor
+        const retryResult = await this.findByNormalizedPhone(rawPhone)
+        if (retryResult.canonicalClient) {
+          return this.attachAttendanceToClient(retryResult.canonicalClient, data)
+        }
+      }
+
+      // Se não foi erro de unicidade recuperável ou não encontrou, repassa o erro
+      console.error('Error creating client in PocketBase:', createErr)
+      throw createErr
+    }
+
+    // 7. Criar atendimento inicial vinculado ao cliente recém-criado
     try {
       const attendance = await attendancesService.createForClient(createdClient.id, {
         stage: (data.stage as KanbanStage) || 'Novo contato',
@@ -268,6 +294,42 @@ export const clientsService = {
       console.error('Error creating initial attendance for new client:', attErr)
       throw new Error('Cliente criado, mas falha ao vincular atendimento inicial. Tente novamente.')
     }
+  },
+
+  /**
+   * Auxiliar interno para vincular novo atendimento a um cliente existente,
+   * atualizando dados opcionais (nome/e-mail) de forma segura.
+   */
+  async attachAttendanceToClient(
+    client: Client,
+    data: Partial<Client>,
+  ): Promise<{ client: Client; attendance: Attendance }> {
+    const attendance = await attendancesService.createForClient(client.id, {
+      stage: (data.stage as KanbanStage) || 'Novo contato',
+      assigned_to: data.assigned_to || client.assigned_to || '',
+      product_interest: data.product_interest || '',
+      quote_value: data.quote_value || 0,
+      notes: data.notes || '',
+      source: (data as any).source || 'manual',
+    })
+
+    // Atualiza dados opcionais do cliente se fornecidos (sem duplicar registro)
+    const updatePayload: Partial<Client> = {}
+    if (data.name && data.name.trim() && data.name !== client.name) {
+      updatePayload.name = data.name.trim()
+    }
+    if (data.email && data.email.trim() && !client.email) {
+      updatePayload.email = data.email.trim()
+    }
+    if (Object.keys(updatePayload).length > 0) {
+      try {
+        await pb.collection('clients').update(client.id, updatePayload)
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    return { client, attendance }
   },
 
   /**
@@ -316,6 +378,17 @@ export const clientsService = {
         const val = sanitizedData[key]
         if (typeof val === 'string' && val.includes('T')) {
           sanitizedData[key] = val.split('T')[0]
+        }
+      }
+    }
+
+    if (sanitizedData.phone !== undefined) {
+      const norm = normalizePhone(sanitizedData.phone)
+      if (norm && norm.length >= 8) {
+        // Se for merged, preserva prefixo merged_
+        const isMerged = prev && this.extractCanonicalId(prev)
+        if (!isMerged) {
+          sanitizedData.normalized_phone = norm
         }
       }
     }

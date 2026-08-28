@@ -125,6 +125,7 @@ export interface Client {
   id: string
   name: string
   phone: string
+  normalized_phone?: string
   email?: string
   attendance_id?: string
   // Legacy / convenience fields on client

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T10:21:26.402Z",
+  "generatedAt": "2026-08-28T10:36:30.865Z",
   "collections": [
     {
       "name": "users",
@@ -257,6 +257,12 @@
           "type": "date",
           "required": false,
           "system": false
+        },
+        {
+          "name": "normalized_phone",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -264,7 +270,8 @@
         "CREATE INDEX idx_clients_phone ON clients (phone)",
         "CREATE INDEX idx_clients_assigned ON clients (assigned_to)",
         "CREATE INDEX idx_clients_last_msg ON clients (last_message_at DESC)",
-        "CREATE INDEX `idx_clients_is_archived` ON `clients` (is_archived)"
+        "CREATE INDEX `idx_clients_is_archived` ON `clients` (is_archived)",
+        "CREATE UNIQUE INDEX `idx_clients_normalized_phone_unique` ON `clients` (normalized_phone) WHERE normalized_phone != ''"
       ]
     },
     {
