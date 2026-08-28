@@ -185,16 +185,16 @@ onRecordDeleteRequest((e) => {
 // 1. Requisição pública não autenticada (cadastro/register público do CRM)
 // 2. OU se autenticada, o usuário precisa ser administrador (role_slug === 'admin')
 onRecordCreateRequest((e) => {
+  const tStart = Date.now()
+  const recId = (e.record && e.record.id) || ''
+  console.log(
+    '[INSTR-USERS] onRecordCreateRequest ENTER | timestamp=' +
+      tStart +
+      (recId ? ' | recordId=' + recId : ''),
+  )
+
   try {
     const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
-    const reqInfo = e.requestInfo ? e.requestInfo() : null
-    const reqBody = reqInfo ? reqInfo.body : null
-    console.log(
-      '[USER-CREATE-BEFORE] auth:',
-      auth ? auth.id + ' role:' + auth.get('role_slug') : 'null/anon',
-      'body:',
-      JSON.stringify(reqBody),
-    )
     if (auth) {
       // Se autenticado, somente admin pode criar novos usuários via painel/settings
       if (auth.get('role_slug') !== 'admin') {
@@ -202,10 +202,73 @@ onRecordCreateRequest((e) => {
       }
     }
   } catch (err) {
-    console.log('[USER-CREATE-HOOK-ERROR]', err && err.message)
+    const tErr = Date.now()
+    const errMsg = (err && (err.message || String(err))) || 'unknown error'
+    console.log(
+      '[INSTR-USERS] onRecordCreateRequest ERROR | timestamp=' +
+        tErr +
+        ' | duration=' +
+        (tErr - tStart) +
+        'ms' +
+        (recId ? ' | recordId=' + recId : '') +
+        ' | error=' +
+        errMsg,
+    )
     throw err
   }
-  return e.next()
+
+  const tBeforeNext = Date.now()
+  console.log(
+    '[INSTR-USERS] onRecordCreateRequest BEFORE_NEXT | timestamp=' +
+      tBeforeNext +
+      ' | duration_so_far=' +
+      (tBeforeNext - tStart) +
+      'ms' +
+      (recId ? ' | recordId=' + recId : ''),
+  )
+
+  let nextRes = null
+  let nextErr = null
+  try {
+    nextRes = e.next()
+  } catch (err) {
+    nextErr = err
+  }
+
+  const tAfterNext = Date.now()
+  const durationTotal = tAfterNext - tStart
+  const nextDuration = tAfterNext - tBeforeNext
+  const afterRecId = (e.record && e.record.id) || recId
+
+  if (nextErr) {
+    const errMsg = (nextErr && (nextErr.message || String(nextErr))) || 'unknown error'
+    console.log(
+      '[INSTR-USERS] onRecordCreateRequest AFTER_NEXT (FAILED) | timestamp=' +
+        tAfterNext +
+        ' | next_duration=' +
+        nextDuration +
+        'ms | total_duration=' +
+        durationTotal +
+        'ms' +
+        (afterRecId ? ' | recordId=' + afterRecId : '') +
+        ' | error=' +
+        errMsg,
+    )
+    throw nextErr
+  }
+
+  console.log(
+    '[INSTR-USERS] onRecordCreateRequest AFTER_NEXT (SUCCESS) | timestamp=' +
+      tAfterNext +
+      ' | next_duration=' +
+      nextDuration +
+      'ms | total_duration=' +
+      durationTotal +
+      'ms' +
+      (afterRecId ? ' | recordId=' + afterRecId : ''),
+  )
+
+  return nextRes
 }, 'users')
 
 // Bloquear não-admins de modificar usuários (exceto a si mesmo)
@@ -232,62 +295,158 @@ onRecordDeleteRequest((e) => {
   return e.next()
 }, 'users')
 
-// ===== ENDPOINT AUDIT-LOG MANUAL (para logins e ações manuais do app) =====
-onRecordCreateRequest((e) => {
-  try {
-    const info = e.requestInfo ? e.requestInfo() : {}
-    console.log(
-      '[DIAG-USERS-REQ-BODY]',
-      JSON.stringify(info.body || {}),
-      'headers:',
-      JSON.stringify(info.headers || {}),
-    )
-  } catch (err) {
-    console.log('[DIAG-REQ-ERR]', err && err.message)
-  }
-  return e.next()
-}, 'users')
-
+// ===== INSTRUMENTAÇÃO MODEL HOOKS USERS =====
 onRecordValidate((e) => {
+  const tStart = Date.now()
+  const recId = (e.record && e.record.id) || ''
+  console.log(
+    '[INSTR-USERS] onRecordValidate ENTER | timestamp=' +
+      tStart +
+      (recId ? ' | recordId=' + recId : ''),
+  )
+
+  let nextRes = null
+  let nextErr = null
   try {
-    console.log(
-      '[DIAG-ON-VALIDATE-USERS]',
-      e.record ? JSON.stringify(e.record.publicExport()) : 'no record',
-    )
+    nextRes = e.next()
   } catch (err) {
-    console.log('[DIAG-VAL-ERR]', err && err.message)
+    nextErr = err
   }
-  return e.next()
+
+  const tEnd = Date.now()
+  const duration = tEnd - tStart
+  const afterRecId = (e.record && e.record.id) || recId
+
+  if (nextErr) {
+    const errMsg = (nextErr && (nextErr.message || String(nextErr))) || 'unknown error'
+    console.log(
+      '[INSTR-USERS] onRecordValidate EXIT (FAILED) | timestamp=' +
+        tEnd +
+        ' | duration=' +
+        duration +
+        'ms' +
+        (afterRecId ? ' | recordId=' + afterRecId : '') +
+        ' | error=' +
+        errMsg,
+    )
+    throw nextErr
+  }
+
+  console.log(
+    '[INSTR-USERS] onRecordValidate EXIT (SUCCESS) | timestamp=' +
+      tEnd +
+      ' | duration=' +
+      duration +
+      'ms' +
+      (afterRecId ? ' | recordId=' + afterRecId : ''),
+  )
+
+  return nextRes
 }, 'users')
 
 onRecordCreate((e) => {
+  const tStart = Date.now()
+  const recId = (e.record && e.record.id) || ''
+  console.log(
+    '[INSTR-USERS] onRecordCreate ENTER | timestamp=' +
+      tStart +
+      (recId ? ' | recordId=' + recId : ''),
+  )
+
+  let nextRes = null
+  let nextErr = null
   try {
-    console.log(
-      '[DIAG-ON-RECORD-CREATE-MODEL]',
-      e.record ? JSON.stringify(e.record.publicExport()) : 'no record',
-    )
+    nextRes = e.next()
   } catch (err) {
-    console.log('[DIAG-CREATE-ERR]', err && err.message)
+    nextErr = err
   }
-  return e.next()
+
+  const tEnd = Date.now()
+  const duration = tEnd - tStart
+  const afterRecId = (e.record && e.record.id) || recId
+
+  if (nextErr) {
+    const errMsg = (nextErr && (nextErr.message || String(nextErr))) || 'unknown error'
+    console.log(
+      '[INSTR-USERS] onRecordCreate EXIT (FAILED) | timestamp=' +
+        tEnd +
+        ' | duration=' +
+        duration +
+        'ms' +
+        (afterRecId ? ' | recordId=' + afterRecId : '') +
+        ' | error=' +
+        errMsg,
+    )
+    throw nextErr
+  }
+
+  console.log(
+    '[INSTR-USERS] onRecordCreate EXIT (SUCCESS) | timestamp=' +
+      tEnd +
+      ' | duration=' +
+      duration +
+      'ms' +
+      (afterRecId ? ' | recordId=' + afterRecId : ''),
+  )
+
+  return nextRes
 }, 'users')
 
 onRecordCreateError((e) => {
+  const tStart = Date.now()
+  const recId = (e.record && e.record.id) || ''
+  const errMsg =
+    (e.error &&
+      (e.error.message || (e.error.data && JSON.stringify(e.error.data)) || String(e.error))) ||
+    'unknown error'
+
+  console.log(
+    '[INSTR-USERS] onRecordCreateError ENTER | timestamp=' +
+      tStart +
+      (recId ? ' | recordId=' + recId : '') +
+      ' | error=' +
+      errMsg,
+  )
+
+  let nextRes = null
+  let nextErr = null
   try {
-    console.log(
-      '[DIAG-CREATE-ERROR-EVENT]',
-      e.error
-        ? e.error.message +
-            ' | data:' +
-            JSON.stringify(e.error.data || {}) +
-            ' | raw:' +
-            JSON.stringify(e.error)
-        : 'no error',
-    )
+    nextRes = e.next()
   } catch (err) {
-    console.log('[DIAG-ERR-HOOK-ERR]', err && err.message)
+    nextErr = err
   }
-  return e.next()
+
+  const tEnd = Date.now()
+  const duration = tEnd - tStart
+  const afterRecId = (e.record && e.record.id) || recId
+
+  if (nextErr) {
+    const exitErrMsg = (nextErr && (nextErr.message || String(nextErr))) || errMsg
+    console.log(
+      '[INSTR-USERS] onRecordCreateError EXIT (FAILED) | timestamp=' +
+        tEnd +
+        ' | duration=' +
+        duration +
+        'ms' +
+        (afterRecId ? ' | recordId=' + afterRecId : '') +
+        ' | error=' +
+        exitErrMsg,
+    )
+    throw nextErr
+  }
+
+  console.log(
+    '[INSTR-USERS] onRecordCreateError EXIT (SUCCESS) | timestamp=' +
+      tEnd +
+      ' | duration=' +
+      duration +
+      'ms' +
+      (afterRecId ? ' | recordId=' + afterRecId : '') +
+      ' | error=' +
+      errMsg,
+  )
+
+  return nextRes
 }, 'users')
 
 routerAdd('POST', '/api/debug-test-user-create', (e) => {
