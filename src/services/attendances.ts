@@ -191,7 +191,7 @@ export const attendancesService = {
               await dealsService.completeAndArchive({
                 attendanceId: att.id,
                 clientId: att.client_id,
-                result: resultType,
+                result: resultType === 'won' ? 'Venda fechada' : 'Venda perdida',
                 loss_reason:
                   resultType === 'lost' ? 'Arquivado automaticamente por inatividade' : undefined,
                 notes: `Arquivado automaticamente pelo sistema após ${limitHours}h da conclusão.`,
