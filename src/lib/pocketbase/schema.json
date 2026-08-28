@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T23:00:08.825Z",
+  "generatedAt": "2026-08-28T23:12:35.945Z",
   "collections": [
     {
       "name": "users",
@@ -2039,6 +2039,447 @@
         "CREATE INDEX idx_att_client ON attendances (client_id)",
         "CREATE INDEX idx_att_stage ON attendances (stage)",
         "CREATE INDEX idx_att_archived ON attendances (is_archived)"
+      ]
+    },
+    {
+      "name": "quote_materials",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "calc_unit",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["m2", "metro_linear", "unidade", "centimetro", "quilo", "valor_fixo"]
+        },
+        {
+          "name": "cost_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sale_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "min_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_quote_mat_name ON quote_materials (name)",
+        "CREATE INDEX idx_quote_mat_cat ON quote_materials (category)",
+        "CREATE INDEX idx_quote_mat_active ON quote_materials (is_active)"
+      ]
+    },
+    {
+      "name": "quote_additionals",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "calc_unit",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["unidade", "metro_linear", "m2", "valor_fixo"]
+        },
+        {
+          "name": "cost_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sale_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "min_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_quote_add_name ON quote_additionals (name)",
+        "CREATE INDEX idx_quote_add_active ON quote_additionals (is_active)"
+      ]
+    },
+    {
+      "name": "quote_products",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "main_image",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "gallery_images",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "main_material_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "quote_materials"
+        },
+        {
+          "name": "additionals",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "quote_additionals"
+        },
+        {
+          "name": "calc_rule",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["m2", "metro_linear", "unidade", "preco_fixo"]
+        },
+        {
+          "name": "sale_unit",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "has_default_dimensions",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "default_width",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "default_height",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "default_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "min_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "fixed_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "fixed_cost",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "internal_notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_quote_prod_name ON quote_products (name)",
+        "CREATE INDEX idx_quote_prod_cat ON quote_products (category)",
+        "CREATE INDEX idx_quote_prod_active ON quote_products (is_active)"
+      ]
+    },
+    {
+      "name": "quotes",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "code",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "client_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "clients"
+        },
+        {
+          "name": "client_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "client_phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_email",
+          "type": "email",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["rascunho", "enviado", "aprovado", "recusado", "expirado"]
+        },
+        {
+          "name": "items",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_cost",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_sale",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "discount_amount",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "final_total",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "gross_profit",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "profit_margin_pct",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "internal_notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valid_until",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_quotes_code ON quotes (code)",
+        "CREATE INDEX idx_quotes_client ON quotes (client_id)",
+        "CREATE INDEX idx_quotes_status ON quotes (status)"
       ]
     }
   ]

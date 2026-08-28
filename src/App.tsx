@@ -20,6 +20,10 @@ import ArchivedDealsPage from '@/pages/ArchivedDealsPage'
 import PostSalesDashboardPage from '@/pages/PostSalesDashboardPage'
 import CustomerRecoveryPage from '@/pages/CustomerRecoveryPage'
 import ProductionKanbanPage from '@/pages/ProductionKanbanPage'
+import MaterialsPage from '@/pages/MaterialsPage'
+import ProductsPage from '@/pages/ProductsPage'
+import QuotesListPage from '@/pages/QuotesListPage'
+import NewQuotePage from '@/pages/NewQuotePage'
 import PublicTrackingPage from '@/pages/PublicTrackingPage'
 import PublicEvaluationPage from '@/pages/PublicEvaluationPage'
 import NotFound from '@/pages/NotFound'
@@ -57,6 +61,10 @@ const App = () => (
             <Route path="/arquivados" element={<ArchivedDealsPage />} />
             <Route path="/pos-venda" element={<PostSalesDashboardPage />} />
             <Route path="/recuperacao" element={<CustomerRecoveryPage />} />
+            <Route path="/orcamentos" element={<QuotesListPage />} />
+            <Route path="/orcamentos/novo" element={<NewQuotePage />} />
+            <Route path="/orcamentos/produtos" element={<ProductsPage />} />
+            <Route path="/orcamentos/materiais" element={<MaterialsPage />} />
             <Route path="/templates" element={<WhatsAppTemplatesPage />} />
             <Route path="/tarefas" element={<TasksPage />} />
             <Route path="/configuracoes" element={<SettingsPage />} />

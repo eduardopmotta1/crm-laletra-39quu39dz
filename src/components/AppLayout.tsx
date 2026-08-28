@@ -61,6 +61,7 @@ export default function AppLayout() {
   const [pendingHighAndUrgentCount, setPendingHighAndUrgentCount] = useState(0)
   const [dissatisfiedCount, setDissatisfiedCount] = useState(0)
   const [postSaleSubMenuOpen, setPostSaleSubMenuOpen] = useState(true)
+  const [quotesSubMenuOpen, setQuotesSubMenuOpen] = useState(true)
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
     urgentMinutes: 1440,
     warningMinutes: 720,
@@ -180,6 +181,11 @@ export default function AppLayout() {
   const canAccessClients = isAdmin || hasPermission('clients_view')
   const canAccessArchived =
     isAdmin || hasPermission('attendance_view_history') || hasPermission('attendance_archive')
+  const canAccessQuotes =
+    isAdmin ||
+    hasPermission('quotes_view') ||
+    hasPermission('quotes_create') ||
+    hasPermission('financial_view_cost')
   const canAccessPostSale = isAdmin || hasPermission('postsale_view')
   const canAccessTemplates =
     isAdmin || hasPermission('whatsapp_use_templates') || hasPermission('settings_config_templates')
@@ -241,12 +247,41 @@ export default function AppLayout() {
       visible: canAccessArchived,
     },
     {
+      to: '/orcamentos',
+      label: 'Orçamentos',
+      icon: FileText,
+      badge: null,
+      visible: canAccessQuotes,
+      isOpen: quotesSubMenuOpen,
+      onToggle: () => setQuotesSubMenuOpen(!quotesSubMenuOpen),
+      subItems: [
+        {
+          to: '/orcamentos/novo',
+          label: 'Novo Orçamento',
+        },
+        {
+          to: '/orcamentos',
+          label: 'Orçamentos',
+        },
+        {
+          to: '/orcamentos/produtos',
+          label: 'Produtos',
+        },
+        {
+          to: '/orcamentos/materiais',
+          label: 'Materiais e Preços',
+        },
+      ],
+    },
+    {
       to: '/pos-venda',
       label: 'Pós-Venda & Avaliações',
       icon: Star,
       badge: dissatisfiedCount > 0 ? `${dissatisfiedCount} ⚠️` : null,
       badgeVariant: 'destructive',
       visible: canAccessPostSale,
+      isOpen: postSaleSubMenuOpen,
+      onToggle: () => setPostSaleSubMenuOpen(!postSaleSubMenuOpen),
       subItems: [
         {
           to: '/pos-venda',
@@ -450,10 +485,11 @@ export default function AppLayout() {
               const isSubActive = hasSub && item.subItems?.some((s) => location.pathname === s.to)
 
               if (hasSub && item.subItems) {
+                const isSubmenuOpen = item.isOpen ?? true
                 return (
                   <div key={item.label} className="space-y-1">
                     <div
-                      onClick={() => setPostSaleSubMenuOpen(!postSaleSubMenuOpen)}
+                      onClick={item.onToggle}
                       className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                         isSubActive
                           ? 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold'
@@ -461,19 +497,19 @@ export default function AppLayout() {
                       }`}
                     >
                       <div className="flex items-center space-x-3">
-                        <Icon className="h-4 w-4 shrink-0 text-amber-500 fill-amber-500" />
+                        <Icon className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                         <span>{item.label}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        {dissatisfiedCount > 0 && (
+                        {item.badge && (
                           <Badge
-                            variant="destructive"
-                            className="text-[10px] px-1.5 py-0 font-bold uppercase tracking-wider animate-pulse"
+                            variant={(item.badgeVariant as any) || 'secondary'}
+                            className="text-[10px] px-1.5 py-0 font-bold uppercase tracking-wider"
                           >
-                            {dissatisfiedCount} ⚠️
+                            {item.badge}
                           </Badge>
                         )}
-                        {postSaleSubMenuOpen ? (
+                        {isSubmenuOpen ? (
                           <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
                         ) : (
                           <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
@@ -481,13 +517,13 @@ export default function AppLayout() {
                       </div>
                     </div>
 
-                    {postSaleSubMenuOpen && (
+                    {isSubmenuOpen && (
                       <div className="pl-7 pr-1 space-y-1 border-l-2 border-slate-100 dark:border-slate-800 ml-5 py-1">
                         {item.subItems.map((sub) => {
                           const subActive = location.pathname === sub.to
                           return (
                             <NavLink
-                              key={sub.to}
+                              key={sub.to + sub.label}
                               to={sub.to}
                               onClick={() => setMobileMenuOpen(false)}
                               className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
