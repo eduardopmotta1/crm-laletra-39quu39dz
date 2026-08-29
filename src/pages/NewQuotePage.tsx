@@ -20,6 +20,9 @@ import {
   Mail,
   Tag,
   AlertCircle,
+  Copy,
+  Check,
+  AlertTriangle,
 } from 'lucide-react'
 import { productsService } from '@/services/quoteProducts'
 import { materialsService } from '@/services/quoteMaterials'
@@ -62,6 +65,13 @@ export default function NewQuotePage() {
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [saveErrorInfo, setSaveErrorInfo] = useState<{
+    status: number | null
+    message: string
+    data: any
+    rawJson: string
+  } | null>(null)
+  const [copiedError, setCopiedError] = useState(false)
 
   // Explicit attendance_id from navigation (query param or router state)
   const [attendanceId, setAttendanceId] = useState<string>(() => {
@@ -272,6 +282,7 @@ export default function NewQuotePage() {
     }
 
     setSaving(true)
+    setSaveErrorInfo(null)
     try {
       const savedQuote = await quotesService.create({
         client_id: selectedClientId || undefined,
@@ -301,8 +312,43 @@ export default function NewQuotePage() {
       } else {
         navigate('/orcamentos')
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving quote:', err)
+
+      // PocketBase ClientResponseError structure:
+      // err.status (HTTP status)
+      // err.message (Error message)
+      // err.data or err.response?.data (Validation error data payload)
+      const errorStatus =
+        typeof err?.status === 'number'
+          ? err.status
+          : typeof err?.response?.status === 'number'
+            ? err.response.status
+            : null
+      const errorMessage =
+        err?.message || err?.response?.message || 'Erro desconhecido ao salvar orçamento'
+      const errorData =
+        err?.data !== undefined
+          ? err.data
+          : err?.response?.data !== undefined
+            ? err.response.data
+            : err?.response !== undefined
+              ? err.response
+              : null
+
+      const structuredPayload = {
+        status: errorStatus,
+        message: errorMessage,
+        data: errorData,
+      }
+
+      setSaveErrorInfo({
+        status: errorStatus,
+        message: errorMessage,
+        data: errorData,
+        rawJson: JSON.stringify(structuredPayload, null, 2),
+      })
+
       toast({
         title: 'Erro ao salvar',
         description: 'Não foi possível salvar o orçamento.',
@@ -311,6 +357,17 @@ export default function NewQuotePage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleCopyError = () => {
+    if (!saveErrorInfo) return
+    navigator.clipboard.writeText(saveErrorInfo.rawJson)
+    setCopiedError(true)
+    setTimeout(() => setCopiedError(false), 2000)
+    toast({
+      title: 'Erro copiado!',
+      description: 'JSON do erro copiado para a área de transferência.',
+    })
   }
 
   return (
@@ -697,6 +754,76 @@ export default function NewQuotePage() {
 
         {/* RIGHT COLUMN: PROPOSAL SUMMARY & FINANCIALS (4 Cols) */}
         <div className="lg:col-span-4 space-y-6">
+          {/* Temporary Diagnostic Error Card for PocketBase */}
+          {saveErrorInfo && (
+            <Card className="border-rose-300 dark:border-rose-900 bg-rose-50/90 dark:bg-rose-950/40 shadow-md">
+              <CardHeader className="pb-2 border-b border-rose-200 dark:border-rose-900/60">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-rose-700 dark:text-rose-400 font-bold text-sm">
+                    <AlertTriangle className="h-4 w-4 text-rose-600" />
+                    <span>Diagnóstico de Erro (PocketBase)</span>
+                  </div>
+                  <Badge variant="destructive" className="font-mono text-xs">
+                    HTTP {saveErrorInfo.status ?? 'N/A'}
+                  </Badge>
+                </div>
+                <CardDescription className="text-xs text-rose-600/90 dark:text-rose-400/90">
+                  Retorno completo capturado no salvamento do orçamento.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-3 text-xs">
+                <div>
+                  <span className="font-semibold text-rose-900 dark:text-rose-200 block mb-0.5">
+                    HTTP STATUS:
+                  </span>
+                  <div className="font-mono font-bold text-rose-800 dark:text-rose-300 px-2.5 py-1 bg-white/80 dark:bg-slate-900 rounded border border-rose-200 dark:border-rose-900">
+                    {saveErrorInfo.status !== null ? saveErrorInfo.status : 'N/A'}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="font-semibold text-rose-900 dark:text-rose-200 block mb-0.5">
+                    MESSAGE:
+                  </span>
+                  <div className="font-mono text-rose-800 dark:text-rose-300 px-2.5 py-1 bg-white/80 dark:bg-slate-900 rounded border border-rose-200 dark:border-rose-900 break-words">
+                    {saveErrorInfo.message}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="font-semibold text-rose-900 dark:text-rose-200 block mb-0.5">
+                    ERROR.DATA:
+                  </span>
+                  <pre className="font-mono text-[11px] p-2.5 bg-slate-950 text-rose-300 rounded-lg border border-rose-900/50 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed">
+                    {JSON.stringify(saveErrorInfo.data, null, 2)}
+                  </pre>
+                </div>
+
+                <div className="pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopyError}
+                    className="w-full bg-white dark:bg-slate-900 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-300 font-semibold text-xs gap-1.5 shadow-xs"
+                  >
+                    {copiedError ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        Copiado com sucesso!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        Copiar erro
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="border-slate-200 dark:border-slate-800 shadow-sm sticky top-6">
             <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
               <CardTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center justify-between">
