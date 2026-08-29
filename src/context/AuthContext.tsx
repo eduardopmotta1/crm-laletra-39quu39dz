@@ -26,13 +26,26 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
-    return (pb.authStore.record as unknown as User) || null
+    if (pb.authStore.isValid && pb.authStore.record) {
+      return (pb.authStore.record as unknown as User) || null
+    }
+    return null
   })
-  const [token, setToken] = useState<string | null>(() => pb.authStore.token || null)
+  const [token, setToken] = useState<string | null>(() => {
+    if (pb.authStore.isValid && pb.authStore.token) {
+      return pb.authStore.token
+    }
+    return null
+  })
   const [isLoading, setIsLoading] = useState(true)
 
   const refreshUser = useCallback(async () => {
-    if (!pb.authStore.isValid || !pb.authStore.record?.id) return
+    if (!pb.authStore.isValid || !pb.authStore.record?.id) {
+      pb.authStore.clear()
+      setUser(null)
+      setToken(null)
+      return
+    }
     try {
       const freshUser = await pb.collection('users').getOne<User>(pb.authStore.record.id, {
         expand: 'role_id',
@@ -41,22 +54,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(freshUser)
     } catch (err) {
       console.error('Error refreshing user details:', err)
+      // If user fetch fails because session/token is invalid or user was removed
+      if (!pb.authStore.isValid) {
+        pb.authStore.clear()
+        setUser(null)
+        setToken(null)
+      }
     }
   }, [])
 
   useEffect(() => {
     // Listen for auth store changes
     const unsubscribe = pb.authStore.onChange((tokenVal, model) => {
-      setToken(tokenVal)
-      setUser((model as unknown as User) || null)
+      if (pb.authStore.isValid && tokenVal && model) {
+        setToken(tokenVal)
+        setUser((model as unknown as User) || null)
+      } else {
+        setUser(null)
+        setToken(null)
+      }
     })
 
-    // Auto check current validity & fetch expanded user info
-    if (pb.authStore.isValid && pb.authStore.record) {
+    // Startup check: if session is valid, load full user profile; otherwise clear invalid session
+    if (pb.authStore.isValid && pb.authStore.record && pb.authStore.token) {
       setUser(pb.authStore.record as unknown as User)
       setToken(pb.authStore.token)
       refreshUser().finally(() => setIsLoading(false))
     } else {
+      pb.authStore.clear()
+      setUser(null)
+      setToken(null)
       setIsLoading(false)
     }
 
@@ -265,12 +292,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(null)
   }
 
+  const isAuthenticated = Boolean(token && user && pb.authStore.isValid)
+
   return (
     <AuthContext.Provider
       value={{
         user,
         token,
-        isAuthenticated: !!token && !!user,
+        isAuthenticated,
         isLoading,
         isAdmin,
         roleSlug,
