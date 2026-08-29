@@ -68,6 +68,47 @@ export default function AppLayout() {
     noticeMinutes: 360,
   })
 
+  // Diagnostic Instrumentation Refs & State
+  const navRef = React.useRef<HTMLElement | null>(null)
+  const scrollParentRef = React.useRef<HTMLDivElement | null>(null)
+  const [diagCopied, setDiagCopied] = useState(false)
+  const [diagInfo, setDiagInfo] = useState<{
+    navItemsLength: number
+    isAdmin: boolean
+    navExistsDOM: string
+    nav: {
+      clientHeight: number
+      scrollHeight: number
+      offsetHeight: number
+      getBoundingClientRect: {
+        top: number
+        bottom: number
+        width: number
+        height: number
+      }
+      getComputedStyle: {
+        display: string
+        visibility: string
+        opacity: string
+        position: string
+        overflow: string
+        height: string
+        maxHeight: string
+        transform: string
+      }
+    }
+    scrollParent: {
+      clientHeight: number
+      scrollHeight: number
+      offsetHeight: number
+      getComputedStyle: {
+        display: string
+        overflow: string
+        height: string
+      }
+    }
+  } | null>(null)
+
   // Quick Simulate Inbound WhatsApp Dialog
   const [simulateOpen, setSimulateOpen] = useState(false)
   const [simPhone, setSimPhone] = useState('+55 11 99881-9988')
@@ -319,6 +360,157 @@ export default function AppLayout() {
 
   const navItems = allNavCandidates.filter((item) => item.visible)
 
+  // Update diagnostics values in runtime
+  const updateDiagnostics = () => {
+    const navEl = navRef.current
+    const parentEl = scrollParentRef.current
+
+    let navMetrics = {
+      clientHeight: 0,
+      scrollHeight: 0,
+      offsetHeight: 0,
+      getBoundingClientRect: { top: 0, bottom: 0, width: 0, height: 0 },
+      getComputedStyle: {
+        display: '',
+        visibility: '',
+        opacity: '',
+        position: '',
+        overflow: '',
+        height: '',
+        maxHeight: '',
+        transform: '',
+      },
+    }
+
+    if (navEl) {
+      const rect = navEl.getBoundingClientRect()
+      const cs = window.getComputedStyle(navEl)
+      navMetrics = {
+        clientHeight: navEl.clientHeight,
+        scrollHeight: navEl.scrollHeight,
+        offsetHeight: navEl.offsetHeight,
+        getBoundingClientRect: {
+          top: Math.round(rect.top * 100) / 100,
+          bottom: Math.round(rect.bottom * 100) / 100,
+          width: Math.round(rect.width * 100) / 100,
+          height: Math.round(rect.height * 100) / 100,
+        },
+        getComputedStyle: {
+          display: cs.display,
+          visibility: cs.visibility,
+          opacity: cs.opacity,
+          position: cs.position,
+          overflow: cs.overflow,
+          height: cs.height,
+          maxHeight: cs.maxHeight,
+          transform: cs.transform,
+        },
+      }
+    }
+
+    let parentMetrics = {
+      clientHeight: 0,
+      scrollHeight: 0,
+      offsetHeight: 0,
+      getComputedStyle: {
+        display: '',
+        overflow: '',
+        height: '',
+      },
+    }
+
+    if (parentEl) {
+      const pcs = window.getComputedStyle(parentEl)
+      parentMetrics = {
+        clientHeight: parentEl.clientHeight,
+        scrollHeight: parentEl.scrollHeight,
+        offsetHeight: parentEl.offsetHeight,
+        getComputedStyle: {
+          display: pcs.display,
+          overflow: pcs.overflow,
+          height: pcs.height,
+        },
+      }
+    }
+
+    setDiagInfo({
+      navItemsLength: navItems.length,
+      isAdmin: Boolean(isAdmin),
+      navExistsDOM: navEl ? 'SIM' : 'NÃO',
+      nav: navMetrics,
+      scrollParent: parentMetrics,
+    })
+  }
+
+  useEffect(() => {
+    updateDiagnostics()
+    const t = setTimeout(updateDiagnostics, 100)
+    const interval = setInterval(updateDiagnostics, 1000)
+    window.addEventListener('resize', updateDiagnostics)
+    return () => {
+      clearTimeout(t)
+      clearInterval(interval)
+      window.removeEventListener('resize', updateDiagnostics)
+    }
+  }, [navItems.length, isAdmin, location.pathname])
+
+  const handleCopyDiagnostic = () => {
+    const payload = JSON.stringify(
+      diagInfo || {
+        navItemsLength: navItems.length,
+        isAdmin: Boolean(isAdmin),
+        navExistsDOM: navRef.current ? 'SIM' : 'NÃO',
+      },
+      null,
+      2,
+    )
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(payload).then(
+        () => {
+          setDiagCopied(true)
+          toast({
+            title: 'Diagnóstico Copiado!',
+            description: 'JSON com todos os dados copiado com sucesso.',
+          })
+          setTimeout(() => setDiagCopied(false), 2000)
+        },
+        () => {
+          fallbackCopyText(payload)
+        },
+      )
+    } else {
+      fallbackCopyText(payload)
+    }
+  }
+
+  const fallbackCopyText = (text: string) => {
+    try {
+      const el = document.createElement('textarea')
+      el.value = text
+      el.style.position = 'fixed'
+      el.style.left = '-9999px'
+      el.style.top = '-9999px'
+      document.body.appendChild(el)
+      el.focus()
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+      setDiagCopied(true)
+      toast({
+        title: 'Diagnóstico Copiado!',
+        description: 'JSON copiado para a área de transferência.',
+      })
+      setTimeout(() => setDiagCopied(false), 2000)
+    } catch (err) {
+      toast({
+        title: 'Erro ao copiar',
+        description: 'Não foi possível copiar o diagnóstico.',
+        variant: 'destructive',
+      })
+    }
+  }
+
   const getInitials = (name?: string) => {
     if (!name) return 'AT'
     return name
@@ -429,7 +621,10 @@ export default function AppLayout() {
         </div>
 
         {/* Scrollable Navigation & Action Area */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-2 space-y-3">
+        <div
+          ref={scrollParentRef}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-2 space-y-3"
+        >
           {/* Central de Pendências Alert Banner */}
           {pendingHighAndUrgentCount > 0 && (
             <NavLink
@@ -475,10 +670,103 @@ export default function AppLayout() {
               <MessageSquare className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
               Simular WhatsApp
             </Button>
+
+            {/* Diagnostic Card */}
+            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700 rounded-lg text-[11px] font-mono text-slate-800 dark:text-slate-200 space-y-1.5 shadow-xs">
+              <div className="flex items-center justify-between border-b border-amber-200 dark:border-amber-800 pb-1">
+                <span className="font-bold text-amber-900 dark:text-amber-300">📊 DIAGNÓSTICO</span>
+                <span className="text-[10px] text-amber-700 dark:text-amber-400">Runtime</span>
+              </div>
+
+              <div className="space-y-0.5">
+                <div>
+                  navItems.length:{' '}
+                  <strong className="text-amber-950 dark:text-amber-100">
+                    {diagInfo?.navItemsLength ?? navItems.length}
+                  </strong>
+                </div>
+                <div>
+                  isAdmin:{' '}
+                  <strong className="text-amber-950 dark:text-amber-100">
+                    {String(diagInfo?.isAdmin ?? isAdmin)}
+                  </strong>
+                </div>
+                <div>
+                  nav existe no DOM:{' '}
+                  <strong
+                    className={
+                      diagInfo?.navExistsDOM === 'SIM'
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-rose-600'
+                    }
+                  >
+                    {diagInfo?.navExistsDOM ?? (navRef.current ? 'SIM' : 'NÃO')}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="border-t border-amber-200 dark:border-amber-800 pt-1 space-y-0.5">
+                <div className="font-semibold text-amber-900 dark:text-amber-300">nav:</div>
+                <div>clientHeight: {diagInfo?.nav.clientHeight ?? 0}px</div>
+                <div>scrollHeight: {diagInfo?.nav.scrollHeight ?? 0}px</div>
+                <div>offsetHeight: {diagInfo?.nav.offsetHeight ?? 0}px</div>
+              </div>
+
+              <div className="border-t border-amber-200 dark:border-amber-800 pt-1 space-y-0.5">
+                <div className="font-semibold text-amber-900 dark:text-amber-300">
+                  nav getBoundingClientRect():
+                </div>
+                <div>
+                  top: {diagInfo?.nav.getBoundingClientRect.top ?? 0} | bottom:{' '}
+                  {diagInfo?.nav.getBoundingClientRect.bottom ?? 0}
+                </div>
+                <div>
+                  width: {diagInfo?.nav.getBoundingClientRect.width ?? 0} | height:{' '}
+                  {diagInfo?.nav.getBoundingClientRect.height ?? 0}
+                </div>
+              </div>
+
+              <div className="border-t border-amber-200 dark:border-amber-800 pt-1 space-y-0.5">
+                <div className="font-semibold text-amber-900 dark:text-amber-300">
+                  nav getComputedStyle():
+                </div>
+                <div>display: {diagInfo?.nav.getComputedStyle.display || '—'}</div>
+                <div>visibility: {diagInfo?.nav.getComputedStyle.visibility || '—'}</div>
+                <div>opacity: {diagInfo?.nav.getComputedStyle.opacity || '—'}</div>
+                <div>position: {diagInfo?.nav.getComputedStyle.position || '—'}</div>
+                <div>overflow: {diagInfo?.nav.getComputedStyle.overflow || '—'}</div>
+                <div>height: {diagInfo?.nav.getComputedStyle.height || '—'}</div>
+                <div>maxHeight: {diagInfo?.nav.getComputedStyle.maxHeight || '—'}</div>
+                <div>transform: {diagInfo?.nav.getComputedStyle.transform || '—'}</div>
+              </div>
+
+              <div className="border-t border-amber-200 dark:border-amber-800 pt-1 space-y-0.5">
+                <div className="font-semibold text-amber-900 dark:text-amber-300">
+                  container pai (flex-1 min-h-0 overflow-y-auto):
+                </div>
+                <div>clientHeight: {diagInfo?.scrollParent.clientHeight ?? 0}px</div>
+                <div>scrollHeight: {diagInfo?.scrollParent.scrollHeight ?? 0}px</div>
+                <div>offsetHeight: {diagInfo?.scrollParent.offsetHeight ?? 0}px</div>
+                <div>display: {diagInfo?.scrollParent.getComputedStyle.display || '—'}</div>
+                <div>overflow: {diagInfo?.scrollParent.getComputedStyle.overflow || '—'}</div>
+                <div>height: {diagInfo?.scrollParent.getComputedStyle.height || '—'}</div>
+              </div>
+
+              <div className="pt-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleCopyDiagnostic}
+                  className="w-full h-7 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
+                >
+                  {diagCopied ? 'COPIADO COM SUCESSO!' : 'COPIAR DIAGNÓSTICO'}
+                </Button>
+              </div>
+            </div>
           </div>
 
           {/* Navigation Links */}
-          <nav className="px-3 space-y-1">
+          <nav ref={navRef} className="px-3 space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon
               const hasSub = !!item.subItems
