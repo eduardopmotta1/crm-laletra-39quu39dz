@@ -26,6 +26,20 @@ export const quotesService = {
     }
   },
 
+  async getByAttendanceId(attendanceId: string): Promise<Quote[]> {
+    if (!attendanceId) return []
+    try {
+      return await pb.collection('quotes').getFullList<Quote>({
+        filter: `attendance_id = "${attendanceId}"`,
+        sort: '-created',
+        expand: 'client_id,attendance_id,user_id',
+      })
+    } catch (err) {
+      console.error(`Error fetching quotes for attendance ${attendanceId}:`, err)
+      return []
+    }
+  },
+
   async generateNextCode(): Promise<string> {
     try {
       const year = new Date().getFullYear()

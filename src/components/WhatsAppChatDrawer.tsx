@@ -31,6 +31,8 @@ import {
   ShieldCheck as ShieldCheckIcon,
   Package,
   Calculator,
+  FileText,
+  Eye,
 } from 'lucide-react'
 import type {
   Client,
@@ -44,6 +46,7 @@ import type {
   PostSale,
   ProductionOrder,
 } from '@/types/crm'
+import type { Quote } from '@/types/quotes'
 import { isWithin24HourWindow } from '@/types/crm'
 import { whatsappService } from '@/services/whatsapp'
 import { tasksService } from '@/services/tasks'
@@ -52,6 +55,7 @@ import { dealsService } from '@/services/deals'
 import { evaluationsService } from '@/services/evaluations'
 import { postSalesService } from '@/services/postSales'
 import { productionService } from '@/services/production'
+import { quotesService } from '@/services/quotes'
 import ProductionOrderModal from './ProductionOrderModal'
 import { calculateSlaInfo, formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
@@ -61,6 +65,13 @@ import CompleteAndArchiveModal from './CompleteAndArchiveModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 
 interface WhatsAppChatDrawerProps {
   isOpen: boolean
@@ -87,6 +98,7 @@ export default function WhatsAppChatDrawer({
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
   const [postSales, setPostSales] = useState<PostSale[]>([])
   const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>([])
+  const [attendanceQuotes, setAttendanceQuotes] = useState<Quote[]>([])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [inputMessage, setInputMessage] = useState('')
@@ -105,6 +117,10 @@ export default function WhatsAppChatDrawer({
   const [orderModalOpen, setOrderModalOpen] = useState(false)
   const [selectedOrderToEdit, setSelectedOrderToEdit] = useState<ProductionOrder | null>(null)
 
+  // Quote View Details Modal
+  const [selectedQuoteToView, setSelectedQuoteToView] = useState<Quote | null>(null)
+  const [quoteDetailsOpen, setQuoteDetailsOpen] = useState(false)
+
   // New task inline
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
@@ -122,9 +138,9 @@ export default function WhatsAppChatDrawer({
   useEffect(() => {
     if (client && isOpen) {
       setCurrentClient(client)
-      loadClientData(client.id)
+      loadClientData(client.id, activeAttendance?.id)
     }
-  }, [client, isOpen])
+  }, [client, isOpen, activeAttendance?.id])
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -132,9 +148,11 @@ export default function WhatsAppChatDrawer({
     }
   }, [messages])
 
-  const loadClientData = async (clientId: string) => {
+  const loadClientData = async (clientId: string, attendanceId?: string) => {
     setLoading(true)
     try {
+      const targetAttId = attendanceId || activeAttendance?.id
+
       const [
         msgList,
         taskList,
@@ -145,6 +163,7 @@ export default function WhatsAppChatDrawer({
         psList,
         ordersList,
         status,
+        quotesList,
       ] = await Promise.all([
         whatsappService.getMessages(clientId),
         tasksService.getByClientId(clientId),
@@ -155,6 +174,7 @@ export default function WhatsAppChatDrawer({
         postSalesService.getByClientId(clientId),
         productionService.getByClientId(clientId),
         whatsappService.getApiStatus(),
+        targetAttId ? quotesService.getByAttendanceId(targetAttId) : Promise.resolve([]),
       ])
       setMessages(msgList)
       setTasks(taskList)
@@ -165,10 +185,52 @@ export default function WhatsAppChatDrawer({
       setEvaluations(evals)
       setPostSales(psList)
       setApiStatus(status)
+      setAttendanceQuotes(quotesList)
     } catch (err) {
       console.error('Error loading chat drawer data:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const getQuoteStatusBadge = (status: Quote['status']) => {
+    switch (status) {
+      case 'aprovado':
+        return (
+          <Badge className="bg-emerald-600 text-white hover:bg-emerald-700 text-[10px] px-1.5 py-0">
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            Aprovado
+          </Badge>
+        )
+      case 'enviado':
+        return (
+          <Badge className="bg-blue-600 text-white hover:bg-blue-700 text-[10px] px-1.5 py-0">
+            <Clock className="h-3 w-3 mr-1" />
+            Enviado
+          </Badge>
+        )
+      case 'recusado':
+        return (
+          <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+            <AlertCircle className="h-3 w-3 mr-1" />
+            Recusado
+          </Badge>
+        )
+      case 'expirado':
+        return (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            Expirado
+          </Badge>
+        )
+      default:
+        return (
+          <Badge
+            variant="outline"
+            className="text-slate-600 dark:text-slate-400 text-[10px] px-1.5 py-0"
+          >
+            Rascunho
+          </Badge>
+        )
     }
   }
 
@@ -210,7 +272,7 @@ export default function WhatsAppChatDrawer({
       setAttachmentNote('')
       if (fileInputRef.current) fileInputRef.current.value = ''
 
-      await loadClientData(displayClient.id)
+      await loadClientData(displayClient.id, activeAttendance?.id)
       if (onClientUpdated) onClientUpdated()
       toast({
         title: 'Mensagem enviada no CRM',
@@ -369,7 +431,7 @@ export default function WhatsAppChatDrawer({
                   }}
                   className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
                 >
-                  <Calculator className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                  <Plus className="h-3.5 w-3.5 mr-1 text-emerald-600" />
                   Novo orçamento
                 </Button>
               )}
@@ -442,6 +504,92 @@ export default function WhatsAppChatDrawer({
           <div className="flex-1 grid grid-cols-1 md:grid-cols-12 min-h-0 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800">
             {/* LEFT SIDE: WhatsApp Chat Conversation */}
             <div className="md:col-span-7 flex flex-col h-full bg-[#efeae2]/40 dark:bg-slate-950/40">
+              {/* Bloco Orçamento Vinculado ao Atendimento Atual */}
+              {attendanceQuotes.length > 0 && (
+                <div className="p-3 bg-emerald-50/90 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                      <Calculator className="h-4 w-4 text-emerald-600" />
+                      <span>
+                        ORÇAMENTO{attendanceQuotes.length > 1 ? 'S' : ''} VINCULADO
+                        {attendanceQuotes.length > 1 ? 'S' : ''} ({attendanceQuotes.length})
+                      </span>
+                    </div>
+                    <Badge className="bg-emerald-200 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100 text-[10px] font-semibold border-emerald-300">
+                      Atendimento Atual
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-2">
+                    {attendanceQuotes.map((quote) => (
+                      <div
+                        key={quote.id}
+                        className="p-2.5 rounded-lg bg-white/95 dark:bg-slate-900/95 border border-emerald-200 dark:border-emerald-800/80 hover:border-emerald-400 transition-all text-xs shadow-xs space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-1 flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-emerald-900 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded text-[11px] border border-emerald-200 dark:border-emerald-800">
+                              {quote.code}
+                            </span>
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {new Date(quote.created).toLocaleDateString('pt-BR')}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {getQuoteStatusBadge(quote.status)}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
+                            <span>Total:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                              {formatCurrency(quote.final_total ?? quote.total_sale ?? 0)}
+                            </span>
+                            {quote.items && (
+                              <span className="text-[10px] text-slate-400 ml-1">
+                                ({Array.isArray(quote.items) ? quote.items.length : 0} item
+                                {Array.isArray(quote.items) && quote.items.length === 1 ? '' : 'ns'}
+                                )
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedQuoteToView(quote)
+                                setQuoteDetailsOpen(true)
+                              }}
+                              className="h-7 px-2 text-[11px] font-semibold border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 gap-1"
+                            >
+                              <Eye className="h-3 w-3 text-emerald-600" />
+                              Ver orçamento
+                            </Button>
+
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled
+                              title="Envio de orçamento será habilitado na próxima etapa"
+                              className="h-7 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 opacity-70 cursor-not-allowed dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
+                            >
+                              <Send className="h-3 w-3" />
+                              Enviar ao cliente
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Bloco Pedido em Andamento / Pedido Ativo */}
               {(() => {
                 const activeProductionOrders = productionOrders.filter(
@@ -1458,7 +1606,7 @@ export default function WhatsAppChatDrawer({
         client={displayClient}
         onSuccess={() => {
           setStartModalOpen(false)
-          loadClientData(displayClient.id)
+          loadClientData(displayClient.id, activeAttendance?.id)
           if (onClientUpdated) onClientUpdated()
         }}
       />
@@ -1471,7 +1619,7 @@ export default function WhatsAppChatDrawer({
         attendanceId={activeAttendance?.id}
         onSuccess={() => {
           if (onClientUpdated) onClientUpdated()
-          loadClientData(displayClient.id)
+          loadClientData(displayClient.id, activeAttendance?.id)
         }}
       />
 
@@ -1483,7 +1631,7 @@ export default function WhatsAppChatDrawer({
           setSelectedOrderToEdit(null)
         }}
         onSaved={() => {
-          loadClientData(displayClient.id)
+          loadClientData(displayClient.id, activeAttendance?.id)
           if (onClientUpdated) onClientUpdated()
         }}
         orderToEdit={selectedOrderToEdit}
@@ -1498,6 +1646,169 @@ export default function WhatsAppChatDrawer({
           notes: displayClient.notes,
         }}
       />
+
+      {/* Quote Details View Modal */}
+      <Dialog open={quoteDetailsOpen} onOpenChange={setQuoteDetailsOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white font-mono">
+              <FileText className="h-5 w-5 text-emerald-600" />
+              {selectedQuoteToView?.code} — {selectedQuoteToView?.client_name}
+            </DialogTitle>
+            <DialogDescription>
+              Resumo dos itens calculados e composição financeira do orçamento vinculado.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedQuoteToView && (
+            <div className="space-y-4 pt-2">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+                <div>
+                  <span className="text-slate-500 block">Cliente</span>
+                  <strong className="text-slate-900 dark:text-white text-sm">
+                    {selectedQuoteToView.client_name}
+                  </strong>
+                  {selectedQuoteToView.client_phone && (
+                    <span className="text-slate-400 block">{selectedQuoteToView.client_phone}</span>
+                  )}
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-500 block">Status</span>
+                  {getQuoteStatusBadge(selectedQuoteToView.status)}
+                </div>
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Itens da Proposta
+                </h4>
+                {Array.isArray(selectedQuoteToView.items) &&
+                selectedQuoteToView.items.length > 0 ? (
+                  selectedQuoteToView.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <strong className="text-slate-900 dark:text-white text-sm">
+                          {item.product_name}
+                        </strong>
+                        <span className="font-bold text-emerald-600 text-sm">
+                          {formatCurrency(Number(item.item_total_sale || 0))}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3 text-slate-500 text-[11px]">
+                        <span>Qtd: {item.quantity}</span>
+                        {item.width && item.height && (
+                          <span>
+                            Medidas: {item.width}m × {item.height}m (Área: {item.total_area} m²)
+                          </span>
+                        )}
+                        <span>Unit: {formatCurrency(Number(item.applied_unit_price || 0))}</span>
+                      </div>
+
+                      {item.additionals && item.additionals.length > 0 && (
+                        <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+                          <span className="text-[10px] text-teal-600 font-medium block">
+                            Adicionais:{' '}
+                            {item.additionals
+                              .map((a: any) => `${a.name} (${a.quantity} un)`)
+                              .join(', ')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400">Nenhum item discriminado.</p>
+                )}
+              </div>
+
+              {/* Total proposal summary */}
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                  <span>Subtotal da Venda:</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">
+                    {formatCurrency(Number(selectedQuoteToView.total_sale || 0))}
+                  </span>
+                </div>
+                {Number(selectedQuoteToView.discount_amount || 0) > 0 && (
+                  <div className="flex items-center justify-between text-amber-600 dark:text-amber-400">
+                    <span>Desconto Comercial:</span>
+                    <span className="font-semibold">
+                      - {formatCurrency(Number(selectedQuoteToView.discount_amount))}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-base font-bold pt-2 border-t border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">
+                  <span>Valor Total da Proposta:</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 text-lg">
+                    {formatCurrency(
+                      Number(
+                        selectedQuoteToView.final_total ?? selectedQuoteToView.total_sale ?? 0,
+                      ),
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Internal Cost x Sale Financial Box (for admin/permission) */}
+              {canViewFinancials && (
+                <div className="p-4 rounded-xl bg-slate-900 text-white space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
+                    Visão Administrativa (Custo x Venda)
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center pt-2">
+                    <div className="p-2 rounded-lg bg-slate-800">
+                      <span className="text-[10px] text-slate-400 uppercase block">
+                        Custo Total
+                      </span>
+                      <strong className="text-xs text-slate-200">
+                        {formatCurrency(Number(selectedQuoteToView.total_cost || 0))}
+                      </strong>
+                    </div>
+                    <div className="p-2 rounded-lg bg-slate-800">
+                      <span className="text-[10px] text-slate-400 uppercase block">
+                        Venda Total
+                      </span>
+                      <strong className="text-xs text-emerald-400">
+                        {formatCurrency(Number(selectedQuoteToView.total_sale || 0))}
+                      </strong>
+                    </div>
+                    <div className="p-2 rounded-lg bg-slate-800">
+                      <span className="text-[10px] text-slate-400 uppercase block">
+                        Lucro Bruto
+                      </span>
+                      <strong className="text-xs text-emerald-400">
+                        {formatCurrency(Number(selectedQuoteToView.gross_profit || 0))}
+                      </strong>
+                    </div>
+                    <div className="p-2 rounded-lg bg-slate-800">
+                      <span className="text-[10px] text-slate-400 uppercase block">Margem %</span>
+                      <strong className="text-xs text-emerald-400">
+                        {Number(selectedQuoteToView.profit_margin_pct || 0).toFixed(1)}%
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {selectedQuoteToView.notes && (
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+                  <span className="font-semibold block text-[10px] uppercase text-slate-400 mb-1">
+                    Condições & Observações:
+                  </span>
+                  <p className="text-slate-600 dark:text-slate-300 whitespace-pre-wrap">
+                    {selectedQuoteToView.notes}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
