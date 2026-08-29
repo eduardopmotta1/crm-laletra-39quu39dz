@@ -26,6 +26,7 @@ import {
   Layers,
   AlertCircle,
 } from 'lucide-react'
+import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
 import { attendancesService } from '@/services/attendances'
@@ -52,7 +53,7 @@ import { toast } from '@/hooks/use-toast'
 import ClientFormModal from './ClientFormModal'
 
 export default function AppLayout() {
-  const { user, logout, isAdmin, roleSlug, hasPermission } = useAuth()
+  const { user, logout, isAdmin, isLoading: authLoading, roleSlug, hasPermission } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -106,6 +107,23 @@ export default function AppLayout() {
         overflow: string
         height: string
       }
+    }
+    auth: {
+      userExists: boolean
+      userId: string
+      userEmail: string
+      userRoleSlug: string
+      userRole: string
+      userIsActive: string
+      authContextIsAdmin: boolean
+      authContextLoading: boolean
+      pbAuthStoreIsValid: boolean
+      pbModelId: string
+      pbModelEmail: string
+      pbModelRoleSlug: string
+      pbModelRole: string
+      userJson: string
+      pbModelJson: string
     }
   } | null>(null)
 
@@ -433,12 +451,41 @@ export default function AppLayout() {
       }
     }
 
+    const pbRecord = (pb.authStore.record || (pb.authStore as any).model) as Record<
+      string,
+      any
+    > | null
+    const pbModelRole =
+      pbRecord?.role || (pbRecord?.expand?.role_id?.name ?? pbRecord?.expand?.role?.name ?? '—')
+    const userRoleValue =
+      (user as any)?.role ||
+      (user?.expand?.role_id as any)?.name ||
+      (user?.expand as any)?.role?.name ||
+      '—'
+
     setDiagInfo({
       navItemsLength: navItems.length,
       isAdmin: Boolean(isAdmin),
       navExistsDOM: navEl ? 'SIM' : 'NÃO',
       nav: navMetrics,
       scrollParent: parentMetrics,
+      auth: {
+        userExists: Boolean(user),
+        userId: user?.id || '—',
+        userEmail: user?.email || '—',
+        userRoleSlug: user?.role_slug || '—',
+        userRole: userRoleValue || '—',
+        userIsActive: user ? (user.is_active !== undefined ? String(user.is_active) : '—') : '—',
+        authContextIsAdmin: Boolean(isAdmin),
+        authContextLoading: Boolean(authLoading),
+        pbAuthStoreIsValid: Boolean(pb.authStore.isValid),
+        pbModelId: pbRecord?.id || '—',
+        pbModelEmail: pbRecord?.email || '—',
+        pbModelRoleSlug: pbRecord?.role_slug || '—',
+        pbModelRole: pbModelRole || '—',
+        userJson: JSON.stringify(user, null, 2),
+        pbModelJson: JSON.stringify(pbRecord, null, 2),
+      },
     })
   }
 
@@ -452,14 +499,35 @@ export default function AppLayout() {
       clearInterval(interval)
       window.removeEventListener('resize', updateDiagnostics)
     }
-  }, [navItems.length, isAdmin, location.pathname])
+  }, [navItems.length, isAdmin, authLoading, user, location.pathname])
 
   const handleCopyDiagnostic = () => {
+    const pbRecord = (pb.authStore.record || (pb.authStore as any).model) as Record<
+      string,
+      any
+    > | null
     const payload = JSON.stringify(
       diagInfo || {
         navItemsLength: navItems.length,
         isAdmin: Boolean(isAdmin),
         navExistsDOM: navRef.current ? 'SIM' : 'NÃO',
+        auth: {
+          userExists: Boolean(user),
+          userId: user?.id || '—',
+          userEmail: user?.email || '—',
+          userRoleSlug: user?.role_slug || '—',
+          userRole: (user as any)?.role || (user?.expand?.role_id as any)?.name || '—',
+          userIsActive: user ? String(user.is_active) : '—',
+          authContextIsAdmin: Boolean(isAdmin),
+          authContextLoading: Boolean(authLoading),
+          pbAuthStoreIsValid: Boolean(pb.authStore.isValid),
+          pbModelId: pbRecord?.id || '—',
+          pbModelEmail: pbRecord?.email || '—',
+          pbModelRoleSlug: pbRecord?.role_slug || '—',
+          pbModelRole: pbRecord?.role || '—',
+          userJson: user,
+          pbModelJson: pbRecord,
+        },
       },
       null,
       2,
@@ -752,7 +820,147 @@ export default function AppLayout() {
                 <div>height: {diagInfo?.scrollParent.getComputedStyle.height || '—'}</div>
               </div>
 
-              <div className="pt-1.5">
+              {/* Diagnóstico de Autenticação */}
+              <div className="border-t-2 border-amber-300 dark:border-amber-700 pt-2 mt-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-amber-900 dark:text-amber-300">
+                    🔐 DIAGNÓSTICO AUTH
+                  </span>
+                </div>
+
+                <div className="space-y-0.5 pt-0.5">
+                  <div className="font-semibold text-amber-900 dark:text-amber-300">
+                    User State:
+                  </div>
+                  <div>
+                    user existe:{' '}
+                    <strong
+                      className={user ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600'}
+                    >
+                      {user ? 'SIM' : 'NÃO'}
+                    </strong>
+                  </div>
+                  <div className="break-all">
+                    user.id:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">{user?.id || '—'}</span>
+                  </div>
+                  <div className="break-all">
+                    user.email:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">{user?.email || '—'}</span>
+                  </div>
+                  <div>
+                    user.role_slug:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">
+                      {user?.role_slug || '—'}
+                    </span>
+                  </div>
+                  <div>
+                    user.role:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">
+                      {(user as any)?.role ||
+                        (user?.expand?.role_id as any)?.name ||
+                        (user?.expand as any)?.role?.name ||
+                        '—'}
+                    </span>
+                  </div>
+                  <div>
+                    user.is_active:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">
+                      {user ? (user.is_active !== undefined ? String(user.is_active) : '—') : '—'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border-t border-amber-200 dark:border-amber-800 pt-1 space-y-0.5">
+                  <div className="font-semibold text-amber-900 dark:text-amber-300">
+                    AuthContext:
+                  </div>
+                  <div>
+                    isAdmin:{' '}
+                    <strong className="text-amber-950 dark:text-amber-100">
+                      {String(isAdmin)}
+                    </strong>
+                  </div>
+                  <div>
+                    loading:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">
+                      {String(authLoading)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border-t border-amber-200 dark:border-amber-800 pt-1 space-y-0.5">
+                  <div className="font-semibold text-amber-900 dark:text-amber-300">
+                    PocketBase authStore (pb.authStore):
+                  </div>
+                  <div>
+                    isValid:{' '}
+                    <strong
+                      className={
+                        pb.authStore.isValid
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-rose-600'
+                      }
+                    >
+                      {String(pb.authStore.isValid)}
+                    </strong>
+                  </div>
+                  <div className="break-all">
+                    model.id:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">
+                      {(pb.authStore.record || (pb.authStore as any).model)?.id || '—'}
+                    </span>
+                  </div>
+                  <div className="break-all">
+                    model.email:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">
+                      {(pb.authStore.record || (pb.authStore as any).model)?.email || '—'}
+                    </span>
+                  </div>
+                  <div>
+                    model.role_slug:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">
+                      {(pb.authStore.record || (pb.authStore as any).model)?.role_slug || '—'}
+                    </span>
+                  </div>
+                  <div>
+                    model.role:{' '}
+                    <span className="text-amber-950 dark:text-amber-100">
+                      {(pb.authStore.record || (pb.authStore as any).model)?.role ||
+                        ((pb.authStore.record || (pb.authStore as any).model)?.expand?.role_id
+                          ?.name ??
+                          (pb.authStore.record || (pb.authStore as any).model)?.expand?.role
+                            ?.name ??
+                          '—')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border-t border-amber-200 dark:border-amber-800 pt-1 space-y-1">
+                  <div>
+                    <div className="font-semibold text-amber-900 dark:text-amber-300">
+                      JSON.stringify(user):
+                    </div>
+                    <pre className="text-[9px] bg-amber-100/70 dark:bg-amber-950/80 p-1.5 rounded overflow-x-auto max-h-24 whitespace-pre-wrap break-all text-slate-800 dark:text-slate-200">
+                      {JSON.stringify(user, null, 2) || 'null'}
+                    </pre>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-amber-900 dark:text-amber-300">
+                      JSON.stringify(pb.authStore.model):
+                    </div>
+                    <pre className="text-[9px] bg-amber-100/70 dark:bg-amber-950/80 p-1.5 rounded overflow-x-auto max-h-24 whitespace-pre-wrap break-all text-slate-800 dark:text-slate-200">
+                      {JSON.stringify(
+                        pb.authStore.record || (pb.authStore as any).model,
+                        null,
+                        2,
+                      ) || 'null'}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2">
                 <Button
                   type="button"
                   size="sm"
