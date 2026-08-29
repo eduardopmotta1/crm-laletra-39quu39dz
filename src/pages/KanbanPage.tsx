@@ -25,10 +25,11 @@ import {
   SlidersHorizontal,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 export default function KanbanPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [columns, setColumns] = useState<KanbanColumn[]>([])
   const [attendances, setAttendances] = useState<Attendance[]>([])
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
@@ -104,6 +105,36 @@ export default function KanbanPage() {
     window.addEventListener('crm-client-updated', handleUpdate)
     return () => window.removeEventListener('crm-client-updated', handleUpdate)
   }, [])
+
+  // Auto-open attendance chat drawer if attendance_id / attendanceId query param is present
+  useEffect(() => {
+    const targetAttendanceId = searchParams.get('attendance_id') || searchParams.get('attendanceId')
+    if (!targetAttendanceId) return
+
+    const openAttendanceDrawer = async () => {
+      // 1. Check if already loaded in state
+      let att = attendances.find((a) => a.id === targetAttendanceId)
+      if (!att) {
+        try {
+          const fetched = await attendancesService.getById(targetAttendanceId)
+          if (fetched) {
+            att = fetched
+          }
+        } catch (err) {
+          console.error('Error fetching attendance for query param:', err)
+        }
+      }
+
+      if (att) {
+        const clientObj = getClientFromAttendance(att)
+        setSelectedClientForChat(clientObj)
+        setSelectedAttendanceForChat(att)
+        setChatDrawerOpen(true)
+      }
+    }
+
+    openAttendanceDrawer()
+  }, [searchParams, attendances])
 
   // Helper to get client identity object from attendance expand or fallback
   const getClientFromAttendance = (att: Attendance): Client => {
@@ -528,6 +559,12 @@ export default function KanbanPage() {
         onClose={() => {
           setChatDrawerOpen(false)
           setSelectedAttendanceForChat(null)
+          if (searchParams.get('attendance_id') || searchParams.get('attendanceId')) {
+            const nextParams = new URLSearchParams(searchParams)
+            nextParams.delete('attendance_id')
+            nextParams.delete('attendanceId')
+            setSearchParams(nextParams, { replace: true })
+          }
         }}
         client={selectedClientForChat}
         activeAttendance={selectedAttendanceForChat}

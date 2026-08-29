@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Users,
   Clock,
@@ -31,6 +31,7 @@ import ClientFormModal from '@/components/ClientFormModal'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [clients, setClients] = useState<Client[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [dissatisfiedEvaluations, setDissatisfiedEvaluations] = useState<Evaluation[]>([])
@@ -84,6 +85,45 @@ export default function DashboardPage() {
     window.addEventListener('crm-client-updated', handleUpdate)
     return () => window.removeEventListener('crm-client-updated', handleUpdate)
   }, [])
+
+  // Auto-open attendance chat drawer if attendance_id / attendanceId query param is present
+  useEffect(() => {
+    const targetAttendanceId = searchParams.get('attendance_id') || searchParams.get('attendanceId')
+    if (!targetAttendanceId) return
+
+    const openAttendanceDrawer = async () => {
+      let att = attendances.find((a) => a.id === targetAttendanceId)
+      if (!att) {
+        try {
+          const fetched = await attendancesService.getById(targetAttendanceId)
+          if (fetched) {
+            att = fetched
+          }
+        } catch (err) {
+          console.error('Error fetching attendance in Dashboard:', err)
+        }
+      }
+
+      if (att) {
+        let client = att.expand?.client_id || clients.find((c) => c.id === att?.client_id)
+        if (!client && att.client_id) {
+          try {
+            client = (await clientsService.getById(att.client_id)) || undefined
+          } catch (err) {
+            console.error('Error fetching client for attendance in Dashboard:', err)
+          }
+        }
+
+        if (client) {
+          setSelectedClient(client)
+          setSelectedAttendance(att)
+          setChatDrawerOpen(true)
+        }
+      }
+    }
+
+    openAttendanceDrawer()
+  }, [searchParams, attendances, clients])
 
   // Active attendances for commercial funnel & response KPIs
   const activeAttendances = attendances.filter((a) => !a.is_archived)
@@ -538,6 +578,12 @@ export default function DashboardPage() {
         onClose={() => {
           setChatDrawerOpen(false)
           setSelectedAttendance(null)
+          if (searchParams.get('attendance_id') || searchParams.get('attendanceId')) {
+            const nextParams = new URLSearchParams(searchParams)
+            nextParams.delete('attendance_id')
+            nextParams.delete('attendanceId')
+            setSearchParams(nextParams, { replace: true })
+          }
         }}
         client={selectedClient}
         activeAttendance={selectedAttendance}

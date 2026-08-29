@@ -273,7 +273,7 @@ export default function NewQuotePage() {
 
     setSaving(true)
     try {
-      await quotesService.create({
+      const savedQuote = await quotesService.create({
         client_id: selectedClientId || undefined,
         attendance_id: attendanceId.trim() || undefined,
         client_name: clientName.trim(),
@@ -294,7 +294,13 @@ export default function NewQuotePage() {
         title: 'Orçamento salvo!',
         description: `Proposta gerada com sucesso para "${clientName}".`,
       })
-      navigate('/orcamentos')
+
+      const targetAttendanceId = savedQuote?.attendance_id || attendanceId.trim()
+      if (targetAttendanceId) {
+        navigate(`/kanban?attendance_id=${encodeURIComponent(targetAttendanceId)}`)
+      } else {
+        navigate('/orcamentos')
+      }
     } catch (err) {
       console.error('Error saving quote:', err)
       toast({
