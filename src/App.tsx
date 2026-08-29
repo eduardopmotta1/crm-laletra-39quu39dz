@@ -63,6 +63,7 @@ const App = () => (
             <Route path="/recuperacao" element={<CustomerRecoveryPage />} />
             <Route path="/orcamentos" element={<QuotesListPage />} />
             <Route path="/orcamentos/novo" element={<NewQuotePage />} />
+            <Route path="/orcamentos/:quoteId/editar" element={<NewQuotePage />} />
             <Route path="/orcamentos/produtos" element={<ProductsPage />} />
             <Route path="/orcamentos/materiais" element={<MaterialsPage />} />
             <Route path="/templates" element={<WhatsAppTemplatesPage />} />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
 import {
   Calculator,
   Plus,
@@ -23,6 +23,9 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  Edit3,
+  Lock,
+  ArrowLeft,
 } from 'lucide-react'
 import { productsService } from '@/services/quoteProducts'
 import { materialsService } from '@/services/quoteMaterials'
@@ -30,6 +33,7 @@ import { additionalsService } from '@/services/quoteAdditionals'
 import { clientsService } from '@/services/clients'
 import { quotesService } from '@/services/quotes'
 import type {
+  Quote,
   QuoteProduct,
   QuoteMaterial,
   QuoteAdditional,
@@ -56,8 +60,25 @@ import { toast } from '@/hooks/use-toast'
 
 export default function NewQuotePage() {
   const navigate = useNavigate()
+  const params = useParams<{ quoteId?: string }>()
   const [searchParams] = useSearchParams()
   const location = useLocation()
+
+  // Identify edit mode: from path param (/orcamentos/:quoteId/editar) or query param (?quote_id=... / ?editQuoteId=...)
+  const editQuoteId =
+    params.quoteId ||
+    searchParams.get('quote_id') ||
+    searchParams.get('quoteId') ||
+    searchParams.get('editQuoteId') ||
+    (location.state as any)?.quoteId ||
+    (location.state as any)?.quote_id ||
+    ''
+
+  const isEditing = Boolean(editQuoteId)
+
+  // Immutable original quote code and status when editing
+  const [quoteCode, setQuoteCode] = useState<string>('')
+  const [quoteStatus, setQuoteStatus] = useState<Quote['status']>('rascunho')
 
   const [products, setProducts] = useState<QuoteProduct[]>([])
   const [materials, setMaterials] = useState<QuoteMaterial[]>([])
@@ -73,7 +94,7 @@ export default function NewQuotePage() {
   } | null>(null)
   const [copiedError, setCopiedError] = useState(false)
 
-  // Explicit attendance_id from navigation (query param or router state)
+  // Explicit attendance_id from navigation (query param, router state, or existing quote)
   const [attendanceId, setAttendanceId] = useState<string>(() => {
     const fromQuery = searchParams.get('attendance_id') || searchParams.get('attendanceId')
     const fromState =
@@ -125,20 +146,47 @@ export default function NewQuotePage() {
         selectProductForBuilder(prods[0])
       }
 
-      // If clientId was passed via query params or state, prefill client details
-      const initialClientId =
-        searchParams.get('client_id') ||
-        searchParams.get('clientId') ||
-        (location.state as any)?.client_id ||
-        (location.state as any)?.clientId
+      // If in edit mode, load the quote explicitly by its ID
+      if (editQuoteId) {
+        const existingQuote = await quotesService.getById(editQuoteId)
+        if (existingQuote) {
+          setQuoteCode(existingQuote.code)
+          setQuoteStatus(existingQuote.status || 'rascunho')
+          setSelectedClientId(existingQuote.client_id || '')
+          setAttendanceId(existingQuote.attendance_id || '')
+          setClientName(existingQuote.client_name || '')
+          setClientPhone(existingQuote.client_phone || '')
+          setClientEmail(existingQuote.client_email || '')
+          setQuoteNotes(existingQuote.notes || '')
+          setDiscountAmount(existingQuote.discount_amount ?? 0)
+          if (Array.isArray(existingQuote.items)) {
+            setItems(existingQuote.items)
+          }
+        } else {
+          toast({
+            title: 'Orçamento não encontrado',
+            description: `Não foi possível encontrar o orçamento ID "${editQuoteId}".`,
+            variant: 'destructive',
+          })
+          navigate('/orcamentos')
+          return
+        }
+      } else {
+        // Create mode: If clientId was passed via query params or state, prefill client details
+        const initialClientId =
+          searchParams.get('client_id') ||
+          searchParams.get('clientId') ||
+          (location.state as any)?.client_id ||
+          (location.state as any)?.clientId
 
-      if (initialClientId) {
-        const found = cls.find((c) => c.id === initialClientId)
-        if (found) {
-          setSelectedClientId(found.id)
-          setClientName(found.name)
-          setClientPhone(found.phone || '')
-          setClientEmail(found.email || '')
+        if (initialClientId) {
+          const found = cls.find((c) => c.id === initialClientId)
+          if (found) {
+            setSelectedClientId(found.id)
+            setClientName(found.name)
+            setClientPhone(found.phone || '')
+            setClientEmail(found.email || '')
+          }
         }
       }
     } catch (err) {
@@ -155,7 +203,7 @@ export default function NewQuotePage() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [editQuoteId])
 
   // When selecting a client from CRM
   const handleClientSelect = (clientId: string) => {
@@ -261,8 +309,8 @@ export default function NewQuotePage() {
     return calculateQuoteSummary(items, Number(discountAmount) || 0)
   }, [items, discountAmount])
 
-  // Save the full quote
-  const handleSaveQuote = async (status: 'rascunho' | 'enviado' = 'rascunho') => {
+  // Save the full quote (Create or Update)
+  const handleSaveQuote = async (statusOverride?: Quote['status']) => {
     if (!clientName.trim()) {
       toast({
         title: 'Nome do cliente obrigatório',
@@ -284,28 +332,63 @@ export default function NewQuotePage() {
     setSaving(true)
     setSaveErrorInfo(null)
     try {
-      const savedQuote = await quotesService.create({
-        client_id: selectedClientId || undefined,
-        attendance_id: attendanceId.trim() || undefined,
-        client_name: clientName.trim(),
-        client_phone: clientPhone.trim(),
-        client_email: clientEmail.trim(),
-        status,
-        items,
-        total_cost: quoteSummary.subtotal_cost,
-        total_sale: quoteSummary.subtotal_sale,
-        discount_amount: quoteSummary.discount_amount,
-        final_total: quoteSummary.final_total,
-        gross_profit: quoteSummary.gross_profit,
-        profit_margin_pct: quoteSummary.profit_margin_pct,
-        notes: quoteNotes.trim(),
-      })
+      const finalStatus = statusOverride || quoteStatus || 'rascunho'
 
-      toast({
-        title: 'Orçamento salvo!',
-        description: `Proposta gerada com sucesso para "${clientName}".`,
-      })
+      let savedQuote: Quote
 
+      if (isEditing && editQuoteId) {
+        // UPDATE existing quote:
+        // Rule: Do NOT call quotesService.create(). Use quotesService.update(editQuoteId, ...)
+        // Rule: Do NOT pass code in payload (quotesService.update also strips code to guarantee immutability)
+        // Rule: Preserve quote.id, quote.code, attendance_id, client_id
+        savedQuote = await quotesService.update(editQuoteId, {
+          client_id: selectedClientId || undefined,
+          attendance_id: attendanceId.trim() || undefined,
+          client_name: clientName.trim(),
+          client_phone: clientPhone.trim(),
+          client_email: clientEmail.trim(),
+          status: finalStatus,
+          items,
+          total_cost: quoteSummary.subtotal_cost,
+          total_sale: quoteSummary.subtotal_sale,
+          discount_amount: quoteSummary.discount_amount,
+          final_total: quoteSummary.final_total,
+          gross_profit: quoteSummary.gross_profit,
+          profit_margin_pct: quoteSummary.profit_margin_pct,
+          notes: quoteNotes.trim(),
+        })
+
+        toast({
+          title: 'Orçamento atualizado com sucesso',
+          description: `O orçamento ${quoteCode || savedQuote.code} foi alterado sem modificar seu número.`,
+        })
+      } else {
+        // CREATE new quote:
+        // Rule: Only now generate ORC-YYYY-XXXX
+        savedQuote = await quotesService.create({
+          client_id: selectedClientId || undefined,
+          attendance_id: attendanceId.trim() || undefined,
+          client_name: clientName.trim(),
+          client_phone: clientPhone.trim(),
+          client_email: clientEmail.trim(),
+          status: finalStatus,
+          items,
+          total_cost: quoteSummary.subtotal_cost,
+          total_sale: quoteSummary.subtotal_sale,
+          discount_amount: quoteSummary.discount_amount,
+          final_total: quoteSummary.final_total,
+          gross_profit: quoteSummary.gross_profit,
+          profit_margin_pct: quoteSummary.profit_margin_pct,
+          notes: quoteNotes.trim(),
+        })
+
+        toast({
+          title: 'Orçamento salvo!',
+          description: `Proposta gerada com sucesso (${savedQuote.code}) para "${clientName}".`,
+        })
+      }
+
+      // Return to attendance conversation if attendance_id is present
       const targetAttendanceId = savedQuote?.attendance_id || attendanceId.trim()
       if (targetAttendanceId) {
         navigate(`/kanban?attendance_id=${encodeURIComponent(targetAttendanceId)}`)
@@ -316,9 +399,6 @@ export default function NewQuotePage() {
       console.error('Error saving quote:', err)
 
       // PocketBase ClientResponseError structure:
-      // err.status (HTTP status)
-      // err.message (Error message)
-      // err.data or err.response?.data (Validation error data payload)
       const errorStatus =
         typeof err?.status === 'number'
           ? err.status
@@ -350,8 +430,8 @@ export default function NewQuotePage() {
       })
 
       toast({
-        title: 'Erro ao salvar',
-        description: 'Não foi possível salvar o orçamento.',
+        title: isEditing ? 'Erro ao atualizar orçamento' : 'Erro ao salvar orçamento',
+        description: 'Não foi possível persistir as alterações.',
         variant: 'destructive',
       })
     } finally {
@@ -376,19 +456,41 @@ export default function NewQuotePage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-            <Calculator className="h-4 w-4" />
-            Módulo Orçamentos
+            {isEditing ? <Edit3 className="h-4 w-4" /> : <Calculator className="h-4 w-4" />}
+            Módulo Orçamentos {isEditing ? '• Edição' : '• Novo'}
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mt-1">
-            Calculadora & Novo Orçamento
-          </h1>
+          <div className="flex items-center gap-3 mt-1 flex-wrap">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+              {isEditing ? 'Alterar Orçamento' : 'Calculadora & Novo Orçamento'}
+            </h1>
+            {isEditing && quoteCode && (
+              <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border-emerald-300 font-mono text-sm px-2.5 py-1 flex items-center gap-1.5 shadow-xs">
+                <Lock className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
+                <span>
+                  Número do orçamento: <strong>{quoteCode}</strong>
+                </span>
+              </Badge>
+            )}
+          </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Selecione produtos, insira medidas e acabamentos com cálculo automático de m², custos e
-            preço de venda.
+            {isEditing
+              ? `Editando proposta existente. O código "${quoteCode}" é fixo e permanente no banco de dados.`
+              : 'Selecione produtos, insira medidas e acabamentos com cálculo automático de m², custos e preço de venda.'}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          {attendanceId ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/kanban?attendance_id=${encodeURIComponent(attendanceId)}`)}
+              className="gap-1.5"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Voltar ao Atendimento
+            </Button>
+          ) : null}
           <Link to="/orcamentos">
             <Button variant="outline" size="sm">
               Ver Todos os Orçamentos
@@ -441,13 +543,15 @@ export default function NewQuotePage() {
                           <strong className="font-mono">{attendanceId}</strong>
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setAttendanceId('')}
-                        className="text-emerald-600 hover:text-emerald-800 text-[11px] underline"
-                      >
-                        Desvincular
-                      </button>
+                      {!isEditing && (
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceId('')}
+                          className="text-emerald-600 hover:text-emerald-800 text-[11px] underline"
+                        >
+                          Desvincular
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -877,7 +981,6 @@ export default function NewQuotePage() {
                   ))}
                 </div>
               )}
-
               {/* Discount and Totals */}
               <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs">
                 <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
@@ -908,7 +1011,6 @@ export default function NewQuotePage() {
                   </span>
                 </div>
               </div>
-
               {/* Admin Cost vs Sale Box (Requirement 5) */}
               <div className="p-3 rounded-xl bg-slate-900 text-white space-y-1.5 text-xs">
                 <div className="flex items-center justify-between text-slate-400">
@@ -930,7 +1032,6 @@ export default function NewQuotePage() {
                   </span>
                 </div>
               </div>
-
               {/* Observations */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -944,16 +1045,19 @@ export default function NewQuotePage() {
                   className="mt-1 resize-none text-xs"
                 />
               </div>
-
               {/* Action Buttons */}
               <div className="space-y-2 pt-2">
                 <Button
-                  onClick={() => handleSaveQuote('rascunho')}
+                  onClick={() => handleSaveQuote(isEditing ? quoteStatus : 'rascunho')}
                   disabled={saving || items.length === 0}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-10 shadow-sm"
                 >
                   <CheckCircle2 className="h-4 w-4 mr-2" />
-                  {saving ? 'Salvando Proposta...' : 'Salvar Orçamento'}
+                  {saving
+                    ? 'Salvando Proposta...'
+                    : isEditing
+                      ? 'Salvar Alterações do Orçamento'
+                      : 'Salvar Orçamento'}
                 </Button>
 
                 <Button
@@ -962,9 +1066,11 @@ export default function NewQuotePage() {
                   disabled={saving || items.length === 0}
                   className="w-full text-xs"
                 >
-                  Salvar como Enviado ao Cliente
+                  {isEditing
+                    ? 'Salvar e Marcar como Enviado ao Cliente'
+                    : 'Salvar como Enviado ao Cliente'}
                 </Button>
-              </div>
+              </div>{' '}
             </CardContent>
           </Card>
         </div>

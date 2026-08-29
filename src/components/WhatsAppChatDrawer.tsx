@@ -33,6 +33,7 @@ import {
   Calculator,
   FileText,
   Eye,
+  Edit3,
 } from 'lucide-react'
 import type {
   Client,
@@ -556,7 +557,7 @@ export default function WhatsAppChatDrawer({
                             )}
                           </div>
 
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <Button
                               type="button"
                               variant="outline"
@@ -569,6 +570,23 @@ export default function WhatsAppChatDrawer({
                             >
                               <Eye className="h-3 w-3 text-emerald-600" />
                               Ver orçamento
+                            </Button>
+
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const clientId = displayClient.id
+                                const attId = activeAttendance?.id || quote.attendance_id || ''
+                                navigate(
+                                  `/orcamentos/${quote.id}/editar?attendance_id=${encodeURIComponent(attId)}&client_id=${encodeURIComponent(clientId)}`,
+                                )
+                              }}
+                              className="h-7 px-2 text-[11px] font-semibold bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 gap-1"
+                            >
+                              <Edit3 className="h-3 w-3 text-amber-600" />
+                              Alterar orçamento
                             </Button>
 
                             <Button
@@ -1805,6 +1823,34 @@ export default function WhatsAppChatDrawer({
                   </p>
                 </div>
               )}
+
+              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuoteDetailsOpen(false)}
+                  className="text-xs"
+                >
+                  Fechar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setQuoteDetailsOpen(false)
+                    const clientId = displayClient.id
+                    const attId = activeAttendance?.id || selectedQuoteToView.attendance_id || ''
+                    navigate(
+                      `/orcamentos/${selectedQuoteToView.id}/editar?attendance_id=${encodeURIComponent(attId)}&client_id=${encodeURIComponent(clientId)}`,
+                    )
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
+                >
+                  <Edit3 className="h-3.5 w-3.5" />
+                  Alterar este orçamento
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>

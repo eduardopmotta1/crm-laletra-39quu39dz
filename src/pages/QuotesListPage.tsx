@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   FileText,
   Plus,
@@ -16,6 +16,7 @@ import {
   Clock,
   AlertCircle,
   Scissors,
+  Edit3,
 } from 'lucide-react'
 import { quotesService } from '@/services/quotes'
 import type { Quote } from '@/types/quotes'
@@ -40,6 +41,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 
 export default function QuotesListPage() {
+  const navigate = useNavigate()
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -319,6 +321,21 @@ export default function QuotesListPage() {
                     <Eye className="h-3.5 w-3.5" />
                     Detalhes
                   </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const attParam = q.attendance_id
+                        ? `?attendance_id=${encodeURIComponent(q.attendance_id)}`
+                        : ''
+                      navigate(`/orcamentos/${q.id}/editar${attParam}`)
+                    }}
+                    className="gap-1.5 text-xs bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                  >
+                    <Edit3 className="h-3.5 w-3.5 text-amber-600" />
+                    Alterar orçamento
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -435,6 +452,34 @@ export default function QuotesListPage() {
                     </strong>
                   </div>
                 </div>
+              </div>
+
+              {/* Modal Footer with Edit Action */}
+              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDetailsOpen(false)}
+                  className="text-xs"
+                >
+                  Fechar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setDetailsOpen(false)
+                    const attParam = selectedQuote.attendance_id
+                      ? `?attendance_id=${encodeURIComponent(selectedQuote.attendance_id)}`
+                      : ''
+                    navigate(`/orcamentos/${selectedQuote.id}/editar${attParam}`)
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
+                >
+                  <Edit3 className="h-3.5 w-3.5" />
+                  Alterar este orçamento
+                </Button>
               </div>
             </div>
           )}
