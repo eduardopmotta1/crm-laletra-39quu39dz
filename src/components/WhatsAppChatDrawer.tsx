@@ -34,6 +34,8 @@ import {
   FileText,
   Eye,
   Edit3,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import type {
   Client,
@@ -130,6 +132,10 @@ export default function WhatsAppChatDrawer({
   // Modals state
   const [startModalOpen, setStartModalOpen] = useState(false)
   const [archiveModalOpen, setArchiveModalOpen] = useState(false)
+
+  // Collapsible sections state
+  const [quotesExpanded, setQuotesExpanded] = useState(true)
+  const [ordersExpanded, setOrdersExpanded] = useState(true)
 
   // Right sidebar tab
   const [rightTab, setRightTab] = useState<'info' | 'relationship' | 'orders' | 'history'>('info')
@@ -494,7 +500,9 @@ export default function WhatsAppChatDrawer({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="Fechar conversa"
+                aria-label="Fechar conversa"
+                className="p-1.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors ml-1"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -507,9 +515,19 @@ export default function WhatsAppChatDrawer({
             <div className="md:col-span-7 flex flex-col h-full bg-[#efeae2]/40 dark:bg-slate-950/40">
               {/* Bloco Orçamento Vinculado ao Atendimento Atual */}
               {attendanceQuotes.length > 0 && (
-                <div className="p-3 bg-emerald-50/90 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                <div className="px-3 py-2 bg-emerald-50/90 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60">
+                  <button
+                    type="button"
+                    onClick={() => setQuotesExpanded(!quotesExpanded)}
+                    className="w-full flex items-center justify-between text-xs font-bold text-emerald-900 dark:text-emerald-200 hover:opacity-80 transition-opacity"
+                    title={quotesExpanded ? 'Recolher orçamentos' : 'Expandir orçamentos'}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {quotesExpanded ? (
+                        <ChevronDown className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
+                      )}
                       <Calculator className="h-4 w-4 text-emerald-600" />
                       <span>
                         ORÇAMENTO{attendanceQuotes.length > 1 ? 'S' : ''} VINCULADO
@@ -519,45 +537,26 @@ export default function WhatsAppChatDrawer({
                     <Badge className="bg-emerald-200 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100 text-[10px] font-semibold border-emerald-300">
                       Atendimento Atual
                     </Badge>
-                  </div>
+                  </button>
 
-                  <div className="space-y-2">
-                    {attendanceQuotes.map((quote) => (
-                      <div
-                        key={quote.id}
-                        className="p-2.5 rounded-lg bg-white/95 dark:bg-slate-900/95 border border-emerald-200 dark:border-emerald-800/80 hover:border-emerald-400 transition-all text-xs shadow-xs space-y-2"
-                      >
-                        <div className="flex items-center justify-between gap-1 flex-wrap">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono font-bold text-emerald-900 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded text-[11px] border border-emerald-200 dark:border-emerald-800">
+                  {quotesExpanded && (
+                    <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                      {attendanceQuotes.map((quote) => (
+                        <div
+                          key={quote.id}
+                          className="p-1.5 px-2 rounded-md bg-white/95 dark:bg-slate-900/95 border border-emerald-200 dark:border-emerald-800/80 hover:border-emerald-400 transition-all text-xs shadow-xs flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap"
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                            <span className="font-mono font-bold text-emerald-900 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded text-[11px] border border-emerald-200 dark:border-emerald-800 shrink-0">
                               {quote.code}
                             </span>
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {new Date(quote.created).toLocaleDateString('pt-BR')}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {getQuoteStatusBadge(quote.status)}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
-                          <div className="flex items-center gap-1 text-slate-600 dark:text-slate-300 font-medium">
-                            <span>Total:</span>
-                            <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs shrink-0">
                               {formatCurrency(quote.final_total ?? quote.total_sale ?? 0)}
                             </span>
-                            {quote.items && (
-                              <span className="text-[10px] text-slate-400 ml-1">
-                                ({Array.isArray(quote.items) ? quote.items.length : 0} item
-                                {Array.isArray(quote.items) && quote.items.length === 1 ? '' : 'ns'}
-                                )
-                              </span>
-                            )}
+                            <div className="shrink-0">{getQuoteStatusBadge(quote.status)}</div>
                           </div>
 
-                          <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="flex items-center gap-1 shrink-0 ml-auto">
                             <Button
                               type="button"
                               variant="outline"
@@ -566,10 +565,11 @@ export default function WhatsAppChatDrawer({
                                 setSelectedQuoteToView(quote)
                                 setQuoteDetailsOpen(true)
                               }}
-                              className="h-7 px-2 text-[11px] font-semibold border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 gap-1"
+                              className="h-6 px-2 text-[11px] font-semibold border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 gap-1"
+                              title="Ver orçamento"
                             >
                               <Eye className="h-3 w-3 text-emerald-600" />
-                              Ver orçamento
+                              <span>Ver</span>
                             </Button>
 
                             <Button
@@ -583,10 +583,11 @@ export default function WhatsAppChatDrawer({
                                   `/orcamentos/${quote.id}/editar?attendance_id=${encodeURIComponent(attId)}&client_id=${encodeURIComponent(clientId)}`,
                                 )
                               }}
-                              className="h-7 px-2 text-[11px] font-semibold bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 gap-1"
+                              className="h-6 px-2 text-[11px] font-semibold bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 gap-1"
+                              title="Alterar orçamento"
                             >
                               <Edit3 className="h-3 w-3 text-amber-600" />
-                              Alterar orçamento
+                              <span>Alterar</span>
                             </Button>
 
                             <Button
@@ -595,16 +596,16 @@ export default function WhatsAppChatDrawer({
                               size="sm"
                               disabled
                               title="Envio de orçamento será habilitado na próxima etapa"
-                              className="h-7 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 opacity-70 cursor-not-allowed dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
+                              className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 opacity-70 cursor-not-allowed dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
                             >
                               <Send className="h-3 w-3" />
-                              Enviar ao cliente
+                              <span>Enviar</span>
                             </Button>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -616,63 +617,72 @@ export default function WhatsAppChatDrawer({
                 if (activeProductionOrders.length === 0) return null
 
                 return (
-                  <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 dark:text-amber-200">
+                  <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60">
+                    <button
+                      type="button"
+                      onClick={() => setOrdersExpanded(!ordersExpanded)}
+                      className="w-full flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200 hover:opacity-80 transition-opacity"
+                      title={ordersExpanded ? 'Recolher pedidos' : 'Expandir pedidos'}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {ordersExpanded ? (
+                          <ChevronDown className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                        )}
                         <Package className="h-4 w-4 text-amber-600" />
-                        <span>PEDIDO EM ANDAMENTO ({activeProductionOrders.length})</span>
+                        <span>
+                          PEDIDO{activeProductionOrders.length > 1 ? 'S' : ''} EM ANDAMENTO (
+                          {activeProductionOrders.length})
+                        </span>
                       </div>
                       <Badge className="bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-100 text-[10px] font-semibold border-amber-300">
                         Produção Ativa
                       </Badge>
-                    </div>
+                    </button>
 
-                    <div className="space-y-2">
-                      {activeProductionOrders.map((ord) => {
-                        const repUser = ord.expand?.production_rep_id || ord.expand?.sales_rep_id
-                        return (
+                    {ordersExpanded && (
+                      <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                        {activeProductionOrders.map((ord) => (
                           <div
                             key={ord.id}
                             onClick={() => {
                               setSelectedOrderToEdit(ord)
                               setOrderModalOpen(true)
                             }}
-                            className="p-2.5 rounded-lg bg-white/90 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-800/80 hover:border-amber-400 cursor-pointer transition-all text-xs shadow-xs"
+                            className="p-1.5 px-2 rounded-md bg-white/90 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-800/80 hover:border-amber-400 cursor-pointer transition-all text-xs shadow-xs flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap"
                           >
-                            <div className="flex items-center justify-between gap-1 flex-wrap">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-mono font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.2 rounded text-[11px]">
-                                  {ord.order_number}
-                                </span>
-                                <span className="font-semibold text-slate-800 dark:text-slate-100">
-                                  {ord.product}
-                                </span>
-                              </div>
+                            <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
+                              <span className="font-mono font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded text-[11px] shrink-0">
+                                {ord.order_number}
+                              </span>
+                              <span
+                                className="font-semibold text-slate-800 dark:text-slate-100 truncate text-xs"
+                                title={ord.product}
+                              >
+                                {ord.product}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 ml-auto">
                               <Badge
                                 variant="outline"
-                                className="text-[10px] bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-200"
+                                className="text-[10px] bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-200 py-0 px-1.5"
                               >
                                 {ord.stage_name}
                               </Badge>
-                            </div>
 
-                            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800">
-                              <span className="flex items-center gap-1">
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 shrink-0">
                                 <Clock className="h-3 w-3 text-amber-600" />
-                                Previsão:{' '}
                                 {ord.promised_deadline
                                   ? new Date(ord.promised_deadline).toLocaleDateString('pt-BR')
                                   : 'Sem prazo'}
                               </span>
-                              <span className="flex items-center gap-1">
-                                <User className="h-3 w-3 text-slate-400" />
-                                {repUser?.name || 'Sem responsável'}
-                              </span>
                             </div>
                           </div>
-                        )
-                      })}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               })()}
