@@ -104,6 +104,101 @@ export const quotesService = {
     return this.update(id, { status })
   },
 
+  async approve(id: string): Promise<Quote> {
+    // 1. Fetch current quote to preserve immutability and record audit log
+    const existing = await this.getById(id)
+    if (!existing) {
+      throw new Error(`Orçamento com ID ${id} não encontrado.`)
+    }
+
+    const previousStatus = existing.status || 'rascunho'
+
+    // 2. Update ONLY status to 'aprovado' on the EXACT same quote.id
+    // code, items, total, client_id, attendance_id remain 100% immutable
+    const updatedQuote = await pb
+      .collection('quotes')
+      .update<Quote>(id, { status: 'aprovado' }, { expand: 'client_id,attendance_id,user_id' })
+
+    // 3. Register audit log
+    try {
+      const currentUser = pb.authStore.record
+      await pb.collection('audit_logs').create({
+        user_id: currentUser ? currentUser.id : null,
+        user_name: currentUser ? currentUser.name || currentUser.email || '' : '',
+        user_email: currentUser ? currentUser.email || '' : '',
+        action: 'aprovar',
+        module: 'quotes',
+        record_id: updatedQuote.id,
+        record_title: updatedQuote.code,
+        details: `Orçamento ${updatedQuote.code} aprovado com sucesso. Valor total: R$ ${Number(updatedQuote.final_total || updatedQuote.total_sale || 0).toFixed(2)}.`,
+        previous_value: {
+          status: previousStatus,
+        },
+        new_value: {
+          status: 'aprovado',
+          code: updatedQuote.code,
+          final_total: updatedQuote.final_total || updatedQuote.total_sale || 0,
+          client_id: updatedQuote.client_id,
+          attendance_id: updatedQuote.attendance_id,
+        },
+        ip_address: '',
+      })
+    } catch (auditErr) {
+      console.error('Falha ao registrar audit_log de aprovação do orçamento:', auditErr)
+    }
+
+    return updatedQuote
+  },
+
+  async reject(id: string, reason?: string, notes?: string): Promise<Quote> {
+    // 1. Fetch current quote
+    const existing = await this.getById(id)
+    if (!existing) {
+      throw new Error(`Orçamento com ID ${id} não encontrado.`)
+    }
+
+    const previousStatus = existing.status || 'rascunho'
+
+    // 2. Update ONLY status to 'recusado' on the EXACT same quote.id
+    const updatedQuote = await pb
+      .collection('quotes')
+      .update<Quote>(id, { status: 'recusado' }, { expand: 'client_id,attendance_id,user_id' })
+
+    // 3. Register audit log with reason and free-form notes
+    try {
+      const currentUser = pb.authStore.record
+      const reasonText = reason ? `Motivo: ${reason}` : 'Sem motivo informado'
+      const notesText = notes ? ` Observação: ${notes}` : ''
+      await pb.collection('audit_logs').create({
+        user_id: currentUser ? currentUser.id : null,
+        user_name: currentUser ? currentUser.name || currentUser.email || '' : '',
+        user_email: currentUser ? currentUser.email || '' : '',
+        action: 'recusar',
+        module: 'quotes',
+        record_id: updatedQuote.id,
+        record_title: updatedQuote.code,
+        details: `Orçamento ${updatedQuote.code} recusado. ${reasonText}.${notesText}`,
+        previous_value: {
+          status: previousStatus,
+        },
+        new_value: {
+          status: 'recusado',
+          reason: reason || null,
+          notes: notes || null,
+          code: updatedQuote.code,
+          final_total: updatedQuote.final_total || updatedQuote.total_sale || 0,
+          client_id: updatedQuote.client_id,
+          attendance_id: updatedQuote.attendance_id,
+        },
+        ip_address: '',
+      })
+    } catch (auditErr) {
+      console.error('Falha ao registrar audit_log de recusa do orçamento:', auditErr)
+    }
+
+    return updatedQuote
+  },
+
   async delete(id: string): Promise<boolean> {
     return await pb.collection('quotes').delete(id)
   },

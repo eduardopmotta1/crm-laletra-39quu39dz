@@ -38,6 +38,8 @@ import {
   ChevronDown,
   ChevronRight,
   Trash2,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react'
 import type {
   Client,
@@ -75,7 +77,15 @@ import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
 import CompleteAndArchiveModal from './CompleteAndArchiveModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -146,6 +156,18 @@ export default function WhatsAppChatDrawer({
   const [quoteToDelete, setQuoteToDelete] = useState<Quote | null>(null)
   const [deleteQuoteDialogOpen, setDeleteQuoteDialogOpen] = useState(false)
   const [isDeletingQuote, setIsDeletingQuote] = useState(false)
+
+  // Quote Approve Modal State
+  const [quoteToApprove, setQuoteToApprove] = useState<Quote | null>(null)
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false)
+  const [isApprovingQuote, setIsApprovingQuote] = useState(false)
+
+  // Quote Reject Modal State
+  const [quoteToReject, setQuoteToReject] = useState<Quote | null>(null)
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState<string>('')
+  const [rejectNotes, setRejectNotes] = useState<string>('')
+  const [isRejectingQuote, setIsRejectingQuote] = useState(false)
 
   // Send Quote Modal
   const [selectedQuoteToSend, setSelectedQuoteToSend] = useState<Quote | null>(null)
@@ -222,7 +244,9 @@ export default function WhatsAppChatDrawer({
           orderModalOpen ||
           quoteDetailsOpen ||
           deleteQuoteDialogOpen ||
-          sendQuoteModalOpen
+          sendQuoteModalOpen ||
+          approveDialogOpen ||
+          rejectDialogOpen
         ) {
           return
         }
@@ -522,6 +546,92 @@ export default function WhatsAppChatDrawer({
         title: 'Erro ao criar tarefa',
         variant: 'destructive',
       })
+    }
+  }
+
+  const handleOpenApproveQuote = (quote: Quote) => {
+    setQuoteToApprove(quote)
+    setApproveDialogOpen(true)
+  }
+
+  const handleConfirmApproveQuote = async () => {
+    if (!quoteToApprove || isApprovingQuote) return
+    setIsApprovingQuote(true)
+    const quoteCode = quoteToApprove.code
+    const quoteId = quoteToApprove.id
+
+    try {
+      const updated = await quotesService.approve(quoteId)
+
+      // Update state in list and view modal
+      setAttendanceQuotes((prev) => prev.map((q) => (q.id === quoteId ? updated : q)))
+      if (selectedQuoteToView?.id === quoteId) {
+        setSelectedQuoteToView(updated)
+      }
+
+      toast({
+        title: 'Orçamento Aprovado!',
+        description: `O orçamento ${quoteCode} foi aprovado com sucesso.`,
+      })
+
+      setApproveDialogOpen(false)
+      setQuoteToApprove(null)
+    } catch (err: any) {
+      console.error('Error approving quote:', err)
+      toast({
+        title: 'Erro ao aprovar orçamento',
+        description: err?.message || 'Não foi possível aprovar a proposta.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsApprovingQuote(false)
+    }
+  }
+
+  const handleOpenRejectQuote = (quote: Quote) => {
+    setQuoteToReject(quote)
+    setRejectReason('')
+    setRejectNotes('')
+    setRejectDialogOpen(true)
+  }
+
+  const handleConfirmRejectQuote = async () => {
+    if (!quoteToReject || isRejectingQuote) return
+    setIsRejectingQuote(true)
+    const quoteCode = quoteToReject.code
+    const quoteId = quoteToReject.id
+
+    try {
+      const updated = await quotesService.reject(
+        quoteId,
+        rejectReason || undefined,
+        rejectNotes.trim() || undefined,
+      )
+
+      // Update state in list and view modal
+      setAttendanceQuotes((prev) => prev.map((q) => (q.id === quoteId ? updated : q)))
+      if (selectedQuoteToView?.id === quoteId) {
+        setSelectedQuoteToView(updated)
+      }
+
+      toast({
+        title: 'Orçamento Recusado',
+        description: `O orçamento ${quoteCode} foi registrado como recusado.`,
+      })
+
+      setRejectDialogOpen(false)
+      setQuoteToReject(null)
+      setRejectReason('')
+      setRejectNotes('')
+    } catch (err: any) {
+      console.error('Error rejecting quote:', err)
+      toast({
+        title: 'Erro ao recusar orçamento',
+        description: err?.message || 'Não foi possível recusar a proposta.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsRejectingQuote(false)
     }
   }
 
@@ -880,17 +990,44 @@ export default function WhatsAppChatDrawer({
                               <span>Alterar</span>
                             </Button>
 
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleOpenSendQuote(quote)}
-                              className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
-                              title={`Enviar orçamento ${quote.code} por WhatsApp`}
-                            >
-                              <Send className="h-3 w-3" />
-                              <span>Enviar</span>
-                            </Button>
+                            {quote.status === 'enviado' ? (
+                              <>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => handleOpenApproveQuote(quote)}
+                                  className="h-6 px-2 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1 shadow-xs"
+                                  title={`Aprovar orçamento ${quote.code}`}
+                                >
+                                  <ThumbsUp className="h-3 w-3" />
+                                  <span>Aprovar</span>
+                                </Button>
+
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenRejectQuote(quote)}
+                                  className="h-6 px-2 text-[11px] font-semibold bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 gap-1"
+                                  title={`Recusar orçamento ${quote.code}`}
+                                >
+                                  <ThumbsDown className="h-3 w-3" />
+                                  <span>Recusar</span>
+                                </Button>
+                              </>
+                            ) : quote.status === 'rascunho' ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenSendQuote(quote)}
+                                className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
+                                title={`Enviar orçamento ${quote.code} por WhatsApp`}
+                              >
+                                <Send className="h-3 w-3" />
+                                <span>Enviar</span>
+                              </Button>
+                            ) : null}
 
                             {isAdmin && (
                               <Button
@@ -2296,7 +2433,31 @@ export default function WhatsAppChatDrawer({
                     </Button>
                   )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center flex-wrap">
+                  {selectedQuoteToView.status === 'enviado' && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => handleOpenApproveQuote(selectedQuoteToView)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold"
+                      >
+                        <ThumbsUp className="h-3.5 w-3.5" />
+                        Aprovar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenRejectQuote(selectedQuoteToView)}
+                        className="bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 text-xs gap-1.5 font-semibold"
+                      >
+                        <ThumbsDown className="h-3.5 w-3.5" />
+                        Recusar
+                      </Button>
+                    </>
+                  )}
+
                   <Button
                     type="button"
                     variant="outline"
@@ -2323,6 +2484,199 @@ export default function WhatsAppChatDrawer({
                     Alterar este orçamento
                   </Button>
                 </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: CONFIRMAÇÃO DE APROVAÇÃO DE ORÇAMENTO */}
+      <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              Aprovar orçamento {quoteToApprove?.code}?
+            </DialogTitle>
+            <DialogDescription>
+              Confirme a aprovação da proposta comercial para o cliente.
+            </DialogDescription>
+          </DialogHeader>
+
+          {quoteToApprove && (
+            <div className="space-y-4 pt-2">
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Código:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {quoteToApprove.code}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Cliente:</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">
+                    {quoteToApprove.client_name || displayClient.name}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <span className="text-slate-700 dark:text-slate-300 font-semibold">
+                    Valor Total:
+                  </span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-bold text-base">
+                    {formatCurrency(
+                      Number(quoteToApprove.final_total ?? quoteToApprove.total_sale ?? 0),
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                O orçamento será atualizado com status <strong>Aprovado</strong> e registrado na
+                trilha de auditoria.
+              </p>
+
+              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isApprovingQuote}
+                  onClick={() => {
+                    setApproveDialogOpen(false)
+                    setQuoteToApprove(null)
+                  }}
+                  className="text-xs"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isApprovingQuote}
+                  onClick={handleConfirmApproveQuote}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold"
+                >
+                  {isApprovingQuote ? (
+                    <>
+                      <Clock className="h-3.5 w-3.5 animate-spin" />
+                      <span>Aprovando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <span>Confirmar aprovação</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: RECUSA DE ORÇAMENTO */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
+              <XCircle className="h-5 w-5 text-rose-600" />
+              Recusar orçamento {quoteToReject?.code}?
+            </DialogTitle>
+            <DialogDescription>
+              Informe o motivo da recusa para histórico comercial e auditoria.
+            </DialogDescription>
+          </DialogHeader>
+
+          {quoteToReject && (
+            <div className="space-y-4 pt-2">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Orçamento:</span>
+                  <span className="font-mono font-bold">{quoteToReject.code}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Cliente:</span>
+                  <span className="font-semibold">
+                    {quoteToReject.client_name || displayClient.name}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Valor Total:</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    {formatCurrency(
+                      Number(quoteToReject.final_total ?? quoteToReject.total_sale ?? 0),
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Motivo da recusa (opcional)
+                </label>
+                <Select value={rejectReason} onValueChange={setRejectReason}>
+                  <SelectTrigger className="text-xs">
+                    <SelectValue placeholder="Selecione um motivo..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Preço">Preço</SelectItem>
+                    <SelectItem value="Prazo de entrega">Prazo de entrega</SelectItem>
+                    <SelectItem value="Cliente desistiu">Cliente desistiu</SelectItem>
+                    <SelectItem value="Fechou com concorrente">Fechou com concorrente</SelectItem>
+                    <SelectItem value="Especificação técnica / Material">
+                      Especificação técnica / Material
+                    </SelectItem>
+                    <SelectItem value="Sem retorno do cliente">Sem retorno do cliente</SelectItem>
+                    <SelectItem value="Outro">Outro motivo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Observações adicionais (opcional)
+                </label>
+                <Textarea
+                  value={rejectNotes}
+                  onChange={(e) => setRejectNotes(e.target.value)}
+                  placeholder="Ex: Cliente achou o frete alto ou preferiu adiar para o próximo mês..."
+                  className="text-xs min-h-[70px]"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isRejectingQuote}
+                  onClick={() => {
+                    setRejectDialogOpen(false)
+                    setQuoteToReject(null)
+                  }}
+                  className="text-xs"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isRejectingQuote}
+                  onClick={handleConfirmRejectQuote}
+                  className="bg-rose-600 hover:bg-rose-700 text-white text-xs gap-1.5 font-semibold"
+                >
+                  {isRejectingQuote ? (
+                    <>
+                      <Clock className="h-3.5 w-3.5 animate-spin" />
+                      <span>Registrando recusa...</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-3.5 w-3.5" />
+                      <span>Confirmar recusa</span>
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           )}
