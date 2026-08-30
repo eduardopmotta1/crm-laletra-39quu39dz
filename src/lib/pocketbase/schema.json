@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T15:30:08.903Z",
+  "generatedAt": "2026-08-30T15:37:25.916Z",
   "collections": [
     {
       "name": "users",
@@ -2643,12 +2643,249 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "category_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "procedure_categories"
+        },
+        {
+          "name": "is_recurring",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "recurrence_frequency",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "daily",
+            "weekdays",
+            "specific_days",
+            "weekly",
+            "monthly",
+            "custom_interval"
+          ]
+        },
+        {
+          "name": "recurrence_time",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tolerance_minutes",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "assignee_type",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["user", "multiple_users", "role", "all"]
+        },
+        {
+          "name": "assigned_user_ids",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "assigned_role_slug",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "recurrence_days_of_week",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "recurrence_interval_days",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
         "CREATE INDEX idx_procedures_cat ON procedures (category)",
         "CREATE INDEX idx_procedures_status ON procedures (status)",
         "CREATE INDEX idx_procedures_title ON procedures (title)"
+      ]
+    },
+    {
+      "name": "procedure_categories",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "order_index",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_archived",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_proc_cat_name ON procedure_categories (name)",
+        "CREATE INDEX idx_proc_cat_order ON procedure_categories (order_index)",
+        "CREATE INDEX idx_proc_cat_active ON procedure_categories (is_active)",
+        "CREATE INDEX idx_proc_cat_archived ON procedure_categories (is_archived)"
+      ]
+    },
+    {
+      "name": "procedure_executions",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "procedure_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "procedures"
+        },
+        {
+          "name": "occurrence_date",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "scheduled_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tolerance_minutes",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "assigned_to_user_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "assigned_role_slug",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Pendente", "Concluído", "Atrasado"]
+        },
+        {
+          "name": "completed_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "completed_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "completed_by_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "checked_step_ids",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_proc_exec_proc ON procedure_executions (procedure_id)",
+        "CREATE INDEX idx_proc_exec_date ON procedure_executions (occurrence_date)",
+        "CREATE INDEX idx_proc_exec_status ON procedure_executions (status)",
+        "CREATE INDEX idx_proc_exec_user ON procedure_executions (assigned_to_user_id)",
+        "CREATE INDEX idx_proc_exec_role ON procedure_executions (assigned_role_slug)"
       ]
     }
   ]

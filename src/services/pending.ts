@@ -121,6 +121,16 @@ export const PENDING_CATEGORY_CONFIG: Record<
     badgeColor: 'bg-slate-100 text-slate-800 dark:bg-slate-900/60 dark:text-slate-200',
     description: 'Clientes da base sem compras recentes prontos para reativação',
   },
+  procedure_delayed: {
+    label: 'Procedimento / POP Atrasado',
+    shortLabel: 'POP Atrasado',
+    icon: 'BookOpen',
+    color: 'text-amber-600 dark:text-amber-400',
+    bgColor: 'bg-amber-50 dark:bg-amber-950/40',
+    borderColor: 'border-amber-200 dark:border-amber-800',
+    badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200',
+    description: 'Procedimentos periódicos e rotinas com prazo e tolerância estourados',
+  },
 }
 
 export const pendingService = {
@@ -485,6 +495,89 @@ export const pendingService = {
       // ignore
     }
 
+    // 8. Recurring Procedure Executions Overdue (Bloco 34)
+    try {
+      const todayDateStr = now.toISOString().split('T')[0]
+      const executions = await pb.collection('procedure_executions').getFullList({
+        filter: 'status != "Concluído"',
+        expand: 'procedure_id,procedure_id.category_id,assigned_to_user_id',
+        sort: 'occurrence_date',
+        requestKey: null,
+      })
+
+      for (const exec of executions as any[]) {
+        const proc = exec.expand?.procedure_id
+        if (!proc) continue
+
+        const occDateStr = exec.occurrence_date ? exec.occurrence_date.split('T')[0] : todayDateStr
+        let isLate = occDateStr < todayDateStr
+        let diffMinutes = 0
+
+        if (occDateStr === todayDateStr && exec.scheduled_at) {
+          const [hours, mins] = exec.scheduled_at.split(':').map(Number)
+          if (!isNaN(hours) && !isNaN(mins)) {
+            const scheduledTime = new Date(now)
+            scheduledTime.setHours(hours, mins, 0, 0)
+            const tolerance = exec.tolerance_minutes ?? 60
+            const deadline = new Date(scheduledTime.getTime() + tolerance * 60 * 1000)
+
+            if (now.getTime() > deadline.getTime()) {
+              isLate = true
+              diffMinutes = Math.floor((now.getTime() - deadline.getTime()) / (1000 * 60))
+            }
+          }
+        } else if (occDateStr < todayDateStr) {
+          const occDate = new Date(occDateStr + 'T12:00:00')
+          diffMinutes = Math.floor((now.getTime() - occDate.getTime()) / (1000 * 60))
+          isLate = true
+        }
+
+        if (isLate) {
+          const itemId = `proc_exec_${exec.id}`
+          if (!resolvedMap.has(itemId)) {
+            const hoursLate = Math.floor(diffMinutes / 60)
+            const minsLate = diffMinutes % 60
+            const lateLabel =
+              hoursLate > 0
+                ? `${hoursLate}h${minsLate > 0 ? `${minsLate}m` : ''}`
+                : `${minsLate}min`
+
+            const assigneeName =
+              exec.expand?.assigned_to_user_id?.name ||
+              (exec.assigned_role_slug === 'producao'
+                ? 'Equipe de Produção'
+                : exec.assigned_role_slug === 'comercial'
+                  ? 'Equipe Comercial'
+                  : exec.assigned_role_slug === 'admin'
+                    ? 'Administração'
+                    : 'Geral')
+
+            items.push({
+              id: itemId,
+              category: 'procedure_delayed',
+              categoryLabel: 'Procedimento Atrasado',
+              title: `Procedimento atrasado: ${proc.title}`,
+              description: `Responsável: ${assigneeName} • Previsto: ${exec.scheduled_at || '08:00'} • Atrasado há ${lateLabel}`,
+              clientName: `POP: ${proc.category || proc.expand?.category_id?.name || 'Geral'}`,
+              clientPhone: '',
+              assignedToId: exec.assigned_to_user_id,
+              assignedToName: assigneeName,
+              priority: hoursLate >= 4 ? 'urgente' : 'alta',
+              createdAt: exec.created,
+              dueDate: exec.occurrence_date,
+              slaMinutes: exec.tolerance_minutes ?? 60,
+              waitingTimeMinutes: diffMinutes,
+              waitingTimeFormatted: lateLabel,
+              isDelayed: true,
+              originalData: exec,
+            })
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error loading delayed procedures in pending service:', e)
+    }
+
     const priorityWeight: Record<string, number> = {
       urgente: 4,
       alta: 3,
@@ -516,6 +609,7 @@ export const pendingService = {
         post_sale: 0,
         inactive_client: 0,
         task_overdue: 0,
+        procedure_delayed: 0,
       },
     }
 
@@ -549,6 +643,21 @@ export const pendingService = {
         await pb.collection('tasks').update(taskId, { status: 'concluida' })
       } catch (err) {
         console.error('Error updating task status:', err)
+      }
+    }
+
+    if (item.id.startsWith('proc_exec_')) {
+      const execId = item.id.replace('proc_exec_', '')
+      try {
+        await pb.collection('procedure_executions').update(execId, {
+          status: 'Concluído',
+          completed_at: new Date().toISOString(),
+          completed_by: currentUserId || undefined,
+          completed_by_name: currentUserName,
+          notes: notes || 'Resolvido via Central de Pendências',
+        })
+      } catch (err) {
+        console.error('Error updating procedure execution status:', err)
       }
     }
 

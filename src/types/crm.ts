@@ -529,6 +529,7 @@ export type PendingCategory =
   | 'quote_followup'
   | 'commercial_followup'
   | 'task_overdue'
+  | 'procedure_delayed'
   | 'production_delayed'
   | 'proof_approval'
   | 'post_sale'
