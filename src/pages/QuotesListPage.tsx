@@ -217,11 +217,12 @@ export default function QuotesListPage() {
 
       toast({
         title: 'Orçamento Aprovado!',
-        description: `O orçamento ${quoteCode} foi aprovado com sucesso.`,
+        description: `O orçamento ${quoteCode} foi aprovado com sucesso e o atendimento movido para "Venda fechada".`,
       })
 
       setApproveDialogOpen(false)
       setQuoteToApprove(null)
+      window.dispatchEvent(new CustomEvent('crm-client-updated'))
     } catch (err: any) {
       console.error('Error approving quote:', err)
       toast({

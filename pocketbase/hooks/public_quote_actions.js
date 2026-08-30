@@ -51,12 +51,91 @@ routerAdd('POST', '/api/public/quotes/{token}/approve', (c) => {
       })
     }
 
-    // Atualiza status e data de aprovação
+    // 1. Atualiza status e data de aprovação no quote EXATO
     const nowIso = new Date().toISOString()
     q.set('status', 'aprovado')
     q.set('approved_at', nowIso)
 
     $app.save(q)
+
+    // 2. Extrai dados do quote e localiza attendance EXATO por quote.attendance_id
+    const attendanceId = q.getString('attendance_id')
+    const clientId = q.getString('client_id')
+    const quoteCode = q.getString('code')
+    const finalTotal = q.getFloat('final_total')
+    const totalSale = q.getFloat('total_sale')
+    const quoteValue =
+      !isNaN(finalTotal) && finalTotal > 0 ? finalTotal : !isNaN(totalSale) ? totalSale : 0
+
+    if (attendanceId) {
+      try {
+        const att = $app.findRecordById('attendances', attendanceId)
+        if (att) {
+          const oldStage = att.getString('stage') || 'Em atendimento'
+          att.set('stage', 'Venda fechada')
+          att.set('quote_value', quoteValue)
+          $app.save(att)
+
+          // 3. Registrar histórico de transição em stage_transitions
+          try {
+            const stageTransCollection = $app.findCollectionByNameOrId('stage_transitions')
+            if (stageTransCollection) {
+              const transRec = new Record(stageTransCollection)
+              transRec.set('client_id', clientId || '')
+              transRec.set('attendance_id', attendanceId)
+              transRec.set('from_stage', oldStage)
+              transRec.set('to_stage', 'Venda fechada')
+              transRec.set('change_type', 'automatic')
+              transRec.set('user_name', 'Cliente (Página Pública)')
+              transRec.set(
+                'notes',
+                `Atendimento movido para "Venda fechada" após aprovação do orçamento ${quoteCode} pelo cliente na página pública. Valor: R$ ${quoteValue.toFixed(2)}.`,
+              )
+              $app.save(transRec)
+            }
+          } catch (tErr) {
+            console.error('[PublicQuoteApprove] Erro ao criar stage_transition:', tErr)
+          }
+        }
+      } catch (attErr) {
+        console.error(
+          '[PublicQuoteApprove] Erro ao atualizar attendance ' + attendanceId + ':',
+          attErr,
+        )
+      }
+    }
+
+    // 4. Registrar audit_log de aprovação pública
+    try {
+      const auditCollection = $app.findCollectionByNameOrId('audit_logs')
+      if (auditCollection) {
+        const auditRec = new Record(auditCollection)
+        auditRec.set('user_name', 'Cliente (Página Pública)')
+        auditRec.set('user_email', '')
+        auditRec.set('action', 'aprovar')
+        auditRec.set('module', 'quotes')
+        auditRec.set('record_id', q.id)
+        auditRec.set('record_title', quoteCode)
+        auditRec.set(
+          'details',
+          `Orçamento ${quoteCode} aprovado pelo cliente na página pública. Valor total: R$ ${quoteValue.toFixed(2)}.`,
+        )
+        auditRec.set('previous_value', JSON.stringify({ status: currentStatus }))
+        auditRec.set(
+          'new_value',
+          JSON.stringify({
+            status: 'aprovado',
+            code: quoteCode,
+            final_total: quoteValue,
+            client_id: clientId,
+            attendance_id: attendanceId,
+          }),
+        )
+        $app.save(auditRec)
+      }
+    } catch (audErr) {
+      console.error('[PublicQuoteApprove] Erro ao salvar audit_log:', audErr)
+    }
 
     return c.json(200, {
       success: true,
@@ -64,7 +143,7 @@ routerAdd('POST', '/api/public/quotes/{token}/approve', (c) => {
       message: 'Orçamento aprovado com sucesso!',
       approved_at: nowIso,
       status: 'aprovado',
-      code: q.getString('code'),
+      code: quoteCode,
     })
   } catch (err) {
     return c.json(500, { error: 'Erro ao aprovar orçamento: ' + err.message })

@@ -216,17 +216,76 @@ export const quotesService = {
 
     const previousStatus = existing.status || 'rascunho'
 
-    // 2. Update ONLY status to 'aprovado' on the EXACT same quote.id
+    const nowIso = new Date().toISOString()
+
+    // 2. Update ONLY status to 'aprovado' and approved_at on the EXACT same quote.id
     // code, items, total, client_id, attendance_id remain 100% immutable
     const updatedQuote = await pb
       .collection('quotes')
       .update<Quote>(
         id,
-        { status: 'aprovado', approved_at: new Date().toISOString() },
+        { status: 'aprovado', approved_at: nowIso },
         { expand: 'client_id,attendance_id,user_id' },
       )
 
-    // 3. Register audit log
+    const quoteTotalValue =
+      existing.final_total !== undefined &&
+      existing.final_total !== null &&
+      !isNaN(Number(existing.final_total)) &&
+      Number(existing.final_total) > 0
+        ? Number(existing.final_total)
+        : Number(existing.total_sale || 0)
+
+    // 3. Regra: Localizar o atendimento EXATO por quote.attendance_id
+    // NUNCA por client_id, telefone ou atendimento mais recente.
+    // Mover ESSE attendance para a etapa interna "Venda fechada" com quote_value = quote.total
+    // NÃO arquivar antecipadamente (fica em Venda fechada até gerar pedido e conferir)
+    if (existing.attendance_id) {
+      try {
+        let att: any = null
+        try {
+          att = await pb.collection('attendances').getOne(existing.attendance_id)
+        } catch (fetchErr) {
+          console.warn(
+            `Atendimento ${existing.attendance_id} não encontrado ao mover para 'Venda fechada':`,
+            fetchErr,
+          )
+        }
+
+        const oldStage = att?.stage || 'Em atendimento'
+
+        await pb.collection('attendances').update(existing.attendance_id, {
+          stage: 'Venda fechada',
+          quote_value: quoteTotalValue,
+        })
+
+        // Registrar transição de etapa para auditoria e histórico comercial do atendimento
+        try {
+          await pb.collection('stage_transitions').create({
+            client_id: existing.client_id || '',
+            attendance_id: existing.attendance_id,
+            from_stage: oldStage,
+            to_stage: 'Venda fechada',
+            change_type: 'automatic',
+            user_id: pb.authStore.record?.id || undefined,
+            user_name:
+              pb.authStore.record?.name ||
+              pb.authStore.record?.email ||
+              'Sistema / Orçamento Aprovado',
+            notes: `Atendimento movido para "Venda fechada" após aprovação do orçamento ${existing.code}. Valor: R$ ${quoteTotalValue.toFixed(2)}.`,
+          })
+        } catch (transErr) {
+          console.warn('Erro ao registrar transição de etapa para Venda fechada:', transErr)
+        }
+      } catch (attErr) {
+        console.error(
+          `Erro ao atualizar attendance ${existing.attendance_id} para Venda fechada:`,
+          attErr,
+        )
+      }
+    }
+
+    // 4. Register audit log
     try {
       const currentUser = pb.authStore.record
       await pb.collection('audit_logs').create({
@@ -237,14 +296,14 @@ export const quotesService = {
         module: 'quotes',
         record_id: updatedQuote.id,
         record_title: updatedQuote.code,
-        details: `Orçamento ${updatedQuote.code} aprovado com sucesso. Valor total: R$ ${Number(updatedQuote.final_total || updatedQuote.total_sale || 0).toFixed(2)}.`,
+        details: `Orçamento ${updatedQuote.code} aprovado com sucesso. Valor total: R$ ${quoteTotalValue.toFixed(2)}.`,
         previous_value: {
           status: previousStatus,
         },
         new_value: {
           status: 'aprovado',
           code: updatedQuote.code,
-          final_total: updatedQuote.final_total || updatedQuote.total_sale || 0,
+          final_total: quoteTotalValue,
           client_id: updatedQuote.client_id,
           attendance_id: updatedQuote.attendance_id,
         },
