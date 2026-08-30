@@ -37,6 +37,7 @@ import {
   Edit3,
   ChevronDown,
   ChevronRight,
+  Trash2,
 } from 'lucide-react'
 import type {
   Client,
@@ -82,6 +83,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface WhatsAppChatDrawerProps {
   isOpen: boolean
@@ -130,6 +141,11 @@ export default function WhatsAppChatDrawer({
   // Quote View Details Modal
   const [selectedQuoteToView, setSelectedQuoteToView] = useState<Quote | null>(null)
   const [quoteDetailsOpen, setQuoteDetailsOpen] = useState(false)
+
+  // Quote Delete Confirmation Dialog
+  const [quoteToDelete, setQuoteToDelete] = useState<Quote | null>(null)
+  const [deleteQuoteDialogOpen, setDeleteQuoteDialogOpen] = useState(false)
+  const [isDeletingQuote, setIsDeletingQuote] = useState(false)
 
   // Send Quote Modal
   const [selectedQuoteToSend, setSelectedQuoteToSend] = useState<Quote | null>(null)
@@ -205,6 +221,7 @@ export default function WhatsAppChatDrawer({
           archiveModalOpen ||
           orderModalOpen ||
           quoteDetailsOpen ||
+          deleteQuoteDialogOpen ||
           sendQuoteModalOpen
         ) {
           return
@@ -215,7 +232,16 @@ export default function WhatsAppChatDrawer({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, startModalOpen, archiveModalOpen, orderModalOpen, quoteDetailsOpen, onClose])
+  }, [
+    isOpen,
+    startModalOpen,
+    archiveModalOpen,
+    orderModalOpen,
+    quoteDetailsOpen,
+    deleteQuoteDialogOpen,
+    sendQuoteModalOpen,
+    onClose,
+  ])
 
   useEffect(() => {
     if (client && isOpen) {
@@ -496,6 +522,52 @@ export default function WhatsAppChatDrawer({
         title: 'Erro ao criar tarefa',
         variant: 'destructive',
       })
+    }
+  }
+
+  const handleOpenDeleteQuote = (quote: Quote) => {
+    setQuoteToDelete(quote)
+    setDeleteQuoteDialogOpen(true)
+  }
+
+  const handleConfirmDeleteQuote = async () => {
+    if (!quoteToDelete || isDeletingQuote) return
+
+    setIsDeletingQuote(true)
+    const quoteCode = quoteToDelete.code
+    const quoteId = quoteToDelete.id
+
+    try {
+      await quotesService.delete(quoteId)
+
+      // Only on success: update state, list and counter
+      setAttendanceQuotes((prev) => prev.filter((q) => q.id !== quoteId))
+      if (selectedQuoteToView?.id === quoteId) {
+        setQuoteDetailsOpen(false)
+        setSelectedQuoteToView(null)
+      }
+
+      toast({
+        title: 'Orçamento excluído',
+        description: `Orçamento ${quoteCode} excluído com sucesso.`,
+      })
+
+      setDeleteQuoteDialogOpen(false)
+      setQuoteToDelete(null)
+    } catch (err: any) {
+      console.error('Error deleting quote:', err)
+      const errorMsg =
+        err?.message ||
+        err?.response?.message ||
+        (typeof err?.data === 'object' ? JSON.stringify(err.data) : null) ||
+        'Não foi possível excluir o orçamento.'
+      toast({
+        title: 'Erro ao excluir orçamento',
+        description: errorMsg,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsDeletingQuote(false)
     }
   }
 
@@ -819,6 +891,20 @@ export default function WhatsAppChatDrawer({
                               <Send className="h-3 w-3" />
                               <span>Enviar</span>
                             </Button>
+
+                            {isAdmin && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenDeleteQuote(quote)}
+                                className="h-6 px-2 text-[11px] font-semibold bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 gap-1"
+                                title={`Excluir orçamento ${quote.code}`}
+                              >
+                                <Trash2 className="h-3 w-3 text-rose-600" />
+                                <span>Excluir</span>
+                              </Button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2195,37 +2281,80 @@ export default function WhatsAppChatDrawer({
                 </div>
               )}
 
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setQuoteDetailsOpen(false)}
-                  className="text-xs"
-                >
-                  Fechar
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => {
-                    setQuoteDetailsOpen(false)
-                    const clientId = displayClient.id
-                    const attId = activeAttendance?.id || selectedQuoteToView.attendance_id || ''
-                    navigate(
-                      `/orcamentos/${selectedQuoteToView.id}/editar?attendance_id=${encodeURIComponent(attId)}&client_id=${encodeURIComponent(clientId)}`,
-                    )
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
-                >
-                  <Edit3 className="h-3.5 w-3.5" />
-                  Alterar este orçamento
-                </Button>
+              <div className="pt-2 flex justify-between items-center gap-2 border-t border-slate-100 dark:border-slate-800">
+                <div>
+                  {isAdmin && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenDeleteQuote(selectedQuoteToView)}
+                      className="text-xs bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 gap-1.5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                      Excluir orçamento
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setQuoteDetailsOpen(false)}
+                    className="text-xs"
+                  >
+                    Fechar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      setQuoteDetailsOpen(false)
+                      const clientId = displayClient.id
+                      const attId = activeAttendance?.id || selectedQuoteToView.attendance_id || ''
+                      navigate(
+                        `/orcamentos/${selectedQuoteToView.id}/editar?attendance_id=${encodeURIComponent(attId)}&client_id=${encodeURIComponent(clientId)}`,
+                      )
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Alterar este orçamento
+                  </Button>
+                </div>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+      {/* DIALOG DE CONFIRMAÇÃO DE EXCLUSÃO DE ORÇAMENTO */}
+      <AlertDialog open={deleteQuoteDialogOpen} onOpenChange={setDeleteQuoteDialogOpen}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-rose-600" />
+              <span>Excluir orçamento {quoteToDelete?.code}?</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="block">Esta ação excluirá somente este orçamento.</span>
+              <span className="block">
+                Cliente, atendimento, mensagens e pedidos não serão excluídos.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingQuote}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteQuote}
+              disabled={isDeletingQuote}
+              className="bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-600"
+            >
+              {isDeletingQuote ? 'Excluindo...' : 'Excluir orçamento'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

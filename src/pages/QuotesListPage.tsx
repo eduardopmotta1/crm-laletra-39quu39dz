@@ -17,9 +17,11 @@ import {
   AlertCircle,
   Scissors,
   Edit3,
+  Trash2,
 } from 'lucide-react'
 import { quotesService } from '@/services/quotes'
 import type { Quote } from '@/types/quotes'
+import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +34,16 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -42,10 +54,16 @@ import { toast } from '@/hooks/use-toast'
 
 export default function QuotesListPage() {
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  // Delete Confirmation Dialog
+  const [quoteToDelete, setQuoteToDelete] = useState<Quote | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   // View Details Modal
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null)
@@ -120,6 +138,53 @@ export default function QuotesListPage() {
   const handleOpenDetails = (q: Quote) => {
     setSelectedQuote(q)
     setDetailsOpen(true)
+  }
+
+  const handleOpenDelete = (q: Quote) => {
+    setQuoteToDelete(q)
+    setDeleteDialogOpen(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!quoteToDelete || isDeleting) return
+
+    setIsDeleting(true)
+    const quoteCode = quoteToDelete.code
+    const quoteId = quoteToDelete.id
+
+    try {
+      await quotesService.delete(quoteId)
+
+      // Only on success: remove from local list
+      setQuotes((prev) => prev.filter((q) => q.id !== quoteId))
+
+      if (selectedQuote?.id === quoteId) {
+        setDetailsOpen(false)
+        setSelectedQuote(null)
+      }
+
+      toast({
+        title: 'Orçamento excluído',
+        description: `Orçamento ${quoteCode} excluído com sucesso.`,
+      })
+
+      setDeleteDialogOpen(false)
+      setQuoteToDelete(null)
+    } catch (err: any) {
+      console.error('Error deleting quote:', err)
+      const errorMsg =
+        err?.message ||
+        err?.response?.message ||
+        (typeof err?.data === 'object' ? JSON.stringify(err.data) : null) ||
+        'Não foi possível excluir o orçamento.'
+      toast({
+        title: 'Erro ao excluir orçamento',
+        description: errorMsg,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   return (
@@ -336,6 +401,19 @@ export default function QuotesListPage() {
                     <Edit3 className="h-3.5 w-3.5 text-amber-600" />
                     Alterar orçamento
                   </Button>
+
+                  {isAdmin && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenDelete(q)}
+                      className="gap-1.5 text-xs bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                      title={`Excluir orçamento ${q.code}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                      Excluir
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -454,37 +532,80 @@ export default function QuotesListPage() {
                 </div>
               </div>
 
-              {/* Modal Footer with Edit Action */}
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDetailsOpen(false)}
-                  className="text-xs"
-                >
-                  Fechar
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => {
-                    setDetailsOpen(false)
-                    const attParam = selectedQuote.attendance_id
-                      ? `?attendance_id=${encodeURIComponent(selectedQuote.attendance_id)}`
-                      : ''
-                    navigate(`/orcamentos/${selectedQuote.id}/editar${attParam}`)
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
-                >
-                  <Edit3 className="h-3.5 w-3.5" />
-                  Alterar este orçamento
-                </Button>
+              {/* Modal Footer with Delete & Edit Action */}
+              <div className="pt-2 flex justify-between items-center gap-2 border-t border-slate-100 dark:border-slate-800">
+                <div>
+                  {isAdmin && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenDelete(selectedQuote)}
+                      className="text-xs bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 gap-1.5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                      Excluir orçamento
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDetailsOpen(false)}
+                    className="text-xs"
+                  >
+                    Fechar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      setDetailsOpen(false)
+                      const attParam = selectedQuote.attendance_id
+                        ? `?attendance_id=${encodeURIComponent(selectedQuote.attendance_id)}`
+                        : ''
+                      navigate(`/orcamentos/${selectedQuote.id}/editar${attParam}`)
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Alterar este orçamento
+                  </Button>
+                </div>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+      {/* DIALOG DE CONFIRMAÇÃO DE EXCLUSÃO DE ORÇAMENTO */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-rose-600" />
+              <span>Excluir orçamento {quoteToDelete?.code}?</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="block">Esta ação excluirá somente este orçamento.</span>
+              <span className="block">
+                Cliente, atendimento, mensagens e pedidos não serão excluídos.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-600"
+            >
+              {isDeleting ? 'Excluindo...' : 'Excluir orçamento'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -56,6 +56,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
 
 export default function NewQuotePage() {
@@ -77,8 +88,13 @@ export default function NewQuotePage() {
   const isEditing = Boolean(editQuoteId)
 
   // Immutable original quote code and status when editing
+  const { isAdmin } = useAuth()
   const [quoteCode, setQuoteCode] = useState<string>('')
   const [quoteStatus, setQuoteStatus] = useState<Quote['status']>('rascunho')
+
+  // Delete Confirmation Dialog when in Edit mode
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const [products, setProducts] = useState<QuoteProduct[]>([])
   const [materials, setMaterials] = useState<QuoteMaterial[]>([])
@@ -448,6 +464,42 @@ export default function NewQuotePage() {
       title: 'Erro copiado!',
       description: 'JSON do erro copiado para a área de transferência.',
     })
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!editQuoteId || isDeleting) return
+
+    setIsDeleting(true)
+    try {
+      await quotesService.delete(editQuoteId)
+
+      toast({
+        title: 'Orçamento excluído',
+        description: `Orçamento ${quoteCode || editQuoteId} excluído com sucesso.`,
+      })
+
+      setDeleteDialogOpen(false)
+
+      if (attendanceId) {
+        navigate(`/kanban?attendance_id=${encodeURIComponent(attendanceId)}`)
+      } else {
+        navigate('/orcamentos')
+      }
+    } catch (err: any) {
+      console.error('Error deleting quote:', err)
+      const errorMsg =
+        err?.message ||
+        err?.response?.message ||
+        (typeof err?.data === 'object' ? JSON.stringify(err.data) : null) ||
+        'Não foi possível excluir o orçamento.'
+      toast({
+        title: 'Erro ao excluir orçamento',
+        description: errorMsg,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   return (
@@ -1070,11 +1122,52 @@ export default function NewQuotePage() {
                     ? 'Salvar e Marcar como Enviado ao Cliente'
                     : 'Salvar como Enviado ao Cliente'}
                 </Button>
+
+                {isEditing && isAdmin && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    disabled={saving || isDeleting}
+                    className="w-full text-xs bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 gap-1.5 mt-2"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                    Excluir orçamento
+                  </Button>
+                )}
               </div>{' '}
             </CardContent>
           </Card>
         </div>
       </div>
+
+      {/* DIALOG DE CONFIRMAÇÃO DE EXCLUSÃO DE ORÇAMENTO */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-rose-600" />
+              <span>Excluir orçamento {quoteCode}?</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="block">Esta ação excluirá somente este orçamento.</span>
+              <span className="block">
+                Cliente, atendimento, mensagens e pedidos não serão excluídos.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-600"
+            >
+              {isDeleting ? 'Excluindo...' : 'Excluir orçamento'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

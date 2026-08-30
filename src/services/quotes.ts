@@ -103,4 +103,8 @@ export const quotesService = {
   async updateStatus(id: string, status: Quote['status']): Promise<Quote> {
     return this.update(id, { status })
   },
+
+  async delete(id: string): Promise<boolean> {
+    return await pb.collection('quotes').delete(id)
+  },
 }
