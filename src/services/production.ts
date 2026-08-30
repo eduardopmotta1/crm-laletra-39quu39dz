@@ -80,7 +80,8 @@ export const productionService = {
       return await pb.collection('production_orders').getFullList<ProductionOrder>({
         filter,
         sort,
-        expand: 'client_id,sales_rep_id,production_rep_id,stage_id,deal_origin_id',
+        expand:
+          'client_id,sales_rep_id,production_rep_id,stage_id,deal_origin_id,approved_proof_id',
         requestKey: null,
       })
     } catch (error) {
@@ -95,7 +96,8 @@ export const productionService = {
   async getById(id: string): Promise<ProductionOrder | null> {
     try {
       return await pb.collection('production_orders').getOne<ProductionOrder>(id, {
-        expand: 'client_id,sales_rep_id,production_rep_id,stage_id,deal_origin_id',
+        expand:
+          'client_id,sales_rep_id,production_rep_id,stage_id,deal_origin_id,approved_proof_id',
         requestKey: null,
       })
     } catch (error) {
@@ -112,7 +114,7 @@ export const productionService = {
       return await pb
         .collection('production_orders')
         .getFirstListItem<ProductionOrder>(`tracking_token = "${token}"`, {
-          expand: 'stage_id',
+          expand: 'stage_id,approved_proof_id',
           requestKey: null,
         })
     } catch (error) {
@@ -196,7 +198,7 @@ export const productionService = {
       return await pb.collection('production_orders').getFullList<ProductionOrder>({
         filter: `client_id = "${clientId}"`,
         sort: '-created',
-        expand: 'stage_id,sales_rep_id,production_rep_id',
+        expand: 'stage_id,sales_rep_id,production_rep_id,approved_proof_id',
         requestKey: null,
       })
     } catch (error) {
@@ -781,7 +783,7 @@ export const productionService = {
     await pb.collection('production_proofs').update(proofId, {
       status: decision,
       client_comment: clientComment || '',
-      approved_at: decision === 'aprovado' ? todayDateStr : undefined,
+      approved_at: decision === 'aprovado' ? todayDateStr : null,
       approved_by_contact: approvedByContact || '',
     })
 
@@ -789,15 +791,25 @@ export const productionService = {
       await pb.collection('production_orders').update(orderId, {
         art_approved: true,
         art_approved_at: todayDateStr,
+        approved_proof_id: proofId,
       })
       await this.updateStage(orderId, 'approved', {
         notes: `Arte explicitamente aprovada pelo cliente. Comentário: ${clientComment || 'Sem observações'}.`,
       })
     } else {
-      // Returned for adjustments
-      await pb.collection('production_orders').update(orderId, {
+      // Returned for adjustments:
+      // If this specific proof was previously the approved proof, remove the approval link
+      const currentOrder = await this.getById(orderId)
+      const shouldClearApprovedProof = currentOrder?.approved_proof_id === proofId
+
+      const updateData: Partial<ProductionOrder> = {
         art_approved: false,
-      })
+      }
+      if (shouldClearApprovedProof) {
+        updateData.approved_proof_id = null as any
+      }
+
+      await pb.collection('production_orders').update(orderId, updateData)
       await this.updateStage(orderId, 'art_preparation', {
         notes: `Cliente solicitou alteração na arte: "${clientComment || 'Revisão necessária'}". Retornado para Arte em preparação.`,
       })

@@ -411,9 +411,16 @@ export default function ProductionOrderModal({
               {orderToEdit ? `Pedido ${orderToEdit.order_number}` : 'Novo Pedido de Produção'}
             </DialogTitle>
             {orderToEdit && (
-              <Badge variant="outline" className="font-mono text-xs">
-                Token: {orderToEdit.tracking_token.substring(0, 8)}...
-              </Badge>
+              <div className="flex items-center gap-1.5">
+                {orderToEdit.approved_proof_id && (
+                  <Badge className="bg-emerald-600 text-white text-[11px] font-bold px-2 py-0.5 flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" />✅ Arte final aprovada
+                  </Badge>
+                )}
+                <Badge variant="outline" className="font-mono text-xs">
+                  Token: {orderToEdit.tracking_token.substring(0, 8)}...
+                </Badge>
+              </div>
             )}
           </div>
           <DialogDescription className="text-xs">
@@ -422,7 +429,6 @@ export default function ProductionOrderModal({
               : 'Preencha os dados da ordem de serviço para enviar à esteira de produção.'}
           </DialogDescription>
         </DialogHeader>
-
         {/* Tab switch */}
         {orderToEdit && (
           <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-1 rounded-xl">
@@ -468,6 +474,215 @@ export default function ProductionOrderModal({
         {/* TAB 1: ORDER DETAILS FORM */}
         {activeTab === 'details' && (
           <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+            {/* SEÇÃO OFICIAL: ARTE FINAL APROVADA / ARQUIVO OFICIAL PARA PRODUÇÃO */}
+            {orderToEdit &&
+              (() => {
+                const approvedProof =
+                  proofs.find((p) => p.id === orderToEdit.approved_proof_id) ||
+                  orderToEdit.expand?.approved_proof_id
+                const hasApprovedProof = Boolean(orderToEdit.approved_proof_id && approvedProof)
+
+                return (
+                  <div
+                    className={`p-4 rounded-xl border transition-all space-y-3 ${
+                      hasApprovedProof
+                        ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 ring-2 ring-emerald-500/20'
+                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck
+                          className={`h-5 w-5 ${hasApprovedProof ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}
+                        />
+                        <div>
+                          <h4 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+                            {hasApprovedProof
+                              ? 'ARQUIVO OFICIAL PARA PRODUÇÃO (ARTE FINAL APROVADA)'
+                              : 'ARTE FINAL / ARQUIVO OFICIAL'}
+                          </h4>
+                          {hasApprovedProof && approvedProof?.approved_at && (
+                            <span className="text-[10px] text-emerald-700 dark:text-emerald-300">
+                              Aprovada em{' '}
+                              {new Date(approvedProof.approved_at).toLocaleDateString('pt-BR')}{' '}
+                              {approvedProof.approved_by_contact
+                                ? `por ${approvedProof.approved_by_contact}`
+                                : ''}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {hasApprovedProof ? (
+                        <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />✅ Arte aprovada (V
+                          {approvedProof?.version_number || 1})
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-slate-500 border-slate-300 dark:border-slate-700"
+                        >
+                          Arte final ainda não identificada.
+                        </Badge>
+                      )}
+                    </div>
+
+                    {hasApprovedProof && approvedProof ? (
+                      <div className="space-y-2 pt-1">
+                        {approvedProof.proof_file &&
+                        (Array.isArray(approvedProof.proof_file)
+                          ? approvedProof.proof_file
+                          : [approvedProof.proof_file]
+                        ).filter(Boolean).length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {(Array.isArray(approvedProof.proof_file)
+                              ? approvedProof.proof_file
+                              : [approvedProof.proof_file]
+                            )
+                              .filter(Boolean)
+                              .map((pFileName, pIdx) => {
+                                const pFileUrl = productionService.getProofFileUrl(
+                                  approvedProof,
+                                  pFileName,
+                                )
+                                const pExt = pFileName.split('.').pop()?.toLowerCase() || ''
+                                const pIsImage = [
+                                  'png',
+                                  'jpg',
+                                  'jpeg',
+                                  'webp',
+                                  'gif',
+                                  'svg',
+                                ].includes(pExt)
+                                const pIsPdf = pExt === 'pdf'
+
+                                return (
+                                  <div
+                                    key={pIdx}
+                                    className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800/80 flex items-center justify-between gap-2.5 shadow-sm"
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                      {pIsImage ? (
+                                        <div className="h-12 w-12 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                                          <img
+                                            src={pFileUrl}
+                                            alt={pFileName}
+                                            className="h-full w-full object-cover"
+                                            loading="lazy"
+                                          />
+                                        </div>
+                                      ) : (
+                                        <div
+                                          className={`h-12 w-12 rounded-lg flex flex-col items-center justify-center shrink-0 border ${
+                                            pIsPdf
+                                              ? 'bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-400'
+                                              : 'bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-400'
+                                          }`}
+                                        >
+                                          {pIsPdf ? (
+                                            <FileText className="h-5 w-5" />
+                                          ) : (
+                                            <File className="h-5 w-5" />
+                                          )}
+                                          <span className="text-[8px] font-mono font-bold uppercase mt-0.5">
+                                            {pExt}
+                                          </span>
+                                        </div>
+                                      )}
+
+                                      <div className="min-w-0 flex-1">
+                                        <span
+                                          className="font-bold text-slate-900 dark:text-slate-100 block truncate text-xs"
+                                          title={pFileName}
+                                        >
+                                          {pFileName}
+                                        </span>
+                                        <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                                          <span className="font-mono uppercase font-semibold">
+                                            .{pExt}
+                                          </span>
+                                          <span>• Prova V{approvedProof.version_number || 1}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <a
+                                        href={pFileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-semibold text-xs transition-colors"
+                                        title="Abrir arquivo oficial em nova aba"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                        Abrir
+                                      </a>
+                                      <a
+                                        href={`${pFileUrl}?download=1`}
+                                        download
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition-colors"
+                                        title="Baixar arquivo oficial para produção"
+                                      >
+                                        <Download className="h-3.5 w-3.5" />
+                                        Baixar
+                                      </a>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                          </div>
+                        ) : approvedProof.proof_url ? (
+                          <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Link2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                              <span className="text-slate-700 dark:text-slate-300 truncate font-mono">
+                                {approvedProof.proof_url}
+                              </span>
+                            </div>
+                            <a
+                              href={approvedProof.proof_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shrink-0"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              Abrir Link Oficial
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border text-xs text-slate-500">
+                            A prova V{approvedProof.version_number || 1} foi aprovada, mas não
+                            contém arquivo físico anexado.
+                          </div>
+                        )}
+
+                        {approvedProof.client_comment && (
+                          <div className="text-[11px] text-slate-600 dark:text-slate-300 bg-white/70 dark:bg-slate-900/70 p-2 rounded-lg border border-emerald-200/50">
+                            <strong>Comentário de aprovação:</strong> "
+                            {approvedProof.client_comment}"
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-dashed border-slate-300 dark:border-slate-700 text-xs text-slate-500 flex items-center justify-between gap-2">
+                        <span>
+                          Arte final ainda não identificada. Envie uma prova e registre a aprovação
+                          na aba "Aprovação de Arte".
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('proofs')}
+                          className="text-purple-600 dark:text-purple-400 font-semibold hover:underline shrink-0 text-xs"
+                        >
+                          Ir para Provas →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
             {/* Section 1: Client Selection */}
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">

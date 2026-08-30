@@ -176,6 +176,7 @@ export default function ProductionCard({
   // Files count and proofs presence
   const attachmentsCount = Array.isArray(order.attachments) ? order.attachments.length : 0
   const hasArtOrProof =
+    order.approved_proof_id ||
     order.art_approved ||
     order.stage_internal_id === 'awaiting_approval' ||
     order.stage_internal_id === 'approved' ||
@@ -203,13 +204,12 @@ export default function ProductionCard({
             >
               {priorityLabels[order.priority || 'media']}
             </Badge>
-
             {order.art_approved && (
               <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0 flex items-center gap-0.5 font-bold shrink-0">
                 <CheckCircle2 className="h-2.5 w-2.5" />
-                Arte OK
+                {order.approved_proof_id ? '✅ Arte final aprovada' : 'Arte OK'}
               </Badge>
-            )}
+            )}{' '}
           </div>
 
           {/* Deadline Badge */}
@@ -284,14 +284,21 @@ export default function ProductionCard({
               </span>
             )}
 
-            {hasArtOrProof && (
+            {order.approved_proof_id ? (
+              <span
+                className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0"
+                title="Arte final aprovada para este pedido"
+              >
+                <CheckCircle2 className="h-3 w-3 text-emerald-600" />✅ Arte final aprovada
+              </span>
+            ) : hasArtOrProof ? (
               <span
                 className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0"
                 title="Arte / prova disponível para este pedido"
               >
                 <Palette className="h-3 w-3 text-purple-600" />🎨 Arte / prova disponível
               </span>
-            )}
+            ) : null}
           </div>
         )}
 

@@ -442,6 +442,7 @@ export interface ProductionOrder {
   attachments?: string[]
   art_approved?: boolean
   art_approved_at?: string
+  approved_proof_id?: string
   stage_id?: string
   stage_internal_id: ProductionStageInternalId
   stage_name: string
@@ -456,6 +457,7 @@ export interface ProductionOrder {
     sales_rep_id?: User
     production_rep_id?: User
     stage_id?: ProductionStage
+    approved_proof_id?: ProductionProof
   }
   created: string
   updated: string
