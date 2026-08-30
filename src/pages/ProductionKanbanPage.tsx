@@ -606,21 +606,21 @@ export default function ProductionKanbanPage() {
                     onDragOver={(e) => handleDragOver(e, stageInternalId)}
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, stageInternalId)}
-                    className={`w-68 shrink-0 flex flex-col max-h-[calc(100vh-310px)] rounded-2xl bg-slate-100/70 dark:bg-slate-900/60 border transition-all duration-200 ${
+                    className={`w-72 shrink-0 flex flex-col max-h-[calc(100vh-310px)] rounded-2xl bg-slate-100/70 dark:bg-slate-900/60 border transition-all duration-200 min-w-0 ${
                       isTarget
                         ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/40 dark:bg-emerald-950/20'
                         : 'border-slate-200 dark:border-slate-800/80'
                     }`}
                   >
                     {/* Column Header */}
-                    <div className="p-3.5 border-b border-slate-200/80 dark:border-slate-800 flex flex-col gap-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                    <div className="p-3.5 border-b border-slate-200/80 dark:border-slate-800 flex flex-col gap-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <span className="font-bold text-xs text-slate-900 dark:text-white truncate min-w-0 flex-1">
                           {stage.name}
                         </span>
                         <Badge
                           variant="outline"
-                          className={`text-[10px] font-bold px-1.5 py-0 ${getStageBadgeColor(
+                          className={`text-[10px] font-bold px-1.5 py-0 shrink-0 ${getStageBadgeColor(
                             stage.color,
                           )}`}
                         >
@@ -629,21 +629,21 @@ export default function ProductionKanbanPage() {
                       </div>
 
                       <span
-                        className="truncate text-[10px] text-slate-500"
+                        className="truncate text-[10px] text-slate-500 min-w-0"
                         title={stage.description}
                       >
                         {stage.description || 'Etapa da esteira'}
                       </span>
 
                       {totalStageValue > 0 && (
-                        <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 pt-0.5">
+                        <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 pt-0.5 truncate min-w-0">
                           Total: {formatCurrency(totalStageValue)}
                         </div>
                       )}
                     </div>
 
                     {/* Column Cards Container */}
-                    <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 min-h-[140px]">
+                    <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 min-h-[140px] min-w-0">
                       {stageOrders.length === 0 ? (
                         <div
                           onClick={() => {
