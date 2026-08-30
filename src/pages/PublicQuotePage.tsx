@@ -43,6 +43,11 @@ export default function PublicQuotePage() {
   const [changeNotes, setChangeNotes] = useState('')
   const [changeNotesError, setChangeNotesError] = useState<string | null>(null)
 
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejectNotes, setRejectNotes] = useState('')
+  const [rejectError, setRejectError] = useState<string | null>(null)
+
   // Action states
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null)
@@ -129,6 +134,46 @@ export default function PublicQuotePage() {
       )
     } catch (err: any) {
       setChangeNotesError(err?.message || 'Falha ao enviar solicitação de alteração.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleReject = async () => {
+    if (!token || !quote) return
+
+    if (!rejectReason) {
+      setRejectError('Por favor, selecione um motivo para a recusa.')
+      return
+    }
+
+    if (rejectReason === 'Outro' && !rejectNotes.trim()) {
+      setRejectError('Por favor, informe o comentário detalhando o motivo da recusa.')
+      return
+    }
+
+    try {
+      setIsSubmitting(true)
+      setRejectError(null)
+      const res = await quotesService.rejectPublicQuote(
+        token,
+        rejectReason,
+        rejectNotes.trim() || undefined,
+      )
+      setQuote((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'recusado',
+              rejected_at: res.rejected_at || new Date().toISOString(),
+              customer_notes: rejectNotes.trim() || prev.customer_notes,
+            }
+          : null,
+      )
+      setShowRejectModal(false)
+      setActionSuccessMessage(res.message || 'Orçamento recusado com sucesso.')
+    } catch (err: any) {
+      setRejectError(err?.message || 'Falha ao registrar recusa do orçamento.')
     } finally {
       setIsSubmitting(false)
     }
@@ -514,6 +559,20 @@ export default function PublicQuotePage() {
                   <Button
                     variant="outline"
                     onClick={() => {
+                      setRejectReason('')
+                      setRejectNotes('')
+                      setRejectError(null)
+                      setShowRejectModal(true)
+                    }}
+                    className="border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 w-full sm:w-auto gap-1.5"
+                  >
+                    <AlertCircle className="w-4 h-4" />
+                    Recusar
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => {
                       setChangeNotes('')
                       setChangeNotesError(null)
                       setShowChangeModal(true)
@@ -659,6 +718,110 @@ export default function PublicQuotePage() {
                 <>
                   <Send className="w-4 h-4" />
                   Enviar solicitação
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Recusa de Orçamento Pública */}
+      <Dialog open={showRejectModal} onOpenChange={setShowRejectModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="w-12 h-12 bg-rose-100 dark:bg-rose-950/50 rounded-full flex items-center justify-center text-rose-600 mb-2">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <DialogTitle className="text-lg font-bold">Recusar Orçamento {quote.code}</DialogTitle>
+            <DialogDescription className="text-sm pt-1">
+              Por favor, informe o motivo pelo qual você não dará sequência nesta proposta
+              comercial.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="public-reject-reason"
+                className="text-xs font-semibold text-slate-700 dark:text-slate-300"
+              >
+                Motivo da recusa <span className="text-rose-500">*</span>
+              </Label>
+              <select
+                id="public-reject-reason"
+                value={rejectReason}
+                onChange={(e) => {
+                  setRejectReason(e.target.value)
+                  if (rejectError) setRejectError(null)
+                }}
+                className="w-full h-9 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-1 text-sm shadow-xs focus:outline-none focus:ring-1 focus:ring-rose-500"
+              >
+                <option value="">Selecione o motivo...</option>
+                <option value="Preço">Preço</option>
+                <option value="Prazo">Prazo</option>
+                <option value="Fechou com concorrente">Fechou com concorrente</option>
+                <option value="Cliente desistiu">Cliente desistiu</option>
+                <option value="Sem retorno / perdeu interesse">
+                  Sem retorno / perdeu interesse
+                </option>
+                <option value="Outro">Outro</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="public-reject-notes"
+                className="text-xs font-semibold text-slate-700 dark:text-slate-300"
+              >
+                {rejectReason === 'Outro' ? (
+                  <>
+                    Comentário / Detalhamento <span className="text-rose-500">*</span>
+                  </>
+                ) : (
+                  'Comentário adicional (opcional)'
+                )}
+              </Label>
+              <Textarea
+                id="public-reject-notes"
+                rows={3}
+                placeholder={
+                  rejectReason === 'Outro'
+                    ? 'Descreva o motivo da recusa...'
+                    : 'Gostaria de deixar alguma observação para a equipe?'
+                }
+                value={rejectNotes}
+                onChange={(e) => {
+                  setRejectNotes(e.target.value)
+                  if (rejectError) setRejectError(null)
+                }}
+              />
+            </div>
+
+            {rejectError && <p className="text-xs text-rose-600 font-medium">{rejectError}</p>}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowRejectModal(false)}
+              disabled={isSubmitting}
+            >
+              Voltar
+            </Button>
+            <Button
+              onClick={handleReject}
+              disabled={isSubmitting || !rejectReason}
+              className="bg-rose-600 hover:bg-rose-700 text-white gap-2 font-semibold"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Recusando...
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-4 h-4" />
+                  Confirmar recusa
                 </>
               )}
             </Button>

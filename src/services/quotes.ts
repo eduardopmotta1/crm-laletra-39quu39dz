@@ -175,6 +175,26 @@ export const quotesService = {
     })
   },
 
+  /**
+   * Recusa orçamento via endpoint público com motivo obrigatório e observações
+   */
+  async rejectPublicQuote(
+    token: string,
+    reason: string,
+    notes?: string,
+  ): Promise<{
+    success: boolean
+    message: string
+    status: QuoteStatus
+    rejected_at: string
+    code: string
+  }> {
+    return await pb.send(`/api/public/quotes/${encodeURIComponent(token)}/reject`, {
+      method: 'POST',
+      body: { reason, notes },
+    })
+  },
+
   async update(id: string, data: Partial<Quote>): Promise<Quote> {
     // Explicitly omit 'code' and 'id' so that the original quote number and record ID remain completely immutable
     const { code: _omitCode, id: _omitId, ...payload } = data as any
@@ -237,7 +257,7 @@ export const quotesService = {
     return updatedQuote
   },
 
-  async reject(id: string, reason?: string, notes?: string): Promise<Quote> {
+  async reject(id: string, reason: string, notes?: string): Promise<Quote> {
     // 1. Fetch current quote
     const existing = await this.getById(id)
     if (!existing) {
@@ -245,17 +265,79 @@ export const quotesService = {
     }
 
     const previousStatus = existing.status || 'rascunho'
+    const nowIso = new Date().toISOString()
+    const todayDateStr = nowIso.split('T')[0]
 
-    // 2. Update ONLY status to 'recusado' on the EXACT same quote.id
-    const updatedQuote = await pb
-      .collection('quotes')
-      .update<Quote>(
-        id,
-        { status: 'recusado', rejected_at: new Date().toISOString() },
-        { expand: 'client_id,attendance_id,user_id' },
-      )
+    // Formata motivo completo para o histórico caso seja personalizado ou contenha observação
+    const finalReasonText =
+      reason === 'Outro' && notes?.trim()
+        ? `Outro: ${notes.trim()}`
+        : notes?.trim()
+          ? `${reason} - ${notes.trim()}`
+          : reason
 
-    // 3. Register audit log with reason and free-form notes
+    // 2. Update ONLY status to 'recusado' and rejected_at on the EXACT same quote.id
+    const updatedQuote = await pb.collection('quotes').update<Quote>(
+      id,
+      {
+        status: 'recusado',
+        rejected_at: nowIso,
+        customer_notes: notes?.trim() || undefined,
+      },
+      { expand: 'client_id,attendance_id,user_id' },
+    )
+
+    // 3. Regra Bloco 24: Localizar o atendimento por quote.attendance_id
+    // NUNCA por client_id, telefone ou atendimento mais recente.
+    // Mover ESSE attendance para a etapa interna "Não fechou"
+    if (existing.attendance_id) {
+      try {
+        let att: any = null
+        try {
+          att = await pb.collection('attendances').getOne(existing.attendance_id)
+        } catch (fetchErr) {
+          console.warn(
+            `Atendimento ${existing.attendance_id} não encontrado ao mover para 'Não fechou':`,
+            fetchErr,
+          )
+        }
+
+        const oldStage = att?.stage || 'Em atendimento'
+
+        await pb.collection('attendances').update(existing.attendance_id, {
+          stage: 'Não fechou',
+          result: 'Venda perdida',
+          loss_reason: finalReasonText,
+          closed_at: todayDateStr,
+        })
+
+        // Registrar transição de etapa para auditoria e histórico comercial do atendimento
+        try {
+          await pb.collection('stage_transitions').create({
+            client_id: existing.client_id || '',
+            attendance_id: existing.attendance_id,
+            from_stage: oldStage,
+            to_stage: 'Não fechou',
+            change_type: 'automatic',
+            user_id: pb.authStore.record?.id || undefined,
+            user_name:
+              pb.authStore.record?.name ||
+              pb.authStore.record?.email ||
+              'Sistema / Orçamento Recusado',
+            notes: `Atendimento movido para "Não fechou" após recusa do orçamento ${existing.code}. Motivo: ${finalReasonText}.`,
+          })
+        } catch (transErr) {
+          console.warn('Erro ao registrar transição de etapa para Não fechou:', transErr)
+        }
+      } catch (attErr) {
+        console.error(
+          `Erro ao atualizar attendance ${existing.attendance_id} para Não fechou:`,
+          attErr,
+        )
+      }
+    }
+
+    // 4. Register audit log with reason and free-form notes
     try {
       const currentUser = pb.authStore.record
       const reasonText = reason ? `Motivo: ${reason}` : 'Sem motivo informado'

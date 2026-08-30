@@ -125,3 +125,146 @@ routerAdd('POST', '/api/public/quotes/{token}/request-change', (c) => {
     return c.json(500, { error: 'Erro ao solicitar alteração: ' + err.message })
   }
 })
+
+/**
+ * Hook para cliente recusar um orçamento através do public_token
+ * Requer campo 'reason' obrigatório e 'notes' opcional.
+ * Regra Bloco 24: Atualiza o quote EXATO para 'recusado' com rejected_at,
+ * e move EXCLUSIVAMENTE o attendance vinculado (quote.attendance_id) para 'Não fechou'.
+ */
+routerAdd('POST', '/api/public/quotes/{token}/reject', (c) => {
+  try {
+    const token = c.request.pathValue('token')
+    if (!token || token.trim() === '') {
+      return c.json(400, { error: 'Token inválido' })
+    }
+
+    const body = $apis.requestInfo(c).data || {}
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+    const notes = typeof body.notes === 'string' ? body.notes.trim() : ''
+
+    if (!reason) {
+      return c.json(400, { error: 'Por favor, selecione um motivo para a recusa do orçamento.' })
+    }
+
+    const quotes = $app.findRecordsByFilter('quotes', `public_token = {:token}`, '-created', 1, 0, {
+      token: token.trim(),
+    })
+
+    if (!quotes || quotes.length === 0) {
+      return c.json(404, { error: 'Orçamento não encontrado' })
+    }
+
+    const q = quotes[0]
+    const currentStatus = q.getString('status')
+
+    if (currentStatus === 'aprovado') {
+      return c.json(400, {
+        error: 'Este orçamento já foi aprovado e não pode ser recusado diretamente pelo link.',
+        status: 'aprovado',
+      })
+    }
+
+    const nowIso = new Date().toISOString()
+    const todayDateStr = nowIso.split('T')[0]
+
+    // Formata o motivo
+    const finalReasonText =
+      reason === 'Outro' && notes ? `Outro: ${notes}` : notes ? `${reason} - ${notes}` : reason
+
+    // 1. Atualiza quote EXATO
+    q.set('status', 'recusado')
+    q.set('rejected_at', nowIso)
+    if (notes) {
+      q.set('customer_notes', notes)
+    }
+    $app.save(q)
+
+    // 2. Localizar attendance EXATO por quote.attendance_id
+    const attendanceId = q.getString('attendance_id')
+    const clientId = q.getString('client_id')
+    const quoteCode = q.getString('code')
+
+    if (attendanceId) {
+      try {
+        const att = $app.findRecordById('attendances', attendanceId)
+        if (att) {
+          const oldStage = att.getString('stage') || 'Em atendimento'
+          att.set('stage', 'Não fechou')
+          att.set('result', 'Venda perdida')
+          att.set('loss_reason', finalReasonText)
+          att.set('closed_at', todayDateStr)
+          $app.save(att)
+
+          // Registrar histórico de transição
+          try {
+            const stageTransCollection = $app.findCollectionByNameOrId('stage_transitions')
+            if (stageTransCollection) {
+              const transRec = new Record(stageTransCollection)
+              transRec.set('client_id', clientId || '')
+              transRec.set('attendance_id', attendanceId)
+              transRec.set('from_stage', oldStage)
+              transRec.set('to_stage', 'Não fechou')
+              transRec.set('change_type', 'automatic')
+              transRec.set('user_name', 'Cliente (Página Pública)')
+              transRec.set(
+                'notes',
+                `Orçamento ${quoteCode} recusado pelo cliente. Motivo: ${finalReasonText}.`,
+              )
+              $app.save(transRec)
+            }
+          } catch (tErr) {
+            console.error('[PublicQuoteReject] Erro ao criar stage_transition:', tErr)
+          }
+        }
+      } catch (attErr) {
+        console.error(
+          '[PublicQuoteReject] Erro ao atualizar attendance ' + attendanceId + ':',
+          attErr,
+        )
+      }
+    }
+
+    // 3. Registrar audit_log
+    try {
+      const auditCollection = $app.findCollectionByNameOrId('audit_logs')
+      if (auditCollection) {
+        const auditRec = new Record(auditCollection)
+        auditRec.set('user_name', 'Cliente (Página Pública)')
+        auditRec.set('user_email', '')
+        auditRec.set('action', 'recusar')
+        auditRec.set('module', 'quotes')
+        auditRec.set('record_id', q.id)
+        auditRec.set('record_title', quoteCode)
+        auditRec.set(
+          'details',
+          `Orçamento ${quoteCode} recusado pelo cliente na página pública. Motivo: ${finalReasonText}.`,
+        )
+        auditRec.set('previous_value', JSON.stringify({ status: currentStatus }))
+        auditRec.set(
+          'new_value',
+          JSON.stringify({
+            status: 'recusado',
+            reason: reason,
+            notes: notes || null,
+            code: quoteCode,
+            attendance_id: attendanceId,
+          }),
+        )
+        $app.save(auditRec)
+      }
+    } catch (audErr) {
+      console.error('[PublicQuoteReject] Erro ao salvar audit_log:', audErr)
+    }
+
+    return c.json(200, {
+      success: true,
+      message: 'Orçamento recusado com sucesso.',
+      status: 'recusado',
+      rejected_at: nowIso,
+      code: quoteCode,
+    })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao recusar orçamento: ' + err.message })
+  }
+})

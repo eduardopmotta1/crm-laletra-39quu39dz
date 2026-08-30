@@ -604,6 +604,15 @@ export default function WhatsAppChatDrawer({
 
   const handleConfirmRejectQuote = async () => {
     if (!quoteToReject || isRejectingQuote) return
+    if (!rejectReason) {
+      toast({
+        title: 'Motivo obrigatório',
+        description: 'Por favor, selecione o motivo da recusa antes de prosseguir.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setIsRejectingQuote(true)
     const quoteCode = quoteToReject.code
     const quoteId = quoteToReject.id
@@ -611,7 +620,7 @@ export default function WhatsAppChatDrawer({
     try {
       const updated = await quotesService.reject(
         quoteId,
-        rejectReason || undefined,
+        rejectReason,
         rejectNotes.trim() || undefined,
       )
 
@@ -623,13 +632,18 @@ export default function WhatsAppChatDrawer({
 
       toast({
         title: 'Orçamento Recusado',
-        description: `O orçamento ${quoteCode} foi registrado como recusado.`,
+        description: `O orçamento ${quoteCode} foi registrado como recusado e o atendimento movido para "Não fechou".`,
       })
 
       setRejectDialogOpen(false)
       setQuoteToReject(null)
       setRejectReason('')
       setRejectNotes('')
+
+      // Recarregar dados do cliente / atendimento e avisar componentes
+      await loadClientData(displayClient.id, activeAttendance?.id)
+      if (onClientUpdated) onClientUpdated()
+      window.dispatchEvent(new CustomEvent('crm-client-updated'))
     } catch (err: any) {
       console.error('Error rejecting quote:', err)
       toast({
@@ -2697,34 +2711,43 @@ export default function WhatsAppChatDrawer({
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Motivo da recusa (opcional)
+                  Motivo da recusa <span className="text-rose-500">*</span>
                 </label>
                 <Select value={rejectReason} onValueChange={setRejectReason}>
                   <SelectTrigger className="text-xs">
-                    <SelectValue placeholder="Selecione um motivo..." />
+                    <SelectValue placeholder="Selecione o motivo da recusa..." />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Preço">Preço</SelectItem>
-                    <SelectItem value="Prazo de entrega">Prazo de entrega</SelectItem>
-                    <SelectItem value="Cliente desistiu">Cliente desistiu</SelectItem>
+                    <SelectItem value="Prazo">Prazo</SelectItem>
                     <SelectItem value="Fechou com concorrente">Fechou com concorrente</SelectItem>
-                    <SelectItem value="Especificação técnica / Material">
-                      Especificação técnica / Material
+                    <SelectItem value="Cliente desistiu">Cliente desistiu</SelectItem>
+                    <SelectItem value="Sem retorno / perdeu interesse">
+                      Sem retorno / perdeu interesse
                     </SelectItem>
-                    <SelectItem value="Sem retorno do cliente">Sem retorno do cliente</SelectItem>
-                    <SelectItem value="Outro">Outro motivo</SelectItem>
+                    <SelectItem value="Outro">Outro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Observações adicionais (opcional)
+                  {rejectReason === 'Outro' ? (
+                    <>
+                      Comentário / Detalhamento <span className="text-rose-500">*</span>
+                    </>
+                  ) : (
+                    'Observações adicionais (opcional)'
+                  )}
                 </label>
                 <Textarea
                   value={rejectNotes}
                   onChange={(e) => setRejectNotes(e.target.value)}
-                  placeholder="Ex: Cliente achou o frete alto ou preferiu adiar para o próximo mês..."
+                  placeholder={
+                    rejectReason === 'Outro'
+                      ? 'Descreva o motivo da recusa...'
+                      : 'Ex: Cliente achou o frete alto ou preferiu adiar para o próximo mês...'
+                  }
                   className="text-xs min-h-[70px]"
                 />
               </div>
