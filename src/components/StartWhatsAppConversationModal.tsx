@@ -29,21 +29,25 @@ import {
   Clock,
 } from 'lucide-react'
 import type { Client, WhatsAppTemplate } from '@/types/crm'
+import type { Quote } from '@/types/quotes'
 import pb from '@/lib/pocketbase/client'
 import { whatsappService } from '@/services/whatsapp'
 import { attendancesService } from '@/services/attendances'
+import { quotesService } from '@/services/quotes'
 import {
   whatsappTemplatesService,
   extractVariablesFromBody,
   renderTemplatePreview,
 } from '@/services/whatsappTemplates'
-import { formatCurrency } from '@/lib/sla'
+import { formatCurrency, formatQuoteItemsSummary } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 
 interface StartWhatsAppConversationModalProps {
   isOpen: boolean
   onClose: () => void
   client: Client | null
+  initialQuote?: Quote | null
+  initialTemplateName?: string
   onSuccess?: (updatedClient: Client) => void
 }
 
@@ -51,6 +55,8 @@ export default function StartWhatsAppConversationModal({
   isOpen,
   onClose,
   client,
+  initialQuote,
+  initialTemplateName,
   onSuccess,
 }: StartWhatsAppConversationModalProps) {
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
@@ -60,15 +66,15 @@ export default function StartWhatsAppConversationModal({
   const [sending, setSending] = useState(false)
 
   // Target stage after starting conversation
-  const [targetStage, setTargetStage] = useState<'Contato iniciado' | 'Aguardando cliente'>(
-    'Contato iniciado',
-  )
+  const [targetStage, setTargetStage] = useState<
+    'Contato iniciado' | 'Aguardando cliente' | 'Orçamento enviado'
+  >(initialQuote ? 'Orçamento enviado' : 'Contato iniciado')
 
   useEffect(() => {
     if (isOpen) {
       loadApprovedTemplates()
     }
-  }, [isOpen])
+  }, [isOpen, initialQuote, initialTemplateName])
 
   const loadApprovedTemplates = async () => {
     setLoadingTemplates(true)
@@ -76,8 +82,26 @@ export default function StartWhatsAppConversationModal({
       const list = await whatsappTemplatesService.getApproved()
       setTemplates(list)
       if (list.length > 0) {
-        setSelectedTemplateId(list[0].id)
-        initVarsForTemplate(list[0], client)
+        let chosen = list[0]
+
+        if (initialQuote || initialTemplateName === 'envio_orcamento_express') {
+          const orcTpl = list.find((t) => t.name === 'envio_orcamento_express')
+          if (orcTpl) {
+            chosen = orcTpl
+            setTargetStage('Orçamento enviado')
+          }
+        } else if (initialTemplateName) {
+          const matched = list.find((t) => t.name === initialTemplateName)
+          if (matched) chosen = matched
+        } else {
+          // Início de conversa padrão: dar preferência para o template inicial de contato
+          const firstContactTpl = list.find((t) => t.name === 'primeiro_contato_lead')
+          if (firstContactTpl) chosen = firstContactTpl
+          setTargetStage('Contato iniciado')
+        }
+
+        setSelectedTemplateId(chosen.id)
+        initVarsForTemplate(chosen, client, initialQuote)
       }
     } catch (err) {
       console.error('Error loading approved templates:', err)
@@ -86,26 +110,43 @@ export default function StartWhatsAppConversationModal({
     }
   }
 
-  // When client or template selection changes, auto-fill variables with client data
-  const initVarsForTemplate = (tpl: WhatsAppTemplate, targetClient: Client | null) => {
+  // When client, quote, or template selection changes, auto-fill variables
+  const initVarsForTemplate = (
+    tpl: WhatsAppTemplate,
+    targetClient: Client | null,
+    targetQuote?: Quote | null,
+  ) => {
     const vars = tpl.variables || extractVariablesFromBody(tpl.body)
     const initialMap: Record<string, string> = {}
 
     const clientFirstName = targetClient?.name ? targetClient.name.split(' ')[0] : ''
     const clientFullName = targetClient?.name || ''
-    const clientProduct = targetClient?.product_interest || 'nossos serviços gráficos'
-    const clientQuote = targetClient?.quote_value
-      ? formatCurrency(targetClient.quote_value)
-      : 'sob consulta'
+
+    // Se temos um quote selecionado, o produto e o valor DEVEM vir estritamente de quote.items e quote.total
+    const quoteProductSummary = targetQuote ? formatQuoteItemsSummary(targetQuote.items) : ''
+    const quoteValueFormatted = targetQuote
+      ? formatCurrency(
+          targetQuote.final_total !== undefined && targetQuote.final_total !== null
+            ? targetQuote.final_total
+            : targetQuote.total_sale || 0,
+        )
+      : ''
+
+    // Para início de conversa sem orçamento real:
+    // Produto é opcional / genérico ("nossos serviços gráficos") e nunca orçamento vinculado
+    const fallbackProduct = 'nossos serviços gráficos'
+    const fallbackQuote = 'sob consulta'
 
     vars.forEach((v) => {
       const lower = v.toLowerCase()
       if (lower.includes('nome') || lower === '1') {
         initialMap[v] = clientFirstName || clientFullName
       } else if (lower.includes('produto') || lower.includes('servico') || lower === '2') {
-        initialMap[v] = clientProduct
+        // Se temos um quote real, usar estritamente o resumo dos itens do quote
+        initialMap[v] = quoteProductSummary || fallbackProduct
       } else if (lower.includes('orcamento') || lower.includes('valor') || lower === '3') {
-        initialMap[v] = clientQuote
+        // Se temos um quote real, usar estritamente o total do quote
+        initialMap[v] = quoteValueFormatted || fallbackQuote
       } else if (lower.includes('empresa') || lower.includes('grafica')) {
         initialMap[v] = 'Gráfica Laletra'
       } else {
@@ -120,7 +161,10 @@ export default function StartWhatsAppConversationModal({
     setSelectedTemplateId(templateId)
     const found = templates.find((t) => t.id === templateId)
     if (found) {
-      initVarsForTemplate(found, client)
+      initVarsForTemplate(found, client, initialQuote)
+      if (found.name === 'envio_orcamento_express') {
+        setTargetStage('Orçamento enviado')
+      }
     }
   }
 
@@ -181,6 +225,15 @@ export default function StartWhatsAppConversationModal({
       })
 
       if (res.success) {
+        // Se foi o envio de um orçamento específico, atualizar status do quote para 'enviado'
+        if (initialQuote && initialQuote.id) {
+          try {
+            await quotesService.updateStatus(initialQuote.id, 'enviado')
+          } catch (qErr) {
+            console.warn('Erro ao atualizar status do orçamento após template:', qErr)
+          }
+        }
+
         // 3. Garantir que se o cliente não possuía attendance ativo ou estava arquivado,
         // criamos/reativamos o attendance para este ciclo de conversa
         try {
@@ -191,10 +244,12 @@ export default function StartWhatsAppConversationModal({
           })
 
           if (activeAtts.items.length === 0) {
-            // Cria attendance ativo para o client existente
+            // Cria attendance ativo para o client existente sem exigir produto
             await attendancesService.createForClient(targetClientId, {
               stage: targetStage as any,
-              product_interest: client.product_interest || 'Contato via WhatsApp',
+              product_interest: targetQuote
+                ? formatQuoteItemsSummary(targetQuote.items)
+                : client.product_interest || '',
               assigned_to: client.assigned_to || '',
               source: 'whatsapp_outbound_template',
             })
@@ -396,6 +451,7 @@ export default function StartWhatsAppConversationModal({
                       🔵 Contato iniciado (Recomendado)
                     </SelectItem>
                     <SelectItem value="Aguardando cliente">🟣 Aguardando cliente</SelectItem>
+                    <SelectItem value="Orçamento enviado">📄 Orçamento enviado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

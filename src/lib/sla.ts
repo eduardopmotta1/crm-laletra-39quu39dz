@@ -196,6 +196,43 @@ export function formatDimension(val: number): string {
   return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/**
+ * Extrai resumo legível dos itens reais de um orçamento para ser usado em templates e mensagens.
+ * Ex: "1x Banner Lona 440g (1.00x2.00m), 2x Adesivo Vinil" ou "Banner Lona 440g"
+ */
+export function formatQuoteItemsSummary(
+  items?: Array<{
+    product_name?: string
+    quantity?: number
+    width?: number
+    height?: number
+    linear_meters?: number
+    additionals?: Array<{ name?: string; quantity?: number }>
+  }>,
+): string {
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return 'itens sob medida'
+  }
+
+  const summaries = items
+    .map((item) => {
+      const name = (item.product_name || 'Item').trim()
+      const qty = item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''
+
+      let dimension = ''
+      if (item.width && item.height && item.width > 0 && item.height > 0) {
+        dimension = ` (${formatDimension(item.width)}x${formatDimension(item.height)}m)`
+      } else if (item.linear_meters && item.linear_meters > 0) {
+        dimension = ` (${formatDimension(item.linear_meters)}m linear)`
+      }
+
+      return `${qty}${name}${dimension}`
+    })
+    .filter(Boolean)
+
+  return summaries.join(', ') || 'itens sob medida'
+}
+
 export function formatQuoteWhatsAppMessage(
   quote: {
     code: string

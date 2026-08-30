@@ -135,6 +135,10 @@ export default function WhatsAppChatDrawer({
   const [selectedQuoteToSend, setSelectedQuoteToSend] = useState<Quote | null>(null)
   const [sendQuoteModalOpen, setSendQuoteModalOpen] = useState(false)
   const [isSendingQuote, setIsSendingQuote] = useState(false)
+  const [startModalInitialQuote, setStartModalInitialQuote] = useState<Quote | null>(null)
+  const [startModalInitialTemplateName, setStartModalInitialTemplateName] = useState<
+    string | undefined
+  >(undefined)
 
   // New task inline
   const [newTaskTitle, setNewTaskTitle] = useState('')
@@ -689,7 +693,11 @@ export default function WhatsAppChatDrawer({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setStartModalOpen(true)}
+                onClick={() => {
+                  setStartModalInitialQuote(null)
+                  setStartModalInitialTemplateName(undefined)
+                  setStartModalOpen(true)
+                }}
                 className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0"
               >
                 <Sparkles className="h-3.5 w-3.5 mr-1" />
@@ -920,7 +928,11 @@ export default function WhatsAppChatDrawer({
                       Aprovado pela Meta.
                     </p>
                     <Button
-                      onClick={() => setStartModalOpen(true)}
+                      onClick={() => {
+                        setStartModalInitialQuote(null)
+                        setStartModalInitialTemplateName('primeiro_contato_lead')
+                        setStartModalOpen(true)
+                      }}
                       size="sm"
                       className="mt-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
                     >
@@ -1008,7 +1020,11 @@ export default function WhatsAppChatDrawer({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setStartModalOpen(true)}
+                    onClick={() => {
+                      setStartModalInitialQuote(null)
+                      setStartModalInitialTemplateName(undefined)
+                      setStartModalOpen(true)
+                    }}
                     className="h-6 text-[10px] bg-white border-amber-300 text-amber-900 hover:bg-amber-100"
                   >
                     Usar Template
@@ -1844,10 +1860,18 @@ export default function WhatsAppChatDrawer({
       {/* Start Official WhatsApp Template Modal */}
       <StartWhatsAppConversationModal
         isOpen={startModalOpen}
-        onClose={() => setStartModalOpen(false)}
+        onClose={() => {
+          setStartModalOpen(false)
+          setStartModalInitialQuote(null)
+          setStartModalInitialTemplateName(undefined)
+        }}
         client={displayClient}
+        initialQuote={startModalInitialQuote}
+        initialTemplateName={startModalInitialTemplateName}
         onSuccess={() => {
           setStartModalOpen(false)
+          setStartModalInitialQuote(null)
+          setStartModalInitialTemplateName(undefined)
           loadClientData(displayClient.id, activeAttendance?.id)
           if (onClientUpdated) onClientUpdated()
         }}
@@ -1945,7 +1969,11 @@ export default function WhatsAppChatDrawer({
                       type="button"
                       size="sm"
                       onClick={() => {
+                        const quote = selectedQuoteToSend
                         setSendQuoteModalOpen(false)
+                        setSelectedQuoteToSend(null)
+                        setStartModalInitialQuote(quote)
+                        setStartModalInitialTemplateName('envio_orcamento_express')
                         setStartModalOpen(true)
                       }}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 px-3 gap-1"
