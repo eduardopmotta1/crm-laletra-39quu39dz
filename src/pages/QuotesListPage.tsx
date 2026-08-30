@@ -23,7 +23,11 @@ import {
   XCircle,
 } from 'lucide-react'
 import { quotesService } from '@/services/quotes'
+import { productionService } from '@/services/production'
+import CreateProductionOrderFromQuoteModal from '@/components/CreateProductionOrderFromQuoteModal'
+import ProductionOrderModal from '@/components/ProductionOrderModal'
 import type { Quote } from '@/types/quotes'
+import type { ProductionOrder } from '@/types/crm'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -85,13 +89,24 @@ export default function QuotesListPage() {
   const [rejectNotes, setRejectNotes] = useState<string>('')
   const [isRejectingQuote, setIsRejectingQuote] = useState(false)
 
-  const loadQuotes = async () => {
+  // Production Orders state for duplicate checking
+  const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>([])
+  const [createOrderModalOpen, setCreateOrderModalOpen] = useState(false)
+  const [quoteForProductionOrder, setQuoteForProductionOrder] = useState<Quote | null>(null)
+  const [viewOrderModalOpen, setViewOrderModalOpen] = useState(false)
+  const [selectedOrderToView, setSelectedOrderToView] = useState<ProductionOrder | null>(null)
+
+  const loadQuotesAndOrders = async () => {
     setLoading(true)
     try {
-      const data = await quotesService.getAll()
-      setQuotes(data)
+      const [quotesData, ordersData] = await Promise.all([
+        quotesService.getAll(),
+        productionService.getAll().catch(() => [] as ProductionOrder[]),
+      ])
+      setQuotes(quotesData)
+      setProductionOrders(ordersData)
     } catch (err) {
-      console.error('Error loading quotes:', err)
+      console.error('Error loading quotes and orders:', err)
       toast({
         title: 'Erro ao carregar propostas',
         description: 'Não foi possível buscar a lista de orçamentos.',
@@ -103,8 +118,31 @@ export default function QuotesListPage() {
   }
 
   useEffect(() => {
-    loadQuotes()
+    loadQuotesAndOrders()
+
+    const handleUpdate = () => {
+      loadQuotesAndOrders()
+    }
+    window.addEventListener('production-order-updated', handleUpdate)
+    window.addEventListener('quotes-updated', handleUpdate)
+    return () => {
+      window.removeEventListener('production-order-updated', handleUpdate)
+      window.removeEventListener('quotes-updated', handleUpdate)
+    }
   }, [])
+
+  // Helper to find linked production order for a quote
+  const getLinkedOrderForQuote = (quote: Quote): ProductionOrder | undefined => {
+    return productionOrders.find(
+      (o) =>
+        (o.notes &&
+          (o.notes.includes(`[QUOTE_ID:${quote.id}]`) ||
+            o.notes.includes(`[ORC:${quote.code}]`))) ||
+        (o.description &&
+          (o.description.includes(`[QUOTE_ID:${quote.id}]`) ||
+            o.description.includes(`[ORC:${quote.code}]`))),
+    )
+  }
 
   const filteredQuotes = quotes.filter((q) => {
     const matchesSearch =
@@ -495,6 +533,44 @@ export default function QuotesListPage() {
                     </span>
                   </div>
 
+                  {/* Botão de Criação / Visualização de Pedido de Produção para Orçamentos Aprovados */}
+                  {q.status === 'aprovado' &&
+                    (() => {
+                      const linkedOrder = getLinkedOrderForQuote(q)
+                      if (linkedOrder) {
+                        return (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedOrderToView(linkedOrder)
+                              setViewOrderModalOpen(true)
+                            }}
+                            className="gap-1 text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold h-8 px-2.5 shadow-xs"
+                            title={`Ver Pedido de Produção ${linkedOrder.order_number}`}
+                          >
+                            <Package className="h-3.5 w-3.5" />
+                            <span>Pedido #{linkedOrder.order_number}</span>
+                          </Button>
+                        )
+                      }
+                      return (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            setQuoteForProductionOrder(q)
+                            setCreateOrderModalOpen(true)
+                          }}
+                          className="gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold h-8 px-2.5 shadow-xs"
+                          title={`Criar pedido de produção a partir do ${q.code}`}
+                        >
+                          <Package className="h-3.5 w-3.5" />
+                          <span>Criar pedido de produção</span>
+                        </Button>
+                      )
+                    })()}
+
                   {q.status === 'enviado' && (
                     <div className="flex items-center gap-1.5">
                       <Button
@@ -760,6 +836,44 @@ export default function QuotesListPage() {
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
+                  {selectedQuote.status === 'aprovado' &&
+                    (() => {
+                      const linkedOrder = getLinkedOrderForQuote(selectedQuote)
+                      if (linkedOrder) {
+                        return (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              setDetailsOpen(false)
+                              setSelectedOrderToView(linkedOrder)
+                              setViewOrderModalOpen(true)
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 font-semibold shadow-xs"
+                          >
+                            <Package className="h-3.5 w-3.5" />
+                            Pedido #{linkedOrder.order_number}
+                          </Button>
+                        )
+                      }
+                      return (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            const q = selectedQuote
+                            setDetailsOpen(false)
+                            setQuoteForProductionOrder(q)
+                            setCreateOrderModalOpen(true)
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold shadow-xs"
+                        >
+                          <Package className="h-3.5 w-3.5" />
+                          Criar pedido de produção
+                        </Button>
+                      )
+                    })()}
+
                   {selectedQuote.status === 'enviado' && (
                     <>
                       <Button
@@ -924,6 +1038,38 @@ export default function QuotesListPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* MODAL: CRIAR PEDIDO DE PRODUÇÃO A PARTIR DO ORÇAMENTO APROVADO */}
+      <CreateProductionOrderFromQuoteModal
+        isOpen={createOrderModalOpen}
+        onClose={() => {
+          setCreateOrderModalOpen(false)
+          setQuoteForProductionOrder(null)
+        }}
+        quote={quoteForProductionOrder}
+        onOrderCreated={(order) => {
+          loadQuotesAndOrders()
+          setSelectedOrderToView(order)
+          setViewOrderModalOpen(true)
+        }}
+        onOpenExistingOrder={(order) => {
+          setSelectedOrderToView(order)
+          setViewOrderModalOpen(true)
+        }}
+      />
+
+      {/* MODAL: VISUALIZAR / EDITAR PEDIDO DE PRODUÇÃO */}
+      <ProductionOrderModal
+        isOpen={viewOrderModalOpen}
+        onClose={() => {
+          setViewOrderModalOpen(false)
+          setSelectedOrderToView(null)
+        }}
+        orderToEdit={selectedOrderToView}
+        onSaved={() => {
+          loadQuotesAndOrders()
+        }}
+      />
 
       {/* MODAL: RECUSA DE ORÇAMENTO */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>

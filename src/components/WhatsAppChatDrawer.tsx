@@ -64,6 +64,7 @@ import { postSalesService } from '@/services/postSales'
 import { productionService } from '@/services/production'
 import { quotesService } from '@/services/quotes'
 import ProductionOrderModal from './ProductionOrderModal'
+import CreateProductionOrderFromQuoteModal from './CreateProductionOrderFromQuoteModal'
 import {
   calculateSlaInfo,
   formatCurrency,
@@ -147,6 +148,23 @@ export default function WhatsAppChatDrawer({
   // Production Order modal from drawer
   const [orderModalOpen, setOrderModalOpen] = useState(false)
   const [selectedOrderToEdit, setSelectedOrderToEdit] = useState<ProductionOrder | null>(null)
+
+  // Create Production Order from Quote modal
+  const [createOrderFromQuoteModalOpen, setCreateOrderFromQuoteModalOpen] = useState(false)
+  const [quoteToCreateOrder, setQuoteToCreateOrder] = useState<Quote | null>(null)
+
+  // Helper map: quote.id or quote.code -> ProductionOrder
+  const getLinkedOrderForQuote = (quote: Quote): ProductionOrder | undefined => {
+    return productionOrders.find(
+      (o) =>
+        (o.notes &&
+          (o.notes.includes(`[QUOTE_ID:${quote.id}]`) ||
+            o.notes.includes(`[ORC:${quote.code}]`))) ||
+        (o.description &&
+          (o.description.includes(`[QUOTE_ID:${quote.id}]`) ||
+            o.description.includes(`[ORC:${quote.code}]`))),
+    )
+  }
 
   // Quote View Details Modal
   const [selectedQuoteToView, setSelectedQuoteToView] = useState<Quote | null>(null)
@@ -242,6 +260,7 @@ export default function WhatsAppChatDrawer({
           startModalOpen ||
           archiveModalOpen ||
           orderModalOpen ||
+          createOrderFromQuoteModalOpen ||
           quoteDetailsOpen ||
           deleteQuoteDialogOpen ||
           sendQuoteModalOpen ||
@@ -261,6 +280,7 @@ export default function WhatsAppChatDrawer({
     startModalOpen,
     archiveModalOpen,
     orderModalOpen,
+    createOrderFromQuoteModalOpen,
     quoteDetailsOpen,
     deleteQuoteDialogOpen,
     sendQuoteModalOpen,
@@ -977,7 +997,45 @@ export default function WhatsAppChatDrawer({
                             <div className="shrink-0">{getQuoteStatusBadge(quote.status)}</div>
                           </div>
 
-                          <div className="flex items-center gap-1 shrink-0 ml-auto">
+                          <div className="flex items-center gap-1 shrink-0 ml-auto flex-wrap sm:flex-nowrap">
+                            {/* Botão Criar Pedido / Pedido já criado para orçamentos Aprovados */}
+                            {quote.status === 'aprovado' &&
+                              (() => {
+                                const linkedOrder = getLinkedOrderForQuote(quote)
+                                if (linkedOrder) {
+                                  return (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => {
+                                        setSelectedOrderToEdit(linkedOrder)
+                                        setOrderModalOpen(true)
+                                      }}
+                                      className="h-6 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-xs"
+                                      title={`Abrir Pedido ${linkedOrder.order_number}`}
+                                    >
+                                      <Package className="h-3 w-3" />
+                                      <span>Pedido #{linkedOrder.order_number}</span>
+                                    </Button>
+                                  )
+                                }
+                                return (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => {
+                                      setQuoteToCreateOrder(quote)
+                                      setCreateOrderFromQuoteModalOpen(true)
+                                    }}
+                                    className="h-6 px-2 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1 shadow-xs"
+                                    title={`Criar pedido de produção a partir do ${quote.code}`}
+                                  >
+                                    <Package className="h-3 w-3" />
+                                    <span>Criar pedido de produção</span>
+                                  </Button>
+                                )
+                              })()}
+
                             <Button
                               type="button"
                               variant="outline"
@@ -2137,6 +2195,30 @@ export default function WhatsAppChatDrawer({
         }}
       />
 
+      {/* Create Production Order from Approved Quote Modal */}
+      <CreateProductionOrderFromQuoteModal
+        isOpen={createOrderFromQuoteModalOpen}
+        onClose={() => {
+          setCreateOrderFromQuoteModalOpen(false)
+          setQuoteToCreateOrder(null)
+        }}
+        quote={quoteToCreateOrder}
+        onOrderCreated={(order) => {
+          if (displayClient?.id) {
+            loadClientData(displayClient.id, activeAttendance?.id)
+          }
+          if (onClientUpdated) {
+            onClientUpdated()
+          }
+          setSelectedOrderToEdit(order)
+          setOrderModalOpen(true)
+        }}
+        onOpenExistingOrder={(order) => {
+          setSelectedOrderToEdit(order)
+          setOrderModalOpen(true)
+        }}
+      />
+
       {/* Production Order Create/Edit from Drawer */}
       <ProductionOrderModal
         isOpen={orderModalOpen}
@@ -2513,6 +2595,44 @@ export default function WhatsAppChatDrawer({
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
+                  {selectedQuoteToView.status === 'aprovado' &&
+                    (() => {
+                      const linkedOrder = getLinkedOrderForQuote(selectedQuoteToView)
+                      if (linkedOrder) {
+                        return (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              setQuoteDetailsOpen(false)
+                              setSelectedOrderToEdit(linkedOrder)
+                              setOrderModalOpen(true)
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 font-semibold"
+                          >
+                            <Package className="h-3.5 w-3.5" />
+                            Pedido #{linkedOrder.order_number}
+                          </Button>
+                        )
+                      }
+                      return (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            const q = selectedQuoteToView
+                            setQuoteDetailsOpen(false)
+                            setQuoteToCreateOrder(q)
+                            setCreateOrderFromQuoteModalOpen(true)
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold shadow-xs"
+                        >
+                          <Package className="h-3.5 w-3.5" />
+                          Criar pedido de produção
+                        </Button>
+                      )
+                    })()}
+
                   {selectedQuoteToView.status === 'enviado' && (
                     <>
                       <Button

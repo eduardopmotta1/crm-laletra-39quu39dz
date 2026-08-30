@@ -11,6 +11,7 @@ import { settingsService } from './settings'
 
 export interface CreateProductionOrderPayload {
   clientId: string
+  attendanceId?: string
   clientName: string
   clientPhone: string
   clientEmail?: string
@@ -120,6 +121,54 @@ export const productionService = {
   },
 
   /**
+   * Get production orders by quote code or ID tag in notes/description (defense-in-depth helper)
+   */
+  async getByQuoteCode(quoteCode: string): Promise<ProductionOrder[]> {
+    if (!quoteCode) return []
+    try {
+      const cleanCode = quoteCode.replace(/[\\"]/g, '')
+      return await pb.collection('production_orders').getFullList<ProductionOrder>({
+        filter: `notes ~ "[ORC:${cleanCode}]" || description ~ "[ORC:${cleanCode}]"`,
+        sort: '-created',
+        requestKey: null,
+      })
+    } catch (error) {
+      console.error('Error finding order by quote code:', error)
+      return []
+    }
+  },
+
+  /**
+   * Get production order directly linked to a quote by quote ID / code
+   */
+  async getByQuoteId(quoteId: string, quoteCode?: string): Promise<ProductionOrder | null> {
+    if (!quoteId && !quoteCode) return null
+    try {
+      const filters: string[] = []
+      if (quoteId) {
+        const cleanId = quoteId.replace(/[\\"]/g, '')
+        filters.push(`notes ~ "[QUOTE_ID:${cleanId}]"`)
+        filters.push(`description ~ "[QUOTE_ID:${cleanId}]"`)
+      }
+      if (quoteCode) {
+        const cleanCode = quoteCode.replace(/[\\"]/g, '')
+        filters.push(`notes ~ "[ORC:${cleanCode}]"`)
+        filters.push(`description ~ "[ORC:${cleanCode}]"`)
+      }
+      const filterStr = filters.join(' || ')
+      const orders = await pb.collection('production_orders').getFullList<ProductionOrder>({
+        filter: filterStr,
+        sort: '-created',
+        requestKey: null,
+      })
+      return orders.length > 0 ? orders[0] : null
+    } catch (error) {
+      console.error('Error finding order by quote ID:', error)
+      return null
+    }
+  },
+
+  /**
    * Get all orders for a client
    */
   async getByClientId(clientId: string): Promise<ProductionOrder[]> {
@@ -160,6 +209,9 @@ export const productionService = {
       formData.append('tracking_token', trackingToken)
       if (payload.clientId && payload.clientId.trim()) {
         formData.append('client_id', payload.clientId.trim())
+      }
+      if (payload.attendanceId && payload.attendanceId.trim()) {
+        formData.append('attendance_id', payload.attendanceId.trim())
       }
       formData.append('client_name', payload.clientName.trim())
       formData.append('client_phone', payload.clientPhone.trim())
