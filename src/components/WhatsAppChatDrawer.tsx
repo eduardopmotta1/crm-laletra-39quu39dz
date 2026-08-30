@@ -735,6 +735,18 @@ export default function WhatsAppChatDrawer({
   const handleConfirmSendQuote = async () => {
     if (!selectedQuoteToSend || isSendingQuote || !displayClient) return
 
+    // Validate public token before sending
+    const publicToken = selectedQuoteToSend.public_token
+    if (!publicToken || typeof publicToken !== 'string' || publicToken.trim() === '') {
+      toast({
+        title: 'Token do orçamento não encontrado',
+        description:
+          'Este orçamento não possui public_token válido gerado. Salve ou recarregue o orçamento antes de enviar.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     // Verify 24h window
     if (!within24h) {
       toast({
@@ -750,14 +762,26 @@ export default function WhatsAppChatDrawer({
       const formattedText = formatQuoteWhatsAppMessage(selectedQuoteToSend, displayClient.name)
 
       // Send the WhatsApp message using existing mechanism
-      const res = await whatsappService.sendMessage(displayClient.id, formattedText)
+      const res = await whatsappService.sendMessage({
+        clientId: displayClient.id,
+        attendanceId: activeAttendance?.id || selectedQuoteToSend.attendance_id || undefined,
+        messageText: formattedText,
+      })
 
-      if (res.error) {
-        throw new Error(res.error)
+      if (!res.success || res.error) {
+        throw new Error(res.error || 'Falha ao enviar mensagem de orçamento pelo WhatsApp.')
       }
 
-      // Update quote status to "enviado" using UPDATE/PATCH on the same quote.id
-      await quotesService.updateStatus(selectedQuoteToSend.id, 'enviado')
+      // Update quote status to "enviado" ONLY after confirmed dispatch success on EXACT quote.id
+      const updatedQuote = await quotesService.updateStatus(selectedQuoteToSend.id, 'enviado')
+
+      // Update attendance quote list state
+      setAttendanceQuotes((prev) =>
+        prev.map((q) => (q.id === selectedQuoteToSend.id ? updatedQuote : q)),
+      )
+      if (selectedQuoteToView?.id === selectedQuoteToSend.id) {
+        setSelectedQuoteToView(updatedQuote)
+      }
 
       toast({
         title: 'Orçamento enviado!',
@@ -771,10 +795,14 @@ export default function WhatsAppChatDrawer({
       shouldAutoScrollNextRef.current = true
       await loadClientData(displayClient.id, activeAttendance?.id)
       if (onClientUpdated) onClientUpdated()
+      window.dispatchEvent(new CustomEvent('crm-client-updated'))
+      window.dispatchEvent(new CustomEvent('quotes-updated'))
     } catch (err: any) {
       toast({
         title: 'Erro ao enviar orçamento',
-        description: err?.message || 'Não foi possível enviar o orçamento pelo WhatsApp.',
+        description:
+          err?.message ||
+          'Não foi possível enviar o orçamento pelo WhatsApp. O status anterior foi mantido.',
         variant: 'destructive',
       })
     } finally {

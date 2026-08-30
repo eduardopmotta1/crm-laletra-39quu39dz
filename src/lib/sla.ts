@@ -236,6 +236,7 @@ export function formatQuoteItemsSummary(
 export function formatQuoteWhatsAppMessage(
   quote: {
     code: string
+    public_token?: string
     client_name?: string
     items?: Array<{
       product_name?: string
@@ -266,15 +267,19 @@ export function formatQuoteWhatsAppMessage(
       ? quote.final_total
       : quote.total_sale || 0
 
+  const origin =
+    typeof window !== 'undefined' && window.location.origin ? window.location.origin : ''
+  const publicQuoteUrl =
+    quote.public_token && quote.public_token.trim()
+      ? `${origin}/orcamento/${quote.public_token.trim()}`
+      : ''
+
   const lines: string[] = []
-  lines.push(`Olá, ${greetingName}! 😊`)
-  lines.push('')
-  lines.push('Segue seu orçamento:')
-  lines.push('')
-  lines.push(`📄 Orçamento ${quote.code}`)
+  lines.push(`Olá, ${greetingName}! Segue seu orçamento ${quote.code}.`)
   lines.push('')
 
   if (Array.isArray(quote.items) && quote.items.length > 0) {
+    lines.push('Itens do orçamento:')
     quote.items.forEach((item, index) => {
       const prodName = (item.product_name || `Item ${index + 1}`).trim()
       lines.push(`• ${prodName}`)
@@ -291,13 +296,24 @@ export function formatQuoteWhatsAppMessage(
         item.height !== null &&
         item.height > 0
       ) {
-        lines.push(`  Medida: ${formatDimension(item.width)} x ${formatDimension(item.height)} m`)
+        lines.push(`  Medidas: ${formatDimension(item.width)} x ${formatDimension(item.height)} m`)
       } else if (
         item.linear_meters !== undefined &&
         item.linear_meters !== null &&
         item.linear_meters > 0
       ) {
-        lines.push(`  Medida: ${formatDimension(item.linear_meters)} m lineares`)
+        lines.push(`  Medidas: ${formatDimension(item.linear_meters)} m lineares`)
+      }
+
+      // Unit value when available
+      const unitVal = item.applied_unit_price ?? item.calculated_unit_price
+      if (
+        unitVal !== undefined &&
+        unitVal !== null &&
+        !isNaN(Number(unitVal)) &&
+        Number(unitVal) > 0
+      ) {
+        lines.push(`  Valor unitário: ${formatCurrency(Number(unitVal))}`)
       }
 
       // Additionals if present
@@ -317,19 +333,29 @@ export function formatQuoteWhatsAppMessage(
         }
       }
 
-      // Value
+      // Item total value
       const itemVal =
         item.item_total_sale !== undefined && item.item_total_sale !== null
           ? item.item_total_sale
-          : (item.applied_unit_price || item.calculated_unit_price || 0) * qty
-      lines.push(`  Valor: ${formatCurrency(itemVal)}`)
+          : (unitVal || 0) * qty
+      if (
+        itemVal !== undefined &&
+        itemVal !== null &&
+        !isNaN(Number(itemVal)) &&
+        Number(itemVal) > 0
+      ) {
+        lines.push(`  Subtotal item: ${formatCurrency(itemVal)}`)
+      }
       lines.push('')
     })
   }
 
-  lines.push(`Total do orçamento: ${formatCurrency(totalVal)}`)
-  lines.push('')
-  lines.push('Se estiver tudo certo, me avise por aqui para seguirmos com o pedido. 😊')
+  lines.push(`Valor total: ${formatCurrency(totalVal)}`)
+
+  if (publicQuoteUrl) {
+    lines.push('')
+    lines.push(`Você pode visualizar e responder pelo link: ${publicQuoteUrl}`)
+  }
 
   return lines.join('\n')
 }

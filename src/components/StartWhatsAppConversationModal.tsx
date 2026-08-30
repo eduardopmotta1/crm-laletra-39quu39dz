@@ -122,7 +122,7 @@ export default function StartWhatsAppConversationModal({
     const clientFirstName = targetClient?.name ? targetClient.name.split(' ')[0] : ''
     const clientFullName = targetClient?.name || ''
 
-    // Se temos um quote selecionado, o produto e o valor DEVEM vir estritamente de quote.items e quote.total
+    // Se temos um quote selecionado, o produto, o valor e o link DEVEM vir estritamente do quote selecionado
     const quoteProductSummary = targetQuote ? formatQuoteItemsSummary(targetQuote.items) : ''
     const quoteValueFormatted = targetQuote
       ? formatCurrency(
@@ -131,6 +131,7 @@ export default function StartWhatsAppConversationModal({
             : targetQuote.total_sale || 0,
         )
       : ''
+    const publicQuoteUrl = targetQuote ? quotesService.getPublicQuoteUrl(targetQuote) : ''
 
     // Para início de conversa sem orçamento real:
     // Produto é opcional / genérico ("nossos serviços gráficos") e nunca orçamento vinculado
@@ -147,6 +148,8 @@ export default function StartWhatsAppConversationModal({
       } else if (lower.includes('orcamento') || lower.includes('valor') || lower === '3') {
         // Se temos um quote real, usar estritamente o total do quote
         initialMap[v] = quoteValueFormatted || fallbackQuote
+      } else if (lower.includes('link') || lower.includes('url') || lower === '4') {
+        initialMap[v] = publicQuoteUrl || ''
       } else if (lower.includes('empresa') || lower.includes('grafica')) {
         initialMap[v] = 'Gráfica Laletra'
       } else {
@@ -203,6 +206,20 @@ export default function StartWhatsAppConversationModal({
       return
     }
 
+    // Se o modal foi aberto para envio de um quote específico, validar public_token antes de disparar
+    if (initialQuote) {
+      const token = initialQuote.public_token
+      if (!token || typeof token !== 'string' || token.trim() === '') {
+        toast({
+          title: 'Token do orçamento não encontrado',
+          description:
+            'Este orçamento não possui public_token válido. Salve ou recarregue o orçamento antes de enviar.',
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     setSending(true)
     try {
       // 1. Resolve canonical client if target client is a merged/consolidated record
@@ -217,6 +234,7 @@ export default function StartWhatsAppConversationModal({
       // 2. Disparar template
       const res = await whatsappService.sendTemplateMessage({
         clientId: targetClientId,
+        attendanceId: initialQuote?.attendance_id || undefined,
         templateName: selectedTemplate.name,
         templateLanguage: selectedTemplate.language || 'pt_BR',
         templateVariables: templateVars,
@@ -225,7 +243,7 @@ export default function StartWhatsAppConversationModal({
       })
 
       if (res.success) {
-        // Se foi o envio de um orçamento específico, atualizar status do quote para 'enviado'
+        // Se foi o envio de um orçamento específico, atualizar status do quote para 'enviado' SOMENTE após confirmação de sucesso
         if (initialQuote && initialQuote.id) {
           try {
             await quotesService.updateStatus(initialQuote.id, 'enviado')

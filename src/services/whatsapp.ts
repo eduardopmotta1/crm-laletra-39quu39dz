@@ -155,6 +155,7 @@ export const whatsappService = {
     if (typeof clientIdOrPayload === 'object' && clientIdOrPayload.clientId) {
       return await this.sendMessage({
         clientId: clientIdOrPayload.clientId,
+        attendanceId: clientIdOrPayload.attendanceId || undefined,
         messageText: clientIdOrPayload.renderedText || '',
       })
     }
