@@ -648,12 +648,12 @@ export default function WhatsAppChatDrawer({
           </div>
 
           {/* Main Content Area */}
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-12 min-h-0 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800">
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-12 min-h-0 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800 overflow-hidden">
             {/* LEFT SIDE: WhatsApp Chat Conversation */}
-            <div className="md:col-span-7 flex flex-col h-full bg-[#efeae2]/40 dark:bg-slate-950/40">
+            <div className="md:col-span-7 flex flex-col h-full min-h-0 overflow-hidden bg-[#efeae2]/40 dark:bg-slate-950/40">
               {/* Bloco Orçamento Vinculado ao Atendimento Atual */}
               {attendanceQuotes.length > 0 && (
-                <div className="px-3 py-2 bg-emerald-50/90 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60">
+                <div className="shrink-0 px-3 py-2 bg-emerald-50/90 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60">
                   <button
                     type="button"
                     onClick={() => setQuotesExpanded(!quotesExpanded)}
@@ -678,7 +678,7 @@ export default function WhatsAppChatDrawer({
                   </button>
 
                   {quotesExpanded && (
-                    <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                    <div className="mt-2 space-y-1.5 max-h-32 sm:max-h-40 overflow-y-auto pr-0.5">
                       {attendanceQuotes.map((quote) => (
                         <div
                           key={quote.id}
@@ -755,7 +755,7 @@ export default function WhatsAppChatDrawer({
                 if (activeProductionOrders.length === 0) return null
 
                 return (
-                  <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60">
+                  <div className="shrink-0 px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60">
                     <button
                       type="button"
                       onClick={() => setOrdersExpanded(!ordersExpanded)}
@@ -780,7 +780,7 @@ export default function WhatsAppChatDrawer({
                     </button>
 
                     {ordersExpanded && (
-                      <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                      <div className="mt-2 space-y-1.5 max-h-32 sm:max-h-40 overflow-y-auto pr-0.5">
                         {activeProductionOrders.map((ord) => (
                           <div
                             key={ord.id}
@@ -829,7 +829,7 @@ export default function WhatsAppChatDrawer({
               <div
                 ref={messagesContainerRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-y-auto p-4 space-y-3"
+                className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3"
               >
                 {loading ? (
                   <div className="flex justify-center items-center h-40 text-xs text-slate-500">
@@ -902,7 +902,7 @@ export default function WhatsAppChatDrawer({
 
               {/* API Status / Fallback Notice Banner */}
               {apiStatus && !apiStatus.configured && (
-                <div className="px-3.5 py-2 bg-amber-50 dark:bg-amber-950/40 border-t border-b border-amber-200 dark:border-amber-900/60 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-amber-800 dark:text-amber-300 gap-2">
+                <div className="shrink-0 px-3.5 py-2 bg-amber-50 dark:bg-amber-950/40 border-t border-b border-amber-200 dark:border-amber-900/60 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-amber-800 dark:text-amber-300 gap-2">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
                     <span>
@@ -926,7 +926,7 @@ export default function WhatsAppChatDrawer({
 
               {/* 24-Hour Policy Warning Banner */}
               {!within24h && (
-                <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-t border-b border-amber-200 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 gap-2">
+                <div className="shrink-0 px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-t border-b border-amber-200 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 gap-2">
                   <div className="flex items-center gap-1.5">
                     <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
                     <span>
@@ -945,7 +945,7 @@ export default function WhatsAppChatDrawer({
               )}
 
               {/* Quick Template Chips */}
-              <div className="px-3 py-2 bg-white/80 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 overflow-x-auto flex gap-1.5 scrollbar-none items-center">
+              <div className="shrink-0 px-3 py-2 bg-white/80 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 overflow-x-auto flex gap-1.5 scrollbar-none items-center">
                 <span className="text-[10px] font-semibold text-slate-400 uppercase shrink-0">
                   Respostas Rápidas:
                 </span>
@@ -992,7 +992,7 @@ export default function WhatsAppChatDrawer({
 
               {/* Selected Attachment Preview */}
               {selectedAttachment && (
-                <div className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border-t border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+                <div className="shrink-0 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border-t border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <Paperclip className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
                     <span className="truncate font-medium">{selectedAttachment.name}</span>
@@ -1014,10 +1014,10 @@ export default function WhatsAppChatDrawer({
                 </div>
               )}
 
-              {/* Chat Input */}
+              {/* Chat Input / Composer */}
               <form
                 onSubmit={handleSendMessage}
-                className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
+                className="shrink-0 p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
               >
                 <input
                   type="file"
@@ -1059,7 +1059,7 @@ export default function WhatsAppChatDrawer({
             </div>
 
             {/* RIGHT SIDE: Tabs between Info/Tasks vs History/Audit */}
-            <div className="md:col-span-5 flex flex-col h-full bg-white dark:bg-slate-900 overflow-y-auto">
+            <div className="md:col-span-5 flex flex-col h-full min-h-0 bg-white dark:bg-slate-900 overflow-y-auto">
               {/* Tab switch header */}
               <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-1">
                 <button
