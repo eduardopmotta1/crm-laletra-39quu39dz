@@ -300,7 +300,7 @@ export default function PublicTrackingPage() {
                       className="text-[10px] bg-white dark:bg-slate-900 text-purple-800 border-purple-300"
                     >
                       {prf.status === 'aprovado'
-                        ? '✓ Aprovado'
+                        ? '✓ Arte Aprovada'
                         : prf.status === 'alteracao_solicitada'
                           ? '⚠️ Ajustes solicitados'
                           : '⏳ Em conferência'}

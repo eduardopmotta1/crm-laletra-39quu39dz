@@ -47,7 +47,7 @@ export const defaultProductionStages: Omit<ProductionStage, 'id'>[] = [
   },
   {
     internal_id: 'approved',
-    name: 'Aprovado',
+    name: 'Arte aprovada',
     description: 'Arte e especificações aprovadas pelo cliente',
     color: 'cyan',
     order_index: 4,

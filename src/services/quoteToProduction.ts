@@ -162,6 +162,9 @@ export const quoteToProductionService = {
       )
     }
 
+    // Explicit guarantee: Creating production order from approved quote does NOT mean art is approved.
+    // art_approved remains false, approved_proof_id is empty, art_approved_at is empty.
+
     // 2. Prevent duplicate creation by checking if a production order is already linked to this quote.id / code
     const existingOrder = await this.findExistingOrderForQuote(freshQuote.id, freshQuote.code)
     if (existingOrder) {

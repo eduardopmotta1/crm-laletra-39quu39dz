@@ -55,10 +55,12 @@ import type {
   Priority,
   ProductionDeliveryType,
 } from '@/types/crm'
+import type { Quote } from '@/types/quotes'
 import { productionService } from '@/services/production'
 import { productionStagesService } from '@/services/productionStages'
 import { usersService } from '@/services/whatsapp'
 import { clientsService } from '@/services/clients'
+import { extractQuoteLinkFromOrder } from '@/lib/productionItemParser'
 import { formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 import pb from '@/lib/pocketbase/client'
@@ -99,6 +101,7 @@ export default function ProductionOrderModal({
   const [loading, setLoading] = useState(false)
   const [logs, setLogs] = useState<ProductionLog[]>([])
   const [proofs, setProofs] = useState<ProductionProof[]>([])
+  const [linkedQuote, setLinkedQuote] = useState<Quote | null>(null)
 
   // Form states
   const [clientId, setClientId] = useState('')
@@ -161,6 +164,17 @@ export default function ProductionOrderModal({
         // Fetch logs and proofs
         productionService.getLogs(orderToEdit.id).then(setLogs)
         productionService.getProofs(orderToEdit.id).then(setProofs)
+
+        // Fetch linked quote if available
+        const qLink = extractQuoteLinkFromOrder(orderToEdit)
+        if (qLink.quoteId) {
+          pb.collection('quotes')
+            .getOne<Quote>(qLink.quoteId)
+            .then(setLinkedQuote)
+            .catch(() => setLinkedQuote(null))
+        } else {
+          setLinkedQuote(null)
+        }
       } else {
         // New order / prefilled from deal
         setClientId(prefillData?.clientId || initialClientId || '')
@@ -185,6 +199,7 @@ export default function ProductionOrderModal({
         setPriority('media')
         setLogs([])
         setProofs([])
+        setLinkedQuote(null)
       }
       setActiveTab('details')
     }
@@ -474,6 +489,76 @@ export default function ProductionOrderModal({
         {/* TAB 1: ORDER DETAILS FORM */}
         {activeTab === 'details' && (
           <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+            {/* SEÇÃO SEPARADA: SITUAÇÃO COMERCIAL & SITUAÇÃO DA ARTE */}
+            {orderToEdit && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* 1. SITUAÇÃO COMERCIAL */}
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    1. Situação Comercial
+                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {linkedQuote ? `Orçamento ${linkedQuote.code}` : 'Orçamento / Venda'}
+                    </span>
+                    <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border-emerald-300 text-[10px] font-bold px-2 py-0.5">
+                      ✓ Orçamento Aprovado
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Venda fechada comercialmente. Permite a criação da ordem de produção.
+                  </p>
+                </div>
+
+                {/* 2. SITUAÇÃO DA ARTE */}
+                <div
+                  className={`p-3 rounded-xl border space-y-1.5 transition-all ${
+                    orderToEdit.art_approved && orderToEdit.approved_proof_id
+                      ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800'
+                      : orderToEdit.stage_internal_id === 'awaiting_approval'
+                        ? 'bg-purple-50/70 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800'
+                        : orderToEdit.stage_internal_id === 'art_preparation'
+                          ? 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-300 dark:border-indigo-800'
+                          : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'
+                  }`}
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    2. Situação da Arte
+                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Aprovação Visual
+                    </span>
+                    {orderToEdit.art_approved && orderToEdit.approved_proof_id ? (
+                      <Badge className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" />✅ Arte aprovada
+                      </Badge>
+                    ) : orderToEdit.stage_internal_id === 'awaiting_approval' ? (
+                      <Badge className="bg-purple-600 text-white text-[10px] font-bold px-2 py-0.5">
+                        ⏳ Aguardando aprovação
+                      </Badge>
+                    ) : orderToEdit.stage_internal_id === 'art_preparation' ? (
+                      <Badge className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5">
+                        🎨 Em preparação
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="text-amber-800 dark:text-amber-300 border-amber-300 text-[10px] font-bold px-2 py-0.5"
+                      >
+                        ⏳ Aguardando criação / envio
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {orderToEdit.art_approved && orderToEdit.approved_proof_id
+                      ? 'Prova digital confirmada e aprovada pelo cliente.'
+                      : 'A aprovação comercial não aprova a arte automaticamente.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* SEÇÃO OFICIAL: ARTE FINAL APROVADA / ARQUIVO OFICIAL PARA PRODUÇÃO */}
             {orderToEdit &&
               (() => {
@@ -499,7 +584,7 @@ export default function ProductionOrderModal({
                           <h4 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
                             {hasApprovedProof
                               ? 'ARQUIVO OFICIAL PARA PRODUÇÃO (ARTE FINAL APROVADA)'
-                              : 'ARTE FINAL / ARQUIVO OFICIAL'}
+                              : 'ARQUIVO OFICIAL PARA PRODUÇÃO'}
                           </h4>
                           {hasApprovedProof && approvedProof?.approved_at && (
                             <span className="text-[10px] text-emerald-700 dark:text-emerald-300">
@@ -515,7 +600,7 @@ export default function ProductionOrderModal({
 
                       {hasApprovedProof ? (
                         <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 flex items-center gap-1">
-                          <CheckCircle2 className="h-3 w-3" />✅ Arte aprovada (V
+                          <CheckCircle2 className="h-3 w-3" />✅ Arte final aprovada (V
                           {approvedProof?.version_number || 1})
                         </Badge>
                       ) : (
@@ -523,7 +608,7 @@ export default function ProductionOrderModal({
                           variant="outline"
                           className="text-[10px] text-slate-500 border-slate-300 dark:border-slate-700"
                         >
-                          Arte final ainda não identificada.
+                          Nenhuma arte final aprovada ainda
                         </Badge>
                       )}
                     </div>
@@ -667,8 +752,8 @@ export default function ProductionOrderModal({
                     ) : (
                       <div className="p-3 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-dashed border-slate-300 dark:border-slate-700 text-xs text-slate-500 flex items-center justify-between gap-2">
                         <span>
-                          Arte final ainda não identificada. Envie uma prova e registre a aprovação
-                          na aba "Aprovação de Arte".
+                          Arte final ainda não aprovada. Envie uma prova e registre a decisão na aba
+                          "Aprovação de Arte".
                         </span>
                         <button
                           type="button"
