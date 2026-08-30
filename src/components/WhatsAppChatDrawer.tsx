@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useRealtime } from '@/hooks/use-realtime'
 import { useNavigate } from 'react-router-dom'
 import {
   X,
@@ -140,7 +141,42 @@ export default function WhatsAppChatDrawer({
   // Right sidebar tab
   const [rightTab, setRightTab] = useState<'info' | 'relationship' | 'orders' | 'history'>('info')
 
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Effective client to reference
+  const displayClient = currentClient || client
+  const activeClientId = displayClient?.id
+
+  // Track scroll state and navigation triggers
+  const isNearBottomRef = useRef<boolean>(true)
+  const previousMessagesCountRef = useRef<number>(0)
+  const lastConversationKeyRef = useRef<string | null>(null)
+  const shouldAutoScrollNextRef = useRef<boolean>(false)
+
+  // Function to check if user is near bottom of the message container (~150px threshold)
+  const checkIfNearBottom = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) return true
+    const threshold = 150
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    return distanceToBottom <= threshold
+  }, [])
+
+  const handleScroll = useCallback(() => {
+    isNearBottomRef.current = checkIfNearBottom()
+  }, [checkIfNearBottom])
+
+  // Scroll smoothly or immediately to the bottom of the messages container
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    // Scroll container specifically to prevent entire page/drawer scrolling
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior,
+    })
+  }, [])
 
   // ESC key handler to close drawer (only if no nested modals/dialogs are open)
   useEffect(() => {
@@ -167,11 +203,81 @@ export default function WhatsAppChatDrawer({
     }
   }, [client, isOpen, activeAttendance?.id])
 
+  // Real-time listener for incoming/updated messages and client events while drawer is open
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    if (!isOpen || !activeClientId) return
+
+    const handleWindowUpdate = () => {
+      // Reload client and messages when simulation or external event triggers
+      loadClientData(activeClientId, activeAttendance?.id)
     }
-  }, [messages])
+
+    window.addEventListener('crm-client-updated', handleWindowUpdate)
+    return () => window.removeEventListener('crm-client-updated', handleWindowUpdate)
+  }, [isOpen, activeClientId, activeAttendance?.id])
+
+  // Real-time listener for incoming/created messages in PocketBase collection
+  useRealtime(
+    'messages',
+    (data: any) => {
+      if (data.action === 'create' && activeClientId && data.record?.client_id === activeClientId) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === data.record.id)) return prev
+          return [...prev, data.record as Message]
+        })
+      }
+    },
+    isOpen && !!activeClientId,
+  )
+
+  // Handle auto-scroll on messages change, conversation switch, or send
+  useEffect(() => {
+    if (!isOpen) return
+
+    const currentKey = `${activeClientId || ''}_${activeAttendance?.id || ''}`
+    const isNewConversation = lastConversationKeyRef.current !== currentKey
+    const prevCount = previousMessagesCountRef.current
+    const currentCount = messages.length
+    const hasNewMessages = currentCount > prevCount
+
+    if (isNewConversation) {
+      // Switched conversation or opened drawer: scroll to bottom immediately (instant)
+      lastConversationKeyRef.current = currentKey
+      previousMessagesCountRef.current = currentCount
+      isNearBottomRef.current = true
+      shouldAutoScrollNextRef.current = false
+
+      // Use a short timeout to ensure DOM has rendered messages
+      const timer = setTimeout(() => {
+        scrollToBottom('auto')
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+
+    // Existing conversation: check if user just sent a message or received new message
+    if (shouldAutoScrollNextRef.current) {
+      // Sent message: always scroll smoothly to bottom
+      shouldAutoScrollNextRef.current = false
+      previousMessagesCountRef.current = currentCount
+      const timer = setTimeout(() => {
+        scrollToBottom('smooth')
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+
+    if (hasNewMessages) {
+      // New incoming message: only scroll if user is near bottom
+      if (isNearBottomRef.current) {
+        const timer = setTimeout(() => {
+          scrollToBottom('smooth')
+        }, 50)
+        previousMessagesCountRef.current = currentCount
+        return () => clearTimeout(timer)
+      }
+    }
+
+    previousMessagesCountRef.current = currentCount
+  }, [messages, isOpen, activeClientId, activeAttendance?.id, scrollToBottom])
 
   const loadClientData = async (clientId: string, attendanceId?: string) => {
     setLoading(true)
@@ -261,7 +367,6 @@ export default function WhatsAppChatDrawer({
 
   if (!isOpen || !client) return null
 
-  const displayClient = currentClient || client
   const within24h = isWithin24HourWindow(
     displayClient.last_message_at,
     displayClient.last_message_direction,
@@ -297,6 +402,7 @@ export default function WhatsAppChatDrawer({
       setAttachmentNote('')
       if (fileInputRef.current) fileInputRef.current.value = ''
 
+      shouldAutoScrollNextRef.current = true
       await loadClientData(displayClient.id, activeAttendance?.id)
       if (onClientUpdated) onClientUpdated()
       toast({
@@ -720,7 +826,11 @@ export default function WhatsAppChatDrawer({
               })()}
 
               {/* Message List */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto p-4 space-y-3"
+              >
                 {loading ? (
                   <div className="flex justify-center items-center h-40 text-xs text-slate-500">
                     Carregando mensagens...
