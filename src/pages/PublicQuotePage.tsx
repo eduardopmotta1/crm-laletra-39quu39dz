@@ -230,7 +230,7 @@ export default function PublicQuotePage() {
     )
   }
 
-  const isActionable = quote.status === 'enviado' || quote.status === 'rascunho'
+  const isActionable = quote.status === 'enviado'
 
   return (
     <div className="min-h-screen bg-slate-100/70 dark:bg-slate-950 text-slate-900 dark:text-slate-100 py-8 px-4 sm:px-6">
@@ -286,22 +286,27 @@ export default function PublicQuotePage() {
           </div>
         )}
 
-        {quote.status === 'alteracao_solicitada' && !actionSuccessMessage && (
-          <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 p-4 rounded-xl space-y-2">
-            <div className="flex items-center gap-2 font-semibold text-sm">
-              <Edit3 className="w-4 h-4 text-amber-600" />
-              Solicitação de alteração enviada:
-            </div>
-            {quote.customer_notes && (
-              <p className="text-xs bg-white/70 dark:bg-slate-900/60 p-2.5 rounded border border-amber-200 dark:border-amber-900/60 text-slate-800 dark:text-slate-200 italic">
-                "{quote.customer_notes}"
+        {(quote.status === 'alteracao_solicitada' || quote.status === 'rascunho') &&
+          !actionSuccessMessage && (
+            <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 p-4 rounded-xl space-y-2">
+              <div className="flex items-center gap-2 font-semibold text-sm">
+                <Edit3 className="w-4 h-4 text-amber-600" />
+                <span>Este orçamento está sendo atualizado. Aguarde o novo envio.</span>
+              </div>
+              {quote.customer_notes && (
+                <div className="text-xs bg-white/70 dark:bg-slate-900/60 p-2.5 rounded border border-amber-200 dark:border-amber-900/60 text-slate-800 dark:text-slate-200">
+                  <span className="font-semibold block text-slate-500 mb-0.5">
+                    Observação da solicitação:
+                  </span>
+                  <p className="italic">"{quote.customer_notes}"</p>
+                </div>
+              )}
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Assim que a equipe finalizar e reenviar a proposta atualizada, você poderá aprovar
+                diretamente por este mesmo link.
               </p>
-            )}
-            <p className="text-xs text-amber-700 dark:text-amber-400">
-              Nosso atendimento está revisando seu pedido e entrará em contato em breve.
-            </p>
-          </div>
-        )}
+            </div>
+          )}
 
         {quote.status === 'recusado' && (
           <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 p-4 rounded-xl flex items-center gap-3">

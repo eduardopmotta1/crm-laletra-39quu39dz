@@ -511,6 +511,29 @@ export default function QuotesListPage() {
                     </div>
                   )}
 
+                  {q.status === 'rascunho' && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        const attParam = q.attendance_id
+                          ? `attendance_id=${encodeURIComponent(q.attendance_id)}`
+                          : ''
+                        const clientParam = q.client_id
+                          ? `client_id=${encodeURIComponent(q.client_id)}`
+                          : ''
+                        const params = [attParam, clientParam].filter(Boolean).join('&')
+                        navigate(params ? `/kanban?${params}` : '/kanban')
+                      }}
+                      className="gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold h-8 px-2.5"
+                      title={`Enviar orçamento ${q.code}`}
+                    >
+                      {q.approved_at || q.rejected_at || q.customer_notes
+                        ? 'Enviar novamente'
+                        : 'Enviar orçamento'}
+                    </Button>
+                  )}
+
                   <Button
                     variant="outline"
                     size="sm"
@@ -749,6 +772,31 @@ export default function QuotesListPage() {
                         Recusar
                       </Button>
                     </>
+                  )}
+
+                  {selectedQuote.status === 'rascunho' && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setDetailsOpen(false)
+                        const attParam = selectedQuote.attendance_id
+                          ? `attendance_id=${encodeURIComponent(selectedQuote.attendance_id)}`
+                          : ''
+                        const clientParam = selectedQuote.client_id
+                          ? `client_id=${encodeURIComponent(selectedQuote.client_id)}`
+                          : ''
+                        const params = [attParam, clientParam].filter(Boolean).join('&')
+                        navigate(params ? `/kanban?${params}` : '/kanban')
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold"
+                    >
+                      {selectedQuote.approved_at ||
+                      selectedQuote.rejected_at ||
+                      selectedQuote.customer_notes
+                        ? 'Enviar novamente'
+                        : 'Enviar orçamento'}
+                    </Button>
                   )}
 
                   <Button

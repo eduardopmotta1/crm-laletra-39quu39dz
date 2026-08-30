@@ -348,16 +348,31 @@ export default function NewQuotePage() {
     setSaving(true)
     setSaveErrorInfo(null)
     try {
-      const finalStatus = statusOverride || quoteStatus || 'rascunho'
+      const defaultStatus = isEditing
+        ? quoteStatus === 'alteracao_solicitada' ||
+          quoteStatus === 'aprovado' ||
+          quoteStatus === 'recusado'
+          ? 'rascunho'
+          : quoteStatus || 'rascunho'
+        : 'rascunho'
+
+      const finalStatus = statusOverride !== undefined ? statusOverride : defaultStatus
 
       let savedQuote: Quote
 
       if (isEditing && editQuoteId) {
-        // UPDATE existing quote:
-        // Rule: Do NOT call quotesService.create(). Use quotesService.update(editQuoteId, ...)
-        // Rule: Do NOT pass code in payload (quotesService.update also strips code to guarantee immutability)
-        // Rule: Preserve quote.id, quote.code, attendance_id, client_id
-        savedQuote = await quotesService.update(editQuoteId, {
+        // UPDATE existing quote (Bloco 23):
+        // REGRA PRINCIPAL:
+        // Quando um orçamento estiver com status `alteracao_solicitada` e o atendente editar e salvar:
+        // - manter o MESMO quote.id
+        // - manter o MESMO quote.code
+        // - manter public_token
+        // - salvar os novos quote.items e novo quote.total
+        // - NÃO considerar o orçamento aprovado
+        // - NÃO considerar a versão anterior como válida para aprovação
+        // - status deve voltar para `rascunho` (aguardando novo envio)
+        // - limpar approved_at e rejected_at para exigir nova aprovação do cliente
+        const updatePayload: Record<string, any> = {
           client_id: selectedClientId || undefined,
           attendance_id: attendanceId.trim() || undefined,
           client_name: clientName.trim(),
@@ -372,7 +387,15 @@ export default function NewQuotePage() {
           gross_profit: quoteSummary.gross_profit,
           profit_margin_pct: quoteSummary.profit_margin_pct,
           notes: quoteNotes.trim(),
-        })
+        }
+
+        // Se o status final for 'rascunho', limpa aprovações ou recusas anteriores
+        if (finalStatus === 'rascunho') {
+          updatePayload.approved_at = null
+          updatePayload.rejected_at = null
+        }
+
+        savedQuote = await quotesService.update(editQuoteId, updatePayload)
 
         toast({
           title: 'Orçamento atualizado com sucesso',
@@ -1100,7 +1123,17 @@ export default function NewQuotePage() {
               {/* Action Buttons */}
               <div className="space-y-2 pt-2">
                 <Button
-                  onClick={() => handleSaveQuote(isEditing ? quoteStatus : 'rascunho')}
+                  onClick={() =>
+                    handleSaveQuote(
+                      isEditing
+                        ? quoteStatus === 'alteracao_solicitada' ||
+                          quoteStatus === 'aprovado' ||
+                          quoteStatus === 'recusado'
+                          ? 'rascunho'
+                          : quoteStatus
+                        : 'rascunho',
+                    )
+                  }
                   disabled={saving || items.length === 0}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-10 shadow-sm"
                 >

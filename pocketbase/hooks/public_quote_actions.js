@@ -33,6 +33,15 @@ routerAdd('POST', '/api/public/quotes/{token}/approve', (c) => {
       })
     }
 
+    // Regra Bloco 23: Bloquear aprovação antes do reenvio real
+    // O botão e endpoint Aprovar só devem ficar disponíveis quando status = 'enviado'
+    if (currentStatus === 'rascunho' || currentStatus === 'alteracao_solicitada') {
+      return c.json(400, {
+        error: 'Este orçamento está sendo atualizado. Aguarde o novo envio.',
+        status: currentStatus,
+      })
+    }
+
     // Se estiver recusado, não permitir aprovação acidental sem aviso
     if (currentStatus === 'recusado') {
       return c.json(400, {

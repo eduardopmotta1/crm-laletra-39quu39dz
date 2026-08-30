@@ -1032,7 +1032,11 @@ export default function WhatsAppChatDrawer({
                                 title={`Enviar orçamento ${quote.code} por WhatsApp`}
                               >
                                 <Send className="h-3 w-3" />
-                                <span>Enviar</span>
+                                <span>
+                                  {quote.approved_at || quote.rejected_at || quote.customer_notes
+                                    ? 'Enviar novamente'
+                                    : 'Enviar'}
+                                </span>
                               </Button>
                             ) : null}
 
@@ -2157,7 +2161,11 @@ export default function WhatsAppChatDrawer({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
               <Send className="h-5 w-5 text-emerald-600" />
-              Enviar orçamento
+              {selectedQuoteToSend?.customer_notes ||
+              selectedQuoteToSend?.approved_at ||
+              selectedQuoteToSend?.rejected_at
+                ? 'Enviar novamente orçamento'
+                : 'Enviar orçamento'}
             </DialogTitle>
             <DialogDescription>
               Confirme a mensagem que será enviada para o cliente pelo WhatsApp.
@@ -2255,7 +2263,13 @@ export default function WhatsAppChatDrawer({
                     ) : (
                       <>
                         <Send className="h-3.5 w-3.5" />
-                        <span>Enviar orçamento</span>
+                        <span>
+                          {selectedQuoteToSend?.customer_notes ||
+                          selectedQuoteToSend?.approved_at ||
+                          selectedQuoteToSend?.rejected_at
+                            ? 'Enviar novamente'
+                            : 'Enviar orçamento'}
+                        </span>
                       </>
                     )}
                   </Button>
@@ -2507,6 +2521,26 @@ export default function WhatsAppChatDrawer({
                         Recusar
                       </Button>
                     </>
+                  )}
+
+                  {selectedQuoteToView.status === 'rascunho' && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        const q = selectedQuoteToView
+                        setQuoteDetailsOpen(false)
+                        handleOpenSendQuote(q)
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      {selectedQuoteToView.approved_at ||
+                      selectedQuoteToView.rejected_at ||
+                      selectedQuoteToView.customer_notes
+                        ? 'Enviar novamente'
+                        : 'Enviar orçamento'}
+                    </Button>
                   )}
 
                   <Button
