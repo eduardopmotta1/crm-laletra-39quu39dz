@@ -420,6 +420,7 @@ export interface ProductionOrder {
   tracking_token: string
   client_id: string
   attendance_id?: string
+  quote_id?: string
   client_name: string
   client_phone: string
   client_email?: string
@@ -450,6 +451,7 @@ export interface ProductionOrder {
   expand?: {
     client_id?: Client
     attendance_id?: Attendance
+    quote_id?: any
     deal_origin_id?: ArchivedDeal
     sales_rep_id?: User
     production_rep_id?: User

@@ -157,6 +157,7 @@ export default function WhatsAppChatDrawer({
   const getLinkedOrderForQuote = (quote: Quote): ProductionOrder | undefined => {
     return productionOrders.find(
       (o) =>
+        o.quote_id === quote.id ||
         (o.notes &&
           (o.notes.includes(`[QUOTE_ID:${quote.id}]`) ||
             o.notes.includes(`[ORC:${quote.code}]`))) ||

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T15:21:47.981Z",
+  "generatedAt": "2026-08-30T15:30:08.903Z",
   "collections": [
     {
       "name": "users",
@@ -1396,6 +1396,13 @@
           "required": false,
           "system": false,
           "collectionRef": "attendances"
+        },
+        {
+          "name": "quote_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "quotes"
         }
       ],
       "indexes": [
@@ -1404,7 +1411,8 @@
         "CREATE INDEX idx_prod_order_client ON production_orders (client_id)",
         "CREATE INDEX idx_prod_order_stage ON production_orders (stage_internal_id)",
         "CREATE INDEX idx_prod_order_completed ON production_orders (is_completed)",
-        "CREATE INDEX idx_prod_order_deadline ON production_orders (promised_deadline)"
+        "CREATE INDEX idx_prod_order_deadline ON production_orders (promised_deadline)",
+        "CREATE UNIQUE INDEX `idx_prod_order_quote_unique` ON `production_orders` (quote_id) WHERE quote_id != '' AND quote_id IS NOT NULL"
       ]
     },
     {

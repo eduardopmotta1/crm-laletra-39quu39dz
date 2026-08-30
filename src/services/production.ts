@@ -12,6 +12,7 @@ import { settingsService } from './settings'
 export interface CreateProductionOrderPayload {
   clientId: string
   attendanceId?: string
+  quoteId?: string
   clientName: string
   clientPhone: string
   clientEmail?: string
@@ -144,6 +145,22 @@ export const productionService = {
   async getByQuoteId(quoteId: string, quoteCode?: string): Promise<ProductionOrder | null> {
     if (!quoteId && !quoteCode) return null
     try {
+      // 1. Primary official search by field quote_id
+      if (quoteId) {
+        const cleanId = quoteId.replace(/[\\"]/g, '')
+        const ordersByField = await pb
+          .collection('production_orders')
+          .getFullList<ProductionOrder>({
+            filter: `quote_id = "${cleanId}"`,
+            sort: '-created',
+            requestKey: null,
+          })
+        if (ordersByField.length > 0) {
+          return ordersByField[0]
+        }
+      }
+
+      // 2. Fallback search by legacy notes/description tag
       const filters: string[] = []
       if (quoteId) {
         const cleanId = quoteId.replace(/[\\"]/g, '')
@@ -155,13 +172,16 @@ export const productionService = {
         filters.push(`notes ~ "[ORC:${cleanCode}]"`)
         filters.push(`description ~ "[ORC:${cleanCode}]"`)
       }
-      const filterStr = filters.join(' || ')
-      const orders = await pb.collection('production_orders').getFullList<ProductionOrder>({
-        filter: filterStr,
-        sort: '-created',
-        requestKey: null,
-      })
-      return orders.length > 0 ? orders[0] : null
+      if (filters.length > 0) {
+        const filterStr = filters.join(' || ')
+        const orders = await pb.collection('production_orders').getFullList<ProductionOrder>({
+          filter: filterStr,
+          sort: '-created',
+          requestKey: null,
+        })
+        return orders.length > 0 ? orders[0] : null
+      }
+      return null
     } catch (error) {
       console.error('Error finding order by quote ID:', error)
       return null
@@ -212,6 +232,9 @@ export const productionService = {
       }
       if (payload.attendanceId && payload.attendanceId.trim()) {
         formData.append('attendance_id', payload.attendanceId.trim())
+      }
+      if (payload.quoteId && payload.quoteId.trim()) {
+        formData.append('quote_id', payload.quoteId.trim())
       }
       formData.append('client_name', payload.clientName.trim())
       formData.append('client_phone', payload.clientPhone.trim())

@@ -167,6 +167,7 @@ export const quoteToProductionService = {
     if (existingOrder) {
       // Confirm that the existing order matches the quote and attendance context before archiving
       const matchesQuote =
+        existingOrder.quote_id === freshQuote.id ||
         existingOrder.notes?.includes(`[QUOTE_ID:${freshQuote.id}]`) ||
         existingOrder.description?.includes(`[QUOTE_ID:${freshQuote.id}]`) ||
         (freshQuote.code &&
@@ -212,7 +213,7 @@ export const quoteToProductionService = {
     // 3. Extract exact snapshot data from quote
     const snapshot = extractProductionOrderDataFromQuote(freshQuote)
 
-    // Build internal notes carrying the quote link tag for 100% reliable quote tracking
+    // Build internal notes carrying the quote link tag for compatibility
     const trackingTag = `[QUOTE_ID:${freshQuote.id}] [ORC:${freshQuote.code}]`
     const combinedNotes = [
       options.productionNotes?.trim() || '',
@@ -223,26 +224,52 @@ export const quoteToProductionService = {
       .join('\n\n')
 
     // 4. Create the Production Order using productionService.create
-    // order_number is safely generated sequential (#001844, etc.)
-    const createdOrder = await productionService.create({
-      clientId: freshQuote.client_id || '',
-      attendanceId: freshQuote.attendance_id || undefined,
-      clientName: freshQuote.client_name,
-      clientPhone: freshQuote.client_phone || '',
-      clientEmail: freshQuote.client_email || undefined,
-      product: snapshot.productSummary,
-      description: snapshot.descriptionSummary,
-      quantity: snapshot.totalQuantity,
-      dimensions: snapshot.dimensionsSummary || undefined,
-      totalValue: snapshot.totalValue,
-      salesRepId: options.salesRepId || freshQuote.user_id || pb.authStore.record?.id || undefined,
-      productionRepId: options.productionRepId || undefined,
-      promisedDeadline: options.promisedDeadline,
-      deliveryType: options.deliveryType || 'retirada',
-      priority: options.priority || 'media',
-      notes: combinedNotes,
-      attachments: options.attachments,
-    })
+    // Handles race condition & unique constraint on quote_id or order_number gracefully
+    let createdOrder: ProductionOrder | null = null
+    try {
+      createdOrder = await productionService.create({
+        clientId: freshQuote.client_id || '',
+        attendanceId: freshQuote.attendance_id || undefined,
+        quoteId: freshQuote.id,
+        clientName: freshQuote.client_name,
+        clientPhone: freshQuote.client_phone || '',
+        clientEmail: freshQuote.client_email || undefined,
+        product: snapshot.productSummary,
+        description: snapshot.descriptionSummary,
+        quantity: snapshot.totalQuantity,
+        dimensions: snapshot.dimensionsSummary || undefined,
+        totalValue: snapshot.totalValue,
+        salesRepId:
+          options.salesRepId || freshQuote.user_id || pb.authStore.record?.id || undefined,
+        productionRepId: options.productionRepId || undefined,
+        promisedDeadline: options.promisedDeadline,
+        deliveryType: options.deliveryType || 'retirada',
+        priority: options.priority || 'media',
+        notes: combinedNotes,
+        attachments: options.attachments,
+      })
+    } catch (createErr: any) {
+      // Check if another concurrent request created the order for this quote first
+      const quoteError = createErr?.data?.quote_id || createErr?.response?.data?.quote_id
+      const isQuoteUniqueConflict =
+        createErr?.status === 400 &&
+        (quoteError?.code === 'validation_not_unique' ||
+          (typeof quoteError?.message === 'string' &&
+            quoteError.message.toLowerCase().includes('unique')))
+
+      if (isQuoteUniqueConflict || createErr?.status === 400) {
+        const raceWinnerOrder = await this.findExistingOrderForQuote(freshQuote.id, freshQuote.code)
+        if (raceWinnerOrder) {
+          return {
+            isExisting: true,
+            order: raceWinnerOrder,
+            message: `Pedido já criado anteriormente: ${raceWinnerOrder.order_number}`,
+          }
+        }
+      }
+
+      throw createErr
+    }
 
     // 5. Confirm that the production order record was genuinely created and fetch it
     const confirmedOrder = await pb
@@ -255,15 +282,12 @@ export const quoteToProductionService = {
       )
     }
 
-    // 6. Confirm links: quote link tag, client_id, and attendance_id
+    // 6. Confirm links: quote_id (official source), client_id, and attendance_id
     const orderHasQuoteLink =
+      confirmedOrder.quote_id === freshQuote.id ||
       (confirmedOrder.notes && confirmedOrder.notes.includes(`[QUOTE_ID:${freshQuote.id}]`)) ||
       (confirmedOrder.description &&
-        confirmedOrder.description.includes(`[QUOTE_ID:${freshQuote.id}]`)) ||
-      (freshQuote.code &&
-        ((confirmedOrder.notes && confirmedOrder.notes.includes(`[ORC:${freshQuote.code}]`)) ||
-          (confirmedOrder.description &&
-            confirmedOrder.description.includes(`[ORC:${freshQuote.code}]`))))
+        confirmedOrder.description.includes(`[QUOTE_ID:${freshQuote.id}]`))
 
     if (!orderHasQuoteLink) {
       throw new Error(

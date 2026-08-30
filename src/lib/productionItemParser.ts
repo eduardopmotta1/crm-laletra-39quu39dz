@@ -34,7 +34,7 @@ export function extractQuoteLinkFromOrder(order: ProductionOrder): {
   const quoteCodeMatch = text.match(/\[ORC:([a-zA-Z0-9_-]+)\]/)
 
   return {
-    quoteId: quoteIdMatch ? quoteIdMatch[1] : undefined,
+    quoteId: order.quote_id || (quoteIdMatch ? quoteIdMatch[1] : undefined),
     quoteCode: quoteCodeMatch ? quoteCodeMatch[1] : undefined,
   }
 }
