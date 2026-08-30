@@ -1,6 +1,7 @@
 import type { Quote, QuoteCalculationItem } from '@/types/quotes'
-import type { ProductionDeliveryType, Priority } from '@/types/crm'
+import type { ProductionDeliveryType, Priority, ProductionOrder } from '@/types/crm'
 import { productionService } from '@/services/production'
+import { dealsService } from '@/services/deals'
 import { formatCurrency, formatDimension } from '@/lib/sla'
 import pb from '@/lib/pocketbase/client'
 
@@ -164,6 +165,43 @@ export const quoteToProductionService = {
     // 2. Prevent duplicate creation by checking if a production order is already linked to this quote.id / code
     const existingOrder = await this.findExistingOrderForQuote(freshQuote.id, freshQuote.code)
     if (existingOrder) {
+      // Confirm that the existing order matches the quote and attendance context before archiving
+      const matchesQuote =
+        existingOrder.notes?.includes(`[QUOTE_ID:${freshQuote.id}]`) ||
+        existingOrder.description?.includes(`[QUOTE_ID:${freshQuote.id}]`) ||
+        (freshQuote.code &&
+          (existingOrder.notes?.includes(`[ORC:${freshQuote.code}]`) ||
+            existingOrder.description?.includes(`[ORC:${freshQuote.code}]`)))
+
+      const matchesClient =
+        !freshQuote.client_id ||
+        !existingOrder.client_id ||
+        existingOrder.client_id === freshQuote.client_id
+
+      const matchesAttendance =
+        !freshQuote.attendance_id ||
+        !existingOrder.attendance_id ||
+        existingOrder.attendance_id === freshQuote.attendance_id
+
+      if (matchesQuote && matchesClient && matchesAttendance && freshQuote.attendance_id) {
+        try {
+          const existingAtt = await pb.collection('attendances').getOne(freshQuote.attendance_id)
+          if (existingAtt && !existingAtt.is_archived) {
+            const snapshot = extractProductionOrderDataFromQuote(freshQuote)
+            await dealsService.completeAndArchive({
+              attendanceId: freshQuote.attendance_id,
+              clientId: freshQuote.client_id || existingAtt.client_id,
+              result: 'Venda fechada',
+              quoteValue: snapshot.totalValue,
+              productInterest: snapshot.productSummary,
+              finalNotes: `Atendimento arquivado automaticamente após validação de pedido de produção existente (${existingOrder.order_number}) para o orçamento ${freshQuote.code}.`,
+            })
+          }
+        } catch (archiveErr) {
+          console.warn('Falha ao arquivar atendimento para pedido existente:', archiveErr)
+        }
+      }
+
       return {
         isExisting: true,
         order: existingOrder,
@@ -206,7 +244,66 @@ export const quoteToProductionService = {
       attachments: options.attachments,
     })
 
-    // 5. Register audit log
+    // 5. Confirm that the production order record was genuinely created and fetch it
+    const confirmedOrder = await pb
+      .collection('production_orders')
+      .getOne<ProductionOrder>(createdOrder.id)
+
+    if (!confirmedOrder || !confirmedOrder.id) {
+      throw new Error(
+        'Falha na confirmação da criação do pedido de produção no banco de dados. O atendimento não foi arquivado.',
+      )
+    }
+
+    // 6. Confirm links: quote link tag, client_id, and attendance_id
+    const orderHasQuoteLink =
+      (confirmedOrder.notes && confirmedOrder.notes.includes(`[QUOTE_ID:${freshQuote.id}]`)) ||
+      (confirmedOrder.description &&
+        confirmedOrder.description.includes(`[QUOTE_ID:${freshQuote.id}]`)) ||
+      (freshQuote.code &&
+        ((confirmedOrder.notes && confirmedOrder.notes.includes(`[ORC:${freshQuote.code}]`)) ||
+          (confirmedOrder.description &&
+            confirmedOrder.description.includes(`[ORC:${freshQuote.code}]`))))
+
+    if (!orderHasQuoteLink) {
+      throw new Error(
+        'Falha na validação do vínculo do pedido de produção com o orçamento (quote_id). O atendimento não foi arquivado.',
+      )
+    }
+
+    if (freshQuote.client_id && confirmedOrder.client_id !== freshQuote.client_id) {
+      throw new Error(
+        'Falha na validação do vínculo do pedido de produção com o cliente (client_id). O atendimento não foi arquivado.',
+      )
+    }
+
+    if (freshQuote.attendance_id && confirmedOrder.attendance_id !== freshQuote.attendance_id) {
+      throw new Error(
+        'Falha na validação do vínculo do pedido de produção com o atendimento comercial (attendance_id). O atendimento não foi arquivado.',
+      )
+    }
+
+    // 7. SOMENTE APÓS CONFIRMAÇÃO DO PEDIDO DE PRODUÇÃO: Arquivar o atendimento comercial
+    // Localizado EXCLUSIVAMENTE por freshQuote.attendance_id
+    if (freshQuote.attendance_id) {
+      try {
+        await dealsService.completeAndArchive({
+          attendanceId: freshQuote.attendance_id,
+          clientId: freshQuote.client_id,
+          result: 'Venda fechada',
+          quoteValue: snapshot.totalValue,
+          productInterest: snapshot.productSummary,
+          finalNotes: `Atendimento concluído e arquivado automaticamente após a criação confirmada do pedido de produção ${confirmedOrder.order_number} vinculado ao orçamento ${freshQuote.code}.`,
+        })
+      } catch (archiveErr: any) {
+        console.error(
+          `Erro ao arquivar atendimento ${freshQuote.attendance_id} após criação do pedido ${confirmedOrder.order_number}:`,
+          archiveErr,
+        )
+      }
+    }
+
+    // 8. Register audit log
     try {
       const currentUser = pb.authStore.record
       await pb.collection('audit_logs').create({
@@ -215,17 +312,17 @@ export const quoteToProductionService = {
         user_email: currentUser ? currentUser.email || '' : '',
         action: 'gerar_pedido_producao',
         module: 'production',
-        record_id: createdOrder.id,
-        record_title: createdOrder.order_number,
-        details: `Pedido de produção ${createdOrder.order_number} gerado com sucesso a partir do orçamento aprovado ${freshQuote.code} (Valor: ${formatCurrency(snapshot.totalValue)}).`,
+        record_id: confirmedOrder.id,
+        record_title: confirmedOrder.order_number,
+        details: `Pedido de produção ${confirmedOrder.order_number} gerado com sucesso a partir do orçamento aprovado ${freshQuote.code} (Valor: ${formatCurrency(snapshot.totalValue)}). Atendimento comercial ${freshQuote.attendance_id || 'N/A'} arquivado após sucesso.`,
         previous_value: {
           quote_id: freshQuote.id,
           quote_code: freshQuote.code,
           quote_status: freshQuote.status,
         },
         new_value: {
-          order_id: createdOrder.id,
-          order_number: createdOrder.order_number,
+          order_id: confirmedOrder.id,
+          order_number: confirmedOrder.order_number,
           client_id: freshQuote.client_id,
           attendance_id: freshQuote.attendance_id,
           total_value: snapshot.totalValue,
@@ -238,8 +335,8 @@ export const quoteToProductionService = {
 
     return {
       isExisting: false,
-      order: createdOrder,
-      message: `Pedido ${createdOrder.order_number} criado com sucesso!`,
+      order: confirmedOrder,
+      message: `Pedido ${confirmedOrder.order_number} criado com sucesso!`,
     }
   },
 }

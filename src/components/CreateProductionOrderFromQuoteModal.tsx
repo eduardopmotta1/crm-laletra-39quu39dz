@@ -181,6 +181,8 @@ export default function CreateProductionOrderFromQuoteModal({
 
       window.dispatchEvent(new CustomEvent('production-order-updated'))
       window.dispatchEvent(new CustomEvent('quotes-updated'))
+      window.dispatchEvent(new CustomEvent('crm-client-updated'))
+      window.dispatchEvent(new CustomEvent('deal-updated'))
       onClose()
     } catch (err: any) {
       console.error('Error creating production order from quote:', err)
