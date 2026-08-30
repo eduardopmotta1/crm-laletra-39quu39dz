@@ -112,6 +112,10 @@ interface WhatsAppChatDrawerProps {
   activeAttendance?: Attendance | null
   slaConfig?: SlaConfig
   onClientUpdated?: () => void
+  orderContext?: {
+    id: string
+    orderNumber: string
+  } | null
 }
 export default function WhatsAppChatDrawer({
   isOpen,
@@ -120,6 +124,7 @@ export default function WhatsAppChatDrawer({
   activeAttendance,
   slaConfig = { urgentMinutes: 1440, warningMinutes: 720, noticeMinutes: 360 },
   onClientUpdated,
+  orderContext,
 }: WhatsAppChatDrawerProps) {
   const navigate = useNavigate()
   const { user, isAdmin, hasPermission, canViewFinancials } = useAuth()
@@ -988,6 +993,21 @@ export default function WhatsAppChatDrawer({
           <div className="flex-1 grid grid-cols-1 md:grid-cols-12 min-h-0 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800 overflow-hidden">
             {/* LEFT SIDE: WhatsApp Chat Conversation */}
             <div className="md:col-span-7 flex flex-col h-full min-h-0 overflow-hidden bg-[#efeae2]/40 dark:bg-slate-950/40">
+              {/* Contexto do Pedido de Produção (Aviso visual quando aberto a partir de um pedido) */}
+              {orderContext && (
+                <div className="shrink-0 px-3.5 py-2 bg-blue-50 dark:bg-blue-950/50 border-b border-blue-200 dark:border-blue-800/70 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span className="font-semibold">
+                      Conversa relacionada ao Pedido #{orderContext.orderNumber}
+                    </span>
+                  </div>
+                  <Badge className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5">
+                    Produção
+                  </Badge>
+                </div>
+              )}
+
               {/* Bloco Orçamento Vinculado ao Atendimento Atual */}
               {attendanceQuotes.length > 0 && (
                 <div className="shrink-0 px-3 py-2 bg-emerald-50/90 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60">

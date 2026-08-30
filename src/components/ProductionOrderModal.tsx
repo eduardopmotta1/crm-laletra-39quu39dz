@@ -67,6 +67,7 @@ import { extractQuoteLinkFromOrder } from '@/lib/productionItemParser'
 import { formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 import pb from '@/lib/pocketbase/client'
+import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 
 interface ProductionOrderModalProps {
   isOpen: boolean
@@ -131,6 +132,11 @@ export default function ProductionOrderModal({
   const [proofUrl, setProofUrl] = useState('')
   const [proofNotes, setProofNotes] = useState('')
   const [proofFiles, setProofFiles] = useState<FileList | null>(null)
+
+  // WhatsApp Chat Drawer for this order's client
+  const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
+  const [chatClient, setChatClient] = useState<Client | null>(null)
+  const [loadingChatClient, setLoadingChatClient] = useState(false)
 
   const { isAdmin, roleSlug, hasPermission } = useAuth()
   const canManageArtRequirement =
@@ -479,6 +485,37 @@ export default function ProductionOrderModal({
     orderToEdit &&
     Boolean(orderToEdit.art_approved) &&
     Boolean(orderToEdit.approved_proof_id && orderToEdit.approved_proof_id.trim())
+
+  const handleOpenWhatsAppChat = async () => {
+    const targetClientId = orderToEdit?.client_id || clientId
+    if (!targetClientId) {
+      toast({
+        title: 'Cliente não identificado',
+        description: 'Não foi possível encontrar o cliente associado a este pedido.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setLoadingChatClient(true)
+    try {
+      const clientRecord = await clientsService.getById(targetClientId)
+      if (!clientRecord) {
+        throw new Error('Cliente não encontrado no sistema.')
+      }
+      setChatClient(clientRecord)
+      setChatDrawerOpen(true)
+    } catch (err: any) {
+      console.error('Error fetching client for WhatsApp chat:', err)
+      toast({
+        title: 'Erro ao carregar cliente',
+        description: err?.message || 'Não foi possível abrir o chat do WhatsApp.',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoadingChatClient(false)
+    }
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -1351,7 +1388,20 @@ export default function ProductionOrderModal({
                   Abrir Página Pública
                 </a>
               )}
-              <div className="flex gap-2 ml-auto">
+              <div className="flex items-center gap-2 ml-auto flex-wrap sm:flex-nowrap">
+                {orderToEdit && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleOpenWhatsAppChat}
+                    disabled={loading || loadingChatClient}
+                    className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                    title="Abrir histórico e conversar com o cliente pelo WhatsApp"
+                  >
+                    <MessageSquare className="h-4 w-4 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+                    {loadingChatClient ? 'Carregando...' : 'Falar com o cliente'}
+                  </Button>
+                )}
                 <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
                   Cancelar
                 </Button>
@@ -1374,6 +1424,20 @@ export default function ProductionOrderModal({
         {/* TAB 2: PROOFS & ART APPROVAL */}
         {activeTab === 'proofs' && orderToEdit && (
           <div className="space-y-4 pt-1">
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleOpenWhatsAppChat}
+                disabled={loading || loadingChatClient}
+                className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                title="Abrir histórico e conversar com o cliente pelo WhatsApp"
+              >
+                <MessageSquare className="h-4 w-4 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+                {loadingChatClient ? 'Carregando...' : 'Falar com o cliente'}
+              </Button>
+            </div>
             {/* Submit new proof banner */}
             <form
               onSubmit={handleSendProof}
@@ -1613,10 +1677,24 @@ export default function ProductionOrderModal({
         {/* TAB 3: AUDIT & HISTORICAL LOGS */}
         {activeTab === 'history' && orderToEdit && (
           <div className="space-y-3 pt-1">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <History className="h-3.5 w-3.5 text-blue-600" />
-              Linha do Tempo de Auditoria Completa
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <History className="h-3.5 w-3.5 text-blue-600" />
+                Linha do Tempo de Auditoria Completa
+              </h4>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleOpenWhatsAppChat}
+                disabled={loading || loadingChatClient}
+                className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                title="Abrir histórico e conversar com o cliente pelo WhatsApp"
+              >
+                <MessageSquare className="h-4 w-4 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+                {loadingChatClient ? 'Carregando...' : 'Falar com o cliente'}
+              </Button>
+            </div>
 
             <div className="relative pl-4 border-l-2 border-slate-200 dark:border-slate-700 space-y-3">
               {logs.map((log) => (
@@ -1652,6 +1730,29 @@ export default function ProductionOrderModal({
           </div>
         )}
       </DialogContent>
+
+      {/* WhatsApp Chat Drawer vinculado ao cliente do pedido */}
+      {orderToEdit && chatClient && (
+        <WhatsAppChatDrawer
+          isOpen={chatDrawerOpen}
+          onClose={() => {
+            setChatDrawerOpen(false)
+            setChatClient(null)
+          }}
+          client={chatClient}
+          orderContext={{
+            id: orderToEdit.id,
+            orderNumber: orderToEdit.order_number,
+          }}
+          onClientUpdated={() => {
+            if (chatClient?.id) {
+              clientsService.getById(chatClient.id).then((fresh) => {
+                if (fresh) setChatClient(fresh)
+              })
+            }
+          }}
+        />
+      )}
     </Dialog>
   )
 }
