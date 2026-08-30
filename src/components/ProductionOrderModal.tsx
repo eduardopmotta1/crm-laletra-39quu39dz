@@ -37,6 +37,13 @@ import {
   MessageSquare,
   History,
   Link2,
+  Download,
+  Eye,
+  File,
+  FileSpreadsheet,
+  FileArchive,
+  Image as ImageIcon,
+  Paperclip,
 } from 'lucide-react'
 import type {
   ProductionOrder,
@@ -715,34 +722,156 @@ export default function ProductionOrderModal({
               )}
             </div>
 
-            {/* Section 4: Upload Attachments & Notes */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Arquivos / Artes do Cliente
-                </label>
-                <Input
-                  type="file"
-                  multiple
-                  onChange={(e) => setSelectedFiles(e.target.files)}
-                  className="mt-1 text-xs bg-white dark:bg-slate-900"
-                />
-                <span className="text-[10px] text-slate-400 block mt-0.5">
-                  PDF, AI, CDR, PNG, JPG até 50MB
+            {/* Section 4: Customer Files / Order Attachments (Arquivos do Cliente / Anexos do Pedido) */}
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Paperclip className="h-3.5 w-3.5 text-emerald-600" />
+                  4. Arquivos do Cliente / Anexos do Pedido
                 </span>
+                {orderToEdit && orderToEdit.attachments && orderToEdit.attachments.length > 0 && (
+                  <Badge variant="secondary" className="text-[10px] px-2 py-0">
+                    {orderToEdit.attachments.length} arquivo(s) salvo(s)
+                  </Badge>
+                )}
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Observações Internas
-                </label>
-                <Textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Instruções de impressão, refile ou transporte..."
-                  rows={2}
-                  className="mt-1 text-xs bg-white dark:bg-slate-900 resize-none"
-                />
+              {/* Display existing attachments for this order */}
+              {orderToEdit && (
+                <div>
+                  {!orderToEdit.attachments || orderToEdit.attachments.length === 0 ? (
+                    <div className="p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 text-center text-xs text-slate-400">
+                      Nenhum arquivo anexado a este pedido.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {orderToEdit.attachments.map((fileName, idx) => {
+                        const fileUrl = productionService.getAttachmentUrl(orderToEdit, fileName)
+                        const ext = fileName.split('.').pop()?.toLowerCase() || ''
+                        const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext)
+                        const isPdf = ext === 'pdf'
+                        const isVector = ['ai', 'cdr', 'psd', 'eps'].includes(ext)
+                        const isZip = ['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)
+
+                        // Clean display name (remove pocketbase random hash suffix if present)
+                        const displayName = fileName
+
+                        return (
+                          <div
+                            key={idx}
+                            className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2.5 text-xs shadow-sm hover:border-emerald-500/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {/* Preview Thumbnail or Extension Icon */}
+                              {isImage ? (
+                                <div className="h-11 w-11 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center relative group/img">
+                                  <img
+                                    src={fileUrl}
+                                    alt={displayName}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                  />
+                                </div>
+                              ) : (
+                                <div
+                                  className={`h-11 w-11 rounded-lg flex flex-col items-center justify-center shrink-0 border ${
+                                    isPdf
+                                      ? 'bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-400'
+                                      : isVector
+                                        ? 'bg-amber-50 border-amber-200 text-amber-600 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-400'
+                                        : isZip
+                                          ? 'bg-purple-50 border-purple-200 text-purple-600 dark:bg-purple-950/40 dark:border-purple-900 dark:text-purple-400'
+                                          : 'bg-slate-100 border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'
+                                  }`}
+                                >
+                                  {isPdf ? (
+                                    <FileText className="h-5 w-5" />
+                                  ) : isVector ? (
+                                    <Layers className="h-5 w-5" />
+                                  ) : isZip ? (
+                                    <FileArchive className="h-5 w-5" />
+                                  ) : (
+                                    <File className="h-5 w-5" />
+                                  )}
+                                  <span className="text-[8px] font-mono font-bold uppercase mt-0.5">
+                                    {ext}
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="min-w-0 flex-1">
+                                <span
+                                  className="font-medium text-slate-800 dark:text-slate-200 block truncate"
+                                  title={displayName}
+                                >
+                                  {displayName}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                                  <span className="font-mono uppercase font-semibold">
+                                    {ext ? `.${ext}` : 'Arquivo'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Action Buttons: Abrir & Baixar */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <a
+                                href={fileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition-colors"
+                                title="Abrir arquivo em nova aba"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </a>
+                              <a
+                                href={`${fileUrl}?download=1`}
+                                download
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition-colors"
+                                title="Baixar arquivo"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </a>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Upload New Attachments & Notes */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                    <Upload className="h-3.5 w-3.5 text-slate-400" />
+                    {orderToEdit ? 'Adicionar Novos Arquivos / Artes' : 'Anexar Arquivos / Artes'}
+                  </label>
+                  <Input
+                    type="file"
+                    multiple
+                    onChange={(e) => setSelectedFiles(e.target.files)}
+                    className="mt-1 text-xs bg-white dark:bg-slate-900"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    PDF, AI, CDR, PSD, PNG, JPG, ZIP até 50MB
+                  </span>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Observações Internas
+                  </label>
+                  <Textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Instruções de impressão, refile ou transporte..."
+                    rows={2}
+                    className="mt-1 text-xs bg-white dark:bg-slate-900 resize-none"
+                  />
+                </div>
               </div>
             </div>
 
@@ -899,9 +1028,111 @@ export default function ProductionOrderModal({
                         className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-semibold"
                       >
                         <Link2 className="h-3 w-3" />
-                        Ver Prova Digital Externa
+                        Ver Prova Digital Externa ({proof.proof_url})
                       </a>
                     )}
+
+                    {/* Proof Files (arquivos anexos salvos na prova) */}
+                    {proof.proof_file &&
+                      (Array.isArray(proof.proof_file)
+                        ? proof.proof_file
+                        : [proof.proof_file]
+                      ).filter(Boolean).length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 block">
+                            Arquivos da Prova:
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {(Array.isArray(proof.proof_file)
+                              ? proof.proof_file
+                              : [proof.proof_file]
+                            )
+                              .filter(Boolean)
+                              .map((pFileName, pIdx) => {
+                                const pFileUrl = productionService.getProofFileUrl(proof, pFileName)
+                                const pExt = pFileName.split('.').pop()?.toLowerCase() || ''
+                                const pIsImage = [
+                                  'png',
+                                  'jpg',
+                                  'jpeg',
+                                  'webp',
+                                  'gif',
+                                  'svg',
+                                ].includes(pExt)
+                                const pIsPdf = pExt === 'pdf'
+
+                                return (
+                                  <div
+                                    key={pIdx}
+                                    className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900/60 flex items-center justify-between gap-2"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      {pIsImage ? (
+                                        <div className="h-9 w-9 rounded border bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                                          <img
+                                            src={pFileUrl}
+                                            alt={pFileName}
+                                            className="h-full w-full object-cover"
+                                            loading="lazy"
+                                          />
+                                        </div>
+                                      ) : (
+                                        <div
+                                          className={`h-9 w-9 rounded flex flex-col items-center justify-center shrink-0 border ${
+                                            pIsPdf
+                                              ? 'bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-950/40'
+                                              : 'bg-purple-50 border-purple-200 text-purple-600 dark:bg-purple-950/40'
+                                          }`}
+                                        >
+                                          {pIsPdf ? (
+                                            <FileText className="h-4 w-4" />
+                                          ) : (
+                                            <File className="h-4 w-4" />
+                                          )}
+                                          <span className="text-[7px] font-mono font-bold uppercase">
+                                            {pExt}
+                                          </span>
+                                        </div>
+                                      )}
+
+                                      <div className="min-w-0 flex-1">
+                                        <span
+                                          className="font-medium text-slate-800 dark:text-slate-200 block truncate text-[11px]"
+                                          title={pFileName}
+                                        >
+                                          {pFileName}
+                                        </span>
+                                        <span className="text-[9px] text-slate-400 uppercase font-mono">
+                                          .{pExt}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <a
+                                        href={pFileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-purple-600 transition-colors"
+                                        title="Abrir arquivo de prova"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                      </a>
+                                      <a
+                                        href={`${pFileUrl}?download=1`}
+                                        download
+                                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-purple-600 transition-colors"
+                                        title="Baixar arquivo de prova"
+                                      >
+                                        <Download className="h-3.5 w-3.5" />
+                                      </a>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                          </div>
+                        </div>
+                      )}
 
                     {proof.client_comment && (
                       <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border text-[11px] italic">

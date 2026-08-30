@@ -17,6 +17,8 @@ import {
   FileText,
   Tag,
   Sparkles,
+  Paperclip,
+  Palette,
 } from 'lucide-react'
 import {
   AlertDialog,
@@ -171,6 +173,14 @@ export default function ProductionCard({
   const responsibleName =
     order.expand?.production_rep_id?.name || order.expand?.sales_rep_id?.name || 'Produção'
 
+  // Files count and proofs presence
+  const attachmentsCount = Array.isArray(order.attachments) ? order.attachments.length : 0
+  const hasArtOrProof =
+    order.art_approved ||
+    order.stage_internal_id === 'awaiting_approval' ||
+    order.stage_internal_id === 'approved' ||
+    Boolean(order.art_approved_at)
+
   return (
     <>
       <div
@@ -260,6 +270,30 @@ export default function ProductionCard({
             {order.client_phone}
           </span>
         </div>
+
+        {/* Compact Attachments & Proof Indicator (Requirement 7 - Preserves layout without increasing card clutter) */}
+        {(attachmentsCount > 0 || hasArtOrProof) && (
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0 text-[10px]">
+            {attachmentsCount > 0 && (
+              <span
+                className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0"
+                title={`${attachmentsCount} arquivo(s) anexado(s) ao pedido`}
+              >
+                <Paperclip className="h-3 w-3 text-slate-500" />📎 {attachmentsCount}{' '}
+                {attachmentsCount === 1 ? 'arquivo' : 'arquivos'}
+              </span>
+            )}
+
+            {hasArtOrProof && (
+              <span
+                className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0"
+                title="Arte / prova disponível para este pedido"
+              >
+                <Palette className="h-3 w-3 text-purple-600" />🎨 Arte / prova disponível
+              </span>
+            )}
+          </div>
+        )}
 
         {/* ITEMS SECTION: Render each item in its own separated container/card block */}
         <div className="space-y-2 min-w-0">

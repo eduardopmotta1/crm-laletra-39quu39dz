@@ -706,11 +706,27 @@ export const productionService = {
   // Proofs & Art Approval Methods
   // ----------------------------------------------------
 
+  /**
+   * Get file URL for production order attachment
+   */
+  getAttachmentUrl(order: ProductionOrder, fileName: string): string {
+    if (!order || !fileName) return ''
+    return pb.files.getURL(order, fileName)
+  },
+
+  /**
+   * Get file URL for production proof file
+   */
+  getProofFileUrl(proof: ProductionProof, fileName: string): string {
+    if (!proof || !fileName) return ''
+    return pb.files.getURL(proof, fileName)
+  },
+
   async getProofs(orderId: string): Promise<ProductionProof[]> {
     try {
       return await pb.collection('production_proofs').getFullList<ProductionProof>({
         filter: `order_id = "${orderId}"`,
-        sort: '-created',
+        sort: 'created',
         expand: 'sent_by',
         requestKey: null,
       })

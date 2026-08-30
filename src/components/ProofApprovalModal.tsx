@@ -10,7 +10,17 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { CheckCircle2, RotateCcw, ShieldCheck, MessageSquare } from 'lucide-react'
+import {
+  CheckCircle2,
+  RotateCcw,
+  ShieldCheck,
+  MessageSquare,
+  Eye,
+  Download,
+  FileText,
+  File,
+  Link2,
+} from 'lucide-react'
 import type { ProductionOrder, ProductionProof } from '@/types/crm'
 import { productionService } from '@/services/production'
 import { toast } from '@/hooks/use-toast'
@@ -32,6 +42,7 @@ export default function ProofApprovalModal({
   const [comment, setComment] = useState('')
   const [approvedByContact, setApprovedByContact] = useState('')
   const [loading, setLoading] = useState(false)
+  const [proofsList, setProofsList] = useState<ProductionProof[]>([])
   const [activeProof, setActiveProof] = useState<ProductionProof | null>(null)
 
   React.useEffect(() => {
@@ -40,8 +51,11 @@ export default function ProofApprovalModal({
       setComment('')
       setApprovedByContact(order.client_name || '')
       productionService.getProofs(order.id).then((list) => {
+        setProofsList(list)
         if (list.length > 0) {
-          setActiveProof(list[0])
+          // latest proof is the last in chronological sort (or find awaiting approval)
+          const pendingProof = list.find((p) => p.status === 'aguardando_aprovacao')
+          setActiveProof(pendingProof || list[list.length - 1])
         } else {
           setActiveProof(null)
         }
@@ -124,23 +138,135 @@ export default function ProofApprovalModal({
 
         <form onSubmit={handleSubmit} className="space-y-4 pt-1">
           {/* Order info summary */}
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs space-y-1">
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs space-y-2">
             <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
-              <span>{order.product}</span>
-              <span className="font-mono">{order.client_name}</span>
+              <span className="truncate flex-1">{order.product}</span>
+              <span className="font-mono ml-2 shrink-0">{order.client_name}</span>
             </div>
+
+            {/* Proof selector if multiple proofs */}
+            {proofsList.length > 1 && (
+              <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">
+                  Versão avaliada:
+                </span>
+                {proofsList.map((p, idx) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setActiveProof(p)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                      activeProof?.id === p.id
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300'
+                    }`}
+                  >
+                    V{p.version_number || idx + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {activeProof?.proof_url && (
               <a
                 href={activeProof.proof_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 dark:text-blue-400 hover:underline block text-[11px]"
+                className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 text-[11px] font-semibold"
               >
-                Visualizar Prova Digital Enviada ↗
+                <Link2 className="h-3 w-3" />
+                Visualizar Prova Digital Externa ↗
               </a>
             )}
-          </div>
 
+            {/* Render active proof file if exists */}
+            {activeProof &&
+              activeProof.proof_file &&
+              (Array.isArray(activeProof.proof_file)
+                ? activeProof.proof_file
+                : [activeProof.proof_file]
+              ).filter(Boolean).length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 block">
+                    Arquivo(s) da Prova (
+                    {activeProof.version_number ? `V${activeProof.version_number}` : ''}):
+                  </span>
+                  <div className="space-y-1.5">
+                    {(Array.isArray(activeProof.proof_file)
+                      ? activeProof.proof_file
+                      : [activeProof.proof_file]
+                    )
+                      .filter(Boolean)
+                      .map((pFileName, pIdx) => {
+                        const pFileUrl = productionService.getProofFileUrl(activeProof, pFileName)
+                        const pExt = pFileName.split('.').pop()?.toLowerCase() || ''
+                        const pIsImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(pExt)
+                        const pIsPdf = pExt === 'pdf'
+
+                        return (
+                          <div
+                            key={pIdx}
+                            className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900/60 flex items-center justify-between gap-2"
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              {pIsImage ? (
+                                <div className="h-8 w-8 rounded border bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                                  <img
+                                    src={pFileUrl}
+                                    alt={pFileName}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                  />
+                                </div>
+                              ) : (
+                                <div
+                                  className={`h-8 w-8 rounded flex flex-col items-center justify-center shrink-0 border ${
+                                    pIsPdf
+                                      ? 'bg-rose-50 border-rose-200 text-rose-600'
+                                      : 'bg-purple-50 border-purple-200 text-purple-600'
+                                  }`}
+                                >
+                                  {pIsPdf ? (
+                                    <FileText className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <File className="h-3.5 w-3.5" />
+                                  )}
+                                </div>
+                              )}
+                              <span
+                                className="font-medium text-slate-800 dark:text-slate-200 truncate text-[11px]"
+                                title={pFileName}
+                              >
+                                {pFileName}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <a
+                                href={pFileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 rounded hover:bg-slate-100 text-slate-600 hover:text-purple-600"
+                                title="Abrir arquivo"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </a>
+                              <a
+                                href={`${pFileUrl}?download=1`}
+                                download
+                                className="p-1 rounded hover:bg-slate-100 text-slate-600 hover:text-purple-600"
+                                title="Baixar arquivo"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </a>
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+              )}
+          </div>
           {/* Decision choice */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">

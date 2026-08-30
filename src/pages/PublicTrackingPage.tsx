@@ -16,6 +16,10 @@ import {
   FileCheck,
   AlertCircle,
   Building,
+  Eye,
+  Download,
+  FileText,
+  File,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateTime } from '@/lib/sla'
@@ -313,6 +317,95 @@ export default function PublicTrackingPage() {
                       Abrir Layout / Prova Digital em Alta Resolução ↗
                     </a>
                   )}
+
+                  {/* Proof Files in Public Tracking */}
+                  {prf.proof_file &&
+                    (Array.isArray(prf.proof_file) ? prf.proof_file : [prf.proof_file]).filter(
+                      Boolean,
+                    ).length > 0 && (
+                      <div className="space-y-1.5 pt-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 block">
+                          Arquivos Anexos da Prova:
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {(Array.isArray(prf.proof_file) ? prf.proof_file : [prf.proof_file])
+                            .filter(Boolean)
+                            .map((pFileName, pIdx) => {
+                              const pFileUrl = productionService.getProofFileUrl(prf, pFileName)
+                              const pExt = pFileName.split('.').pop()?.toLowerCase() || ''
+                              const pIsImage = [
+                                'png',
+                                'jpg',
+                                'jpeg',
+                                'webp',
+                                'gif',
+                                'svg',
+                              ].includes(pExt)
+                              const pIsPdf = pExt === 'pdf'
+
+                              return (
+                                <div
+                                  key={pIdx}
+                                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900 flex items-center justify-between gap-2"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    {pIsImage ? (
+                                      <div className="h-9 w-9 rounded-lg border bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                                        <img
+                                          src={pFileUrl}
+                                          alt={pFileName}
+                                          className="h-full w-full object-cover"
+                                          loading="lazy"
+                                        />
+                                      </div>
+                                    ) : (
+                                      <div
+                                        className={`h-9 w-9 rounded-lg flex flex-col items-center justify-center shrink-0 border ${
+                                          pIsPdf
+                                            ? 'bg-rose-50 border-rose-200 text-rose-600'
+                                            : 'bg-purple-50 border-purple-200 text-purple-600'
+                                        }`}
+                                      >
+                                        {pIsPdf ? (
+                                          <FileText className="h-4 w-4" />
+                                        ) : (
+                                          <File className="h-4 w-4" />
+                                        )}
+                                      </div>
+                                    )}
+                                    <span
+                                      className="font-medium text-slate-800 dark:text-slate-200 truncate text-[11px]"
+                                      title={pFileName}
+                                    >
+                                      {pFileName}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <a
+                                      href={pFileUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 hover:text-purple-600 transition-colors"
+                                      title="Visualizar"
+                                    >
+                                      <Eye className="h-3.5 w-3.5" />
+                                    </a>
+                                    <a
+                                      href={`${pFileUrl}?download=1`}
+                                      download
+                                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 hover:text-purple-600 transition-colors"
+                                      title="Baixar"
+                                    >
+                                      <Download className="h-3.5 w-3.5" />
+                                    </a>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                        </div>
+                      </div>
+                    )}
                 </div>
               ))}
             </div>
