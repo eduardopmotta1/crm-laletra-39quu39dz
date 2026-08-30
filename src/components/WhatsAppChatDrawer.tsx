@@ -142,6 +142,24 @@ export default function WhatsAppChatDrawer({
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // ESC key handler to close drawer (only if no nested modals/dialogs are open)
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // If any internal dialog/modal is open, let that dialog handle the ESC key
+        if (startModalOpen || archiveModalOpen || orderModalOpen || quoteDetailsOpen) {
+          return
+        }
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, startModalOpen, archiveModalOpen, orderModalOpen, quoteDetailsOpen, onClose])
+
   useEffect(() => {
     if (client && isOpen) {
       setCurrentClient(client)
@@ -369,8 +387,18 @@ export default function WhatsAppChatDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-        <div className="w-full max-w-4xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 animate-in slide-in-from-right duration-300">
+      <div
+        className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 cursor-pointer"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            onClose()
+          }
+        }}
+      >
+        <div
+          className="w-full max-w-4xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 animate-in slide-in-from-right duration-300 cursor-default"
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* Header */}
           <div className="px-4 sm:px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between gap-3 min-w-0">
             <div className="flex items-center space-x-3 min-w-0 flex-1">
