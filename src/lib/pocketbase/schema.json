@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T01:23:02.682Z",
+  "generatedAt": "2026-08-30T01:52:00.838Z",
   "collections": [
     {
       "name": "users",
@@ -2399,7 +2399,14 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["rascunho", "enviado", "aprovado", "recusado", "expirado"]
+          "selectValues": [
+            "rascunho",
+            "enviado",
+            "aprovado",
+            "recusado",
+            "expirado",
+            "alteracao_solicitada"
+          ]
         },
         {
           "name": "items",
@@ -2481,13 +2488,38 @@
           "required": false,
           "system": false,
           "collectionRef": "attendances"
+        },
+        {
+          "name": "public_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "approved_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "rejected_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "customer_notes",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
         "CREATE UNIQUE INDEX idx_quotes_code ON quotes (code)",
         "CREATE INDEX idx_quotes_client ON quotes (client_id)",
         "CREATE INDEX idx_quotes_status ON quotes (status)",
-        "CREATE INDEX `idx_quotes_attendance` ON `quotes` (attendance_id)"
+        "CREATE INDEX `idx_quotes_attendance` ON `quotes` (attendance_id)",
+        "CREATE UNIQUE INDEX `idx_quotes_public_token` ON `quotes` (public_token) WHERE public_token != ''"
       ]
     }
   ]

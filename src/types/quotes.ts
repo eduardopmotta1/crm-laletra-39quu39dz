@@ -12,7 +12,13 @@ export type AdditionalCalcUnit = 'unidade' | 'metro_linear' | 'm2' | 'valor_fixo
 
 export type ProductCalcRule = 'm2' | 'metro_linear' | 'unidade' | 'preco_fixo'
 
-export type QuoteStatus = 'rascunho' | 'enviado' | 'aprovado' | 'recusado' | 'expirado'
+export type QuoteStatus =
+  | 'rascunho'
+  | 'enviado'
+  | 'aprovado'
+  | 'recusado'
+  | 'expirado'
+  | 'alteracao_solicitada'
 
 export interface QuoteMaterial {
   id: string
@@ -150,8 +156,12 @@ export interface Quote {
   gross_profit: number
   profit_margin_pct: number
   notes?: string
+  customer_notes?: string
   internal_notes?: string
   valid_until?: string
+  public_token?: string
+  approved_at?: string
+  rejected_at?: string
   created: string
   updated: string
   expand?: {
@@ -173,6 +183,42 @@ export interface Quote {
       email: string
     }
   }
+}
+
+export interface PublicQuoteItem {
+  id: string
+  product_name: string
+  material_name?: string
+  quantity: number
+  width?: number
+  height?: number
+  unit_measure?: string
+  calc_rule?: string
+  unit_price: number
+  total_sale: number
+  additionals: {
+    name: string
+    quantity: number
+    unit_sale: number
+    total_sale: number
+  }[]
+}
+
+export interface PublicQuoteData {
+  code: string
+  client_name: string
+  status: QuoteStatus
+  public_token: string
+  total_sale: number
+  discount_amount: number
+  final_total: number
+  notes?: string
+  customer_notes?: string
+  valid_until?: string
+  approved_at?: string
+  rejected_at?: string
+  created: string
+  items: PublicQuoteItem[]
 }
 
 export const CALC_UNIT_LABELS: Record<MaterialCalcUnit, string> = {

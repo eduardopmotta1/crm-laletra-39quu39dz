@@ -1,7 +1,29 @@
 import pb from '@/lib/pocketbase/client'
-import type { Quote } from '@/types/quotes'
+import type { Quote, PublicQuoteData, QuoteStatus } from '@/types/quotes'
 
 export const quotesService = {
+  /**
+   * Gera um token público aleatório e difícil de adivinhar
+   */
+  generatePublicToken(): string {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    let token = 'qtk_'
+    for (let i = 0; i < 24; i++) {
+      token += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    return token
+  },
+
+  /**
+   * Retorna a URL pública completa para o cliente visualizar/aprovar o orçamento
+   */
+  getPublicQuoteUrl(quote: Quote | { public_token?: string; id?: string }): string {
+    const token = quote.public_token
+    if (!token) return ''
+    const origin =
+      typeof window !== 'undefined' && window.location.origin ? window.location.origin : ''
+    return `${origin}/orcamento/${token}`
+  },
   async getAll(filter?: string, sort = '-created'): Promise<Quote[]> {
     try {
       return await pb.collection('quotes').getFullList<Quote>({
@@ -80,16 +102,77 @@ export const quotesService = {
 
   async create(data: Partial<Quote>): Promise<Quote> {
     const code = data.code || (await this.generateNextCode())
+    const public_token = data.public_token || this.generatePublicToken()
     return await pb.collection('quotes').create<Quote>(
       {
         ...data,
         code,
+        public_token,
         status: data.status || 'rascunho',
       },
       {
         expand: 'client_id,attendance_id,user_id',
       },
     )
+  },
+
+  /**
+   * Garante que um orçamento tenha public_token (se criado anteriormente sem token)
+   */
+  async ensurePublicToken(quote: Quote): Promise<Quote> {
+    if (quote.public_token && quote.public_token.trim() !== '') {
+      return quote
+    }
+    const token = this.generatePublicToken()
+    return await pb.collection('quotes').update<Quote>(quote.id, { public_token: token })
+  },
+
+  /**
+   * Busca dados públicos do orçamento através do token seguro (sem login)
+   */
+  async getByPublicToken(token: string): Promise<PublicQuoteData> {
+    const res = await pb.send<{ data: PublicQuoteData }>(
+      `/api/public/quotes/${encodeURIComponent(token)}`,
+      {
+        method: 'GET',
+      },
+    )
+    return res.data
+  },
+
+  /**
+   * Aprova orçamento via endpoint público (sem login, idempotente)
+   */
+  async approvePublicQuote(token: string): Promise<{
+    success: boolean
+    already_approved?: boolean
+    message: string
+    approved_at?: string
+    status: QuoteStatus
+    code: string
+  }> {
+    return await pb.send(`/api/public/quotes/${encodeURIComponent(token)}/approve`, {
+      method: 'POST',
+    })
+  },
+
+  /**
+   * Solicita alteração via endpoint público com justificativa/comentário
+   */
+  async requestChangePublicQuote(
+    token: string,
+    notes: string,
+  ): Promise<{
+    success: boolean
+    message: string
+    status: QuoteStatus
+    customer_notes: string
+    code: string
+  }> {
+    return await pb.send(`/api/public/quotes/${encodeURIComponent(token)}/request-change`, {
+      method: 'POST',
+      body: { customer_notes: notes },
+    })
   },
 
   async update(id: string, data: Partial<Quote>): Promise<Quote> {
@@ -117,7 +200,11 @@ export const quotesService = {
     // code, items, total, client_id, attendance_id remain 100% immutable
     const updatedQuote = await pb
       .collection('quotes')
-      .update<Quote>(id, { status: 'aprovado' }, { expand: 'client_id,attendance_id,user_id' })
+      .update<Quote>(
+        id,
+        { status: 'aprovado', approved_at: new Date().toISOString() },
+        { expand: 'client_id,attendance_id,user_id' },
+      )
 
     // 3. Register audit log
     try {
@@ -162,7 +249,11 @@ export const quotesService = {
     // 2. Update ONLY status to 'recusado' on the EXACT same quote.id
     const updatedQuote = await pb
       .collection('quotes')
-      .update<Quote>(id, { status: 'recusado' }, { expand: 'client_id,attendance_id,user_id' })
+      .update<Quote>(
+        id,
+        { status: 'recusado', rejected_at: new Date().toISOString() },
+        { expand: 'client_id,attendance_id,user_id' },
+      )
 
     // 3. Register audit log with reason and free-form notes
     try {

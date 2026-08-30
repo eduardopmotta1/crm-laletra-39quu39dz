@@ -126,6 +126,13 @@ export default function QuotesListPage() {
             Aprovado
           </Badge>
         )
+      case 'alteracao_solicitada':
+        return (
+          <Badge className="bg-amber-600 text-white hover:bg-amber-700">
+            <Edit3 className="h-3 w-3 mr-1" />
+            Alteração Solicitada
+          </Badge>
+        )
       case 'enviado':
         return (
           <Badge className="bg-blue-600 text-white hover:bg-blue-700">
@@ -403,6 +410,7 @@ export default function QuotesListPage() {
               <SelectItem value="all">Todos os status</SelectItem>
               <SelectItem value="rascunho">Rascunho</SelectItem>
               <SelectItem value="enviado">Enviado</SelectItem>
+              <SelectItem value="alteracao_solicitada">Alteração Solicitada</SelectItem>
               <SelectItem value="aprovado">Aprovado</SelectItem>
               <SelectItem value="recusado">Recusado</SelectItem>
             </SelectContent>
@@ -577,6 +585,50 @@ export default function QuotesListPage() {
                   {getStatusBadge(selectedQuote.status)}
                 </div>
               </div>
+
+              {/* Customer Notes if Alteration Requested */}
+              {selectedQuote.customer_notes && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs space-y-1">
+                  <span className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                    Solicitação de alteração do cliente:
+                  </span>
+                  <p className="text-slate-700 dark:text-slate-300 italic whitespace-pre-wrap">
+                    "{selectedQuote.customer_notes}"
+                  </p>
+                </div>
+              )}
+
+              {/* Public Link Generator / Copy */}
+              {selectedQuote.public_token && (
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 text-xs">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-slate-500 block font-medium">
+                      Link público para aprovação do cliente:
+                    </span>
+                    <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 truncate block">
+                      {quotesService.getPublicQuoteUrl(selectedQuote)}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const url = quotesService.getPublicQuoteUrl(selectedQuote)
+                      navigator.clipboard.writeText(url)
+                      toast({
+                        title: 'Link copiado!',
+                        description:
+                          'Link público do orçamento copiado para a área de transferência.',
+                      })
+                    }}
+                    className="h-7 text-xs flex-shrink-0"
+                  >
+                    Copiar link
+                  </Button>
+                </div>
+              )}
 
               {/* Items List */}
               <div className="space-y-2">
