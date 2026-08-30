@@ -36,6 +36,7 @@ import { productionService } from '@/services/production'
 import { formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
+import { Lock, Check } from 'lucide-react'
 import {
   parseOrderItems,
   extractQuoteLinkFromOrder,
@@ -176,11 +177,19 @@ export default function ProductionCard({
   // Files count and proofs presence
   const attachmentsCount = Array.isArray(order.attachments) ? order.attachments.length : 0
   const hasArtOrProof =
-    order.approved_proof_id ||
-    order.art_approved ||
+    Boolean(order.approved_proof_id) ||
+    Boolean(order.art_approved) ||
     order.stage_internal_id === 'awaiting_approval' ||
     order.stage_internal_id === 'approved' ||
     Boolean(order.art_approved_at)
+
+  const isRequiresArt =
+    order.requires_art_approval !== undefined && order.requires_art_approval !== null
+      ? Boolean(order.requires_art_approval)
+      : false
+  const isArtApproved =
+    Boolean(order.art_approved) &&
+    Boolean(order.approved_proof_id && order.approved_proof_id.trim())
 
   return (
     <>
@@ -271,36 +280,54 @@ export default function ProductionCard({
           </span>
         </div>
 
-        {/* Compact Attachments & Proof Indicator (Requirement 7 - Preserves layout without increasing card clutter) */}
-        {(attachmentsCount > 0 || hasArtOrProof) && (
-          <div className="flex items-center gap-1.5 flex-wrap min-w-0 text-[10px]">
-            {attachmentsCount > 0 && (
+        {/* Compact Attachments, Proof Indicator & Requires Art Approval Status */}
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0 text-[10px]">
+          {/* Approval Requirement Badge: 🔒 Exige aprovação de arte (if pending) / Não exige aprovação de arte */}
+          {isRequiresArt ? (
+            !isArtApproved && (
               <span
-                className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0"
-                title={`${attachmentsCount} arquivo(s) anexado(s) ao pedido`}
+                className="inline-flex items-center gap-1 font-semibold px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0"
+                title="Este pedido exige aprovação de arte antes de entrar em produção"
               >
-                <Paperclip className="h-3 w-3 text-slate-500" />📎 {attachmentsCount}{' '}
-                {attachmentsCount === 1 ? 'arquivo' : 'arquivos'}
+                <Lock className="h-2.5 w-2.5 text-amber-600" />
+                <span>🔒 Exige aprovação de arte</span>
               </span>
-            )}
+            )
+          ) : (
+            <span
+              className="inline-flex items-center gap-1 font-medium px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0"
+              title="Este pedido não exige aprovação de arte para entrar em produção"
+            >
+              <span>Não exige aprovação de arte</span>
+            </span>
+          )}
 
-            {order.approved_proof_id ? (
-              <span
-                className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0"
-                title="Arte final aprovada para este pedido"
-              >
-                <CheckCircle2 className="h-3 w-3 text-emerald-600" />✅ Arte final aprovada
-              </span>
-            ) : hasArtOrProof ? (
-              <span
-                className="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0"
-                title="Arte / prova disponível para este pedido"
-              >
-                <Palette className="h-3 w-3 text-purple-600" />🎨 Arte / prova disponível
-              </span>
-            ) : null}
-          </div>
-        )}
+          {attachmentsCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 font-semibold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0"
+              title={`${attachmentsCount} arquivo(s) anexado(s) ao pedido`}
+            >
+              <Paperclip className="h-2.5 w-2.5 text-slate-500" />📎 {attachmentsCount}{' '}
+              {attachmentsCount === 1 ? 'arquivo' : 'arquivos'}
+            </span>
+          )}
+
+          {order.approved_proof_id ? (
+            <span
+              className="inline-flex items-center gap-1 font-semibold px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0"
+              title="Arte final aprovada para este pedido"
+            >
+              <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600" />✅ Arte final aprovada
+            </span>
+          ) : hasArtOrProof ? (
+            <span
+              className="inline-flex items-center gap-1 font-semibold px-1.5 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0"
+              title="Arte / prova disponível para este pedido"
+            >
+              <Palette className="h-2.5 w-2.5 text-purple-600" />🎨 Arte / prova disponível
+            </span>
+          ) : null}
+        </div>
 
         {/* ITEMS SECTION: Render each item in its own separated container/card block */}
         <div className="space-y-2 min-w-0">

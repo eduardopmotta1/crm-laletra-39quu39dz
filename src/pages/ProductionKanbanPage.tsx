@@ -220,6 +220,30 @@ export default function ProductionKanbanPage() {
     const currentOrder = orders.find((o) => o.id === orderId)
     if (!currentOrder || currentOrder.stage_internal_id === targetStageInternalId) return
 
+    // Central validation check: in_production requires approved proof if requires_art_approval is true
+    if (targetStageInternalId === 'in_production') {
+      const requiresApproval =
+        currentOrder.requires_art_approval !== undefined &&
+        currentOrder.requires_art_approval !== null
+          ? Boolean(currentOrder.requires_art_approval)
+          : false
+
+      if (requiresApproval) {
+        const isArtApproved =
+          Boolean(currentOrder.art_approved) &&
+          Boolean(currentOrder.approved_proof_id && currentOrder.approved_proof_id.trim())
+        if (!isArtApproved) {
+          toast({
+            title: 'Bloqueio de Produção',
+            description: 'Este pedido exige aprovação de arte antes de entrar em produção.',
+            variant: 'destructive',
+          })
+          setDraggedOrderId(null)
+          return
+        }
+      }
+    }
+
     const targetStage = stages.find((s) => s.internal_id === targetStageInternalId)
     const targetStageName = targetStage?.name || targetStageInternalId
 
@@ -246,11 +270,11 @@ export default function ProductionKanbanPage() {
         description: `Pedido ${currentOrder.order_number} movido para "${targetStageName}".`,
       })
       window.dispatchEvent(new CustomEvent('production-order-updated'))
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating production stage:', err)
       toast({
         title: 'Erro ao mover pedido',
-        description: 'Não foi possível atualizar a etapa.',
+        description: err?.message || 'Não foi possível atualizar a etapa.',
         variant: 'destructive',
       })
       loadData()

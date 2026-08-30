@@ -44,7 +44,10 @@ import {
   FileArchive,
   Image as ImageIcon,
   Paperclip,
+  Lock,
+  Unlock,
 } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
 import type {
   ProductionOrder,
   ProductionStage,
@@ -121,12 +124,22 @@ export default function ProductionOrderModal({
   const [notes, setNotes] = useState('')
   const [stageInternalId, setStageInternalId] = useState('order_received')
   const [priority, setPriority] = useState<Priority>('media')
+  const [requiresArtApproval, setRequiresArtApproval] = useState<boolean>(true)
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null)
 
   // Proof submission inside modal
   const [proofUrl, setProofUrl] = useState('')
   const [proofNotes, setProofNotes] = useState('')
   const [proofFiles, setProofFiles] = useState<FileList | null>(null)
+
+  const { isAdmin, roleSlug, hasPermission } = useAuth()
+  const canManageArtRequirement =
+    isAdmin ||
+    roleSlug === 'admin' ||
+    roleSlug === 'producao' ||
+    roleSlug === 'gestao' ||
+    hasPermission('settings_config_production') ||
+    hasPermission('production_edit')
 
   useEffect(() => {
     if (isOpen) {
@@ -160,6 +173,12 @@ export default function ProductionOrderModal({
         setNotes(orderToEdit.notes || '')
         setStageInternalId(orderToEdit.stage_internal_id)
         setPriority(orderToEdit.priority || 'media')
+        setRequiresArtApproval(
+          orderToEdit.requires_art_approval !== undefined &&
+            orderToEdit.requires_art_approval !== null
+            ? Boolean(orderToEdit.requires_art_approval)
+            : false,
+        )
 
         // Fetch logs and proofs
         productionService.getLogs(orderToEdit.id).then(setLogs)
@@ -197,6 +216,7 @@ export default function ProductionOrderModal({
         setNotes(prefillData?.notes || '')
         setStageInternalId(initialStageId || 'order_received')
         setPriority('media')
+        setRequiresArtApproval(true)
         setLogs([])
         setProofs([])
         setLinkedQuote(null)
@@ -232,14 +252,26 @@ export default function ProductionOrderModal({
     setLoading(true)
     try {
       if (orderToEdit) {
-        // Update existing order
-        const filesArray: File[] = []
-        if (selectedFiles) {
-          for (let i = 0; i < selectedFiles.length; i++) {
-            filesArray.push(selectedFiles[i])
+        // Central validation before allowing transition to 'in_production'
+        if (stageInternalId === 'in_production') {
+          const effectiveRequiresApproval = requiresArtApproval
+          const isArtApproved =
+            Boolean(orderToEdit.art_approved) &&
+            Boolean(orderToEdit.approved_proof_id && orderToEdit.approved_proof_id.trim())
+
+          if (effectiveRequiresApproval && !isArtApproved) {
+            toast({
+              title: 'Bloqueio de Produção',
+              description:
+                'Este pedido exige aprovação de arte antes de entrar em produção. Aprove a arte na aba "Aprovação de Arte" primeiro.',
+              variant: 'destructive',
+            })
+            setLoading(false)
+            return
           }
         }
 
+        // Update existing order
         const currentStageObj = stages.find((s) => s.internal_id === stageInternalId)
         const updatePayload: Record<string, any> = {
           client_id: clientId,
@@ -257,6 +289,7 @@ export default function ProductionOrderModal({
           tracking_code: trackingCode.trim() || undefined,
           notes: notes.trim() || undefined,
           priority: priority,
+          requires_art_approval: requiresArtApproval,
           stage_internal_id: stageInternalId,
           stage_name: currentStageObj?.name || orderToEdit.stage_name,
         }
@@ -266,6 +299,31 @@ export default function ProductionOrderModal({
         }
 
         await productionService.update(orderToEdit.id, updatePayload)
+
+        // Audit toggle change if changed
+        const prevToggle =
+          orderToEdit.requires_art_approval !== undefined &&
+          orderToEdit.requires_art_approval !== null
+            ? Boolean(orderToEdit.requires_art_approval)
+            : false
+        if (prevToggle !== requiresArtApproval) {
+          try {
+            await pb.collection('audit_logs').create({
+              action: 'order_requires_art_toggle',
+              module: 'production',
+              record_id: orderToEdit.id,
+              record_title: `Pedido ${orderToEdit.order_number}`,
+              user_id: pb.authStore.record?.id || undefined,
+              user_name:
+                pb.authStore.record?.name || pb.authStore.record?.email || 'Produção Laletra',
+              details: `Exigência de aprovação de arte alterada de ${
+                prevToggle ? 'SIM' : 'NÃO'
+              } para ${requiresArtApproval ? 'SIM' : 'NÃO'} no pedido ${orderToEdit.order_number}.`,
+            })
+          } catch (auditErr) {
+            console.error('Error recording audit log for art requirement toggle:', auditErr)
+          }
+        }
 
         // If stage changed, trigger updateStage flow with notification
         if (orderToEdit.stage_internal_id !== stageInternalId) {
@@ -317,6 +375,7 @@ export default function ProductionOrderModal({
           notes: notes.trim() || undefined,
           initialStageId: stageInternalId,
           priority,
+          requiresArtApproval,
           attachments: filesArray,
         })
 
@@ -416,6 +475,11 @@ export default function ProductionOrderModal({
     }
   }
 
+  const isOrderArtApproved =
+    orderToEdit &&
+    Boolean(orderToEdit.art_approved) &&
+    Boolean(orderToEdit.approved_proof_id && orderToEdit.approved_proof_id.trim())
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -427,9 +491,23 @@ export default function ProductionOrderModal({
             </DialogTitle>
             {orderToEdit && (
               <div className="flex items-center gap-1.5">
-                {orderToEdit.approved_proof_id && (
+                {isOrderArtApproved ? (
                   <Badge className="bg-emerald-600 text-white text-[11px] font-bold px-2 py-0.5 flex items-center gap-1">
                     <CheckCircle2 className="h-3 w-3" />✅ Arte final aprovada
+                  </Badge>
+                ) : requiresArtApproval ? (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-400 text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[11px] font-bold px-2 py-0.5 flex items-center gap-1"
+                  >
+                    <Lock className="h-3 w-3 text-amber-600" />🔒 Exige aprovação de arte
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="border-slate-300 text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 text-[11px] px-2 py-0.5"
+                  >
+                    Não exige aprovação de arte
                   </Badge>
                 )}
                 <Badge variant="outline" className="font-mono text-xs">
@@ -515,11 +593,13 @@ export default function ProductionOrderModal({
                   className={`p-3 rounded-xl border space-y-1.5 transition-all ${
                     orderToEdit.art_approved && orderToEdit.approved_proof_id
                       ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800'
-                      : orderToEdit.stage_internal_id === 'awaiting_approval'
-                        ? 'bg-purple-50/70 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800'
-                        : orderToEdit.stage_internal_id === 'art_preparation'
-                          ? 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-300 dark:border-indigo-800'
-                          : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'
+                      : !requiresArtApproval
+                        ? 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
+                        : orderToEdit.stage_internal_id === 'awaiting_approval'
+                          ? 'bg-purple-50/70 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800'
+                          : orderToEdit.stage_internal_id === 'art_preparation'
+                            ? 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-300 dark:border-indigo-800'
+                            : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'
                   }`}
                 >
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
@@ -532,6 +612,13 @@ export default function ProductionOrderModal({
                     {orderToEdit.art_approved && orderToEdit.approved_proof_id ? (
                       <Badge className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 flex items-center gap-1">
                         <CheckCircle2 className="h-3 w-3" />✅ Arte aprovada
+                      </Badge>
+                    ) : !requiresArtApproval ? (
+                      <Badge
+                        variant="outline"
+                        className="text-slate-600 dark:text-slate-400 border-slate-300 text-[10px] font-bold px-2 py-0.5"
+                      >
+                        Não exige aprovação de arte
                       </Badge>
                     ) : orderToEdit.stage_internal_id === 'awaiting_approval' ? (
                       <Badge className="bg-purple-600 text-white text-[10px] font-bold px-2 py-0.5">
@@ -553,12 +640,13 @@ export default function ProductionOrderModal({
                   <p className="text-[11px] text-slate-500">
                     {orderToEdit.art_approved && orderToEdit.approved_proof_id
                       ? 'Prova digital confirmada e aprovada pelo cliente.'
-                      : 'A aprovação comercial não aprova a arte automaticamente.'}
+                      : !requiresArtApproval
+                        ? 'Pedido liberado diretamente para produção sem necessidade de aprovação de prova.'
+                        : 'A aprovação comercial não aprova a arte automaticamente.'}
                   </p>
                 </div>
               </div>
             )}
-
             {/* SEÇÃO OFICIAL: ARTE FINAL APROVADA / ARQUIVO OFICIAL PARA PRODUÇÃO */}
             {orderToEdit &&
               (() => {
@@ -767,8 +855,88 @@ export default function ProductionOrderModal({
                   </div>
                 )
               })()}
+            {/* SEÇÃO: CONFIGURAÇÃO DE EXIGÊNCIA DE APROVAÇÃO DE ARTE (TOGGLE) */}
+            <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                    {requiresArtApproval ? (
+                      <Lock className="h-4 w-4 text-amber-600" />
+                    ) : (
+                      <Unlock className="h-4 w-4 text-slate-500" />
+                    )}
+                    Exige aprovação de arte: {requiresArtApproval ? 'SIM' : 'NÃO'}
+                  </span>
+                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                    {requiresArtApproval
+                      ? 'Este pedido exige aprovação de arte formal antes de entrar na etapa "Em produção".'
+                      : 'Não exige aprovação de arte. Permite avançar diretamente para "Em produção" (reimpressão ou arquivo pronto).'}
+                  </p>
+                </div>
 
-            {/* Section 1: Client Selection */}
+                {canManageArtRequirement ? (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={requiresArtApproval ? 'default' : 'outline'}
+                      onClick={() => setRequiresArtApproval(true)}
+                      className={`text-xs h-7 px-3 font-semibold ${
+                        requiresArtApproval
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                          : 'border-amber-300 text-amber-900 dark:text-amber-200'
+                      }`}
+                    >
+                      SIM
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={!requiresArtApproval ? 'default' : 'outline'}
+                      onClick={() => setRequiresArtApproval(false)}
+                      className={`text-xs h-7 px-3 font-semibold ${
+                        !requiresArtApproval
+                          ? 'bg-slate-700 hover:bg-slate-800 text-white'
+                          : 'border-slate-300 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      NÃO
+                    </Button>
+                  </div>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="text-[11px] font-semibold border-slate-300 shrink-0"
+                  >
+                    {requiresArtApproval ? '🔒 Exige aprovação' : 'Não exige aprovação'}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Dynamic warning if attempting to select 'in_production' with pending approval */}
+              {stageInternalId === 'in_production' &&
+                requiresArtApproval &&
+                !isOrderArtApproved && (
+                  <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-300 flex items-center justify-between gap-2 mt-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                      <span>Este pedido exige aprovação de arte antes de entrar em produção.</span>
+                    </div>
+                    {orderToEdit && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setActiveTab('proofs')}
+                        className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] h-6 px-2 shrink-0 font-semibold"
+                      >
+                        <ShieldCheck className="h-3 w-3 mr-1" />
+                        Abrir aprovação de arte
+                      </Button>
+                    )}
+                  </div>
+                )}
+            </div>
+            {/* Section 1: Client Selection */}{' '}
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
                 1. Cliente & Atendimento de Origem
@@ -817,7 +985,6 @@ export default function ProductionOrderModal({
                 </div>
               </div>
             </div>
-
             {/* Section 2: Product & Technical Specs */}
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
@@ -893,7 +1060,6 @@ export default function ProductionOrderModal({
                 />
               </div>
             </div>
-
             {/* Section 3: Production Flow, Responsibles & Deadlines */}
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
@@ -1021,7 +1187,6 @@ export default function ProductionOrderModal({
                 </div>
               )}
             </div>
-
             {/* Section 4: Customer Files / Order Attachments (Arquivos do Cliente / Anexos do Pedido) */}
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
               <div className="flex items-center justify-between">
@@ -1174,7 +1339,6 @@ export default function ProductionOrderModal({
                 </div>
               </div>
             </div>
-
             <DialogFooter className="pt-3 flex flex-row items-center justify-between">
               {orderToEdit && (
                 <a
