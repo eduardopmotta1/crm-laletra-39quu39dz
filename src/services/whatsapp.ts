@@ -49,6 +49,7 @@ export const whatsappService = {
       return await pb.collection('messages').getFullList<Message>({
         filter,
         sort: 'created',
+        expand: 'sent_by_user,sent_by_user.role_id',
         requestKey: null,
       })
     } catch (error) {
@@ -62,11 +63,13 @@ export const whatsappService = {
     text?: string,
     attendanceId?: string,
   ): Promise<SendWhatsAppMessageResponse> {
-    const user = pb.authStore.record
+    const authRecord = pb.authStore.record
     let clientId: string
     let messageText: string
     let attId: string | undefined = attendanceId
-    let senderName: string = user?.name || user?.email || 'Atendente'
+    // Official authenticated sender source: always resolve real authenticated user name
+    const senderRealName = authRecord?.name?.trim() || authRecord?.email || 'Atendente'
+    let senderName: string = senderRealName
 
     if (typeof clientIdOrPayload === 'string') {
       clientId = clientIdOrPayload
@@ -75,7 +78,10 @@ export const whatsappService = {
       clientId = clientIdOrPayload.clientId
       messageText = clientIdOrPayload.messageText
       attId = clientIdOrPayload.attendanceId
-      if (clientIdOrPayload.senderName) {
+      // If user is authenticated, prioritize the real authenticated user's name
+      if (authRecord?.id) {
+        senderName = senderRealName
+      } else if (clientIdOrPayload.senderName) {
         senderName = clientIdOrPayload.senderName
       }
     }
@@ -99,15 +105,20 @@ export const whatsappService = {
 
     try {
       // 1. Create the message record
-      const message = await pb.collection('messages').create<Message>({
-        client_id: clientId,
-        attendance_id: attId || undefined,
-        direction: 'outbound',
-        message_text: messageText,
-        sender_name: senderName,
-        sent_by_user: user?.id || undefined,
-        status: 'sent',
-      })
+      const message = await pb.collection('messages').create<Message>(
+        {
+          client_id: clientId,
+          attendance_id: attId || undefined,
+          direction: 'outbound',
+          message_text: messageText,
+          sender_name: senderName,
+          sent_by_user: authRecord?.id || undefined,
+          status: 'sent',
+        },
+        {
+          expand: 'sent_by_user,sent_by_user.role_id',
+        },
+      )
 
       // 2. Update attendance last_company_message_at
       if (attId) {

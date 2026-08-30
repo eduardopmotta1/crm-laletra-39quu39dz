@@ -462,14 +462,21 @@ export const productionService = {
       // Also record message in WhatsApp chat if client is linked
       if (currentOrder.client_id) {
         try {
-          await pb.collection('messages').create({
-            client_id: currentOrder.client_id,
-            direction: 'outbound',
-            message_text: `📦 [Produção ${currentOrder.order_number}] ${whatsappMessage}`,
-            sender_name: 'Produção Laletra',
-            sent_by_user: pb.authStore.record?.id || undefined,
-            status: 'sent',
-          })
+          const authUser = pb.authStore.record
+          const senderName = authUser?.name?.trim() || authUser?.email || 'Produção Laletra'
+          await pb.collection('messages').create(
+            {
+              client_id: currentOrder.client_id,
+              direction: 'outbound',
+              message_text: `📦 [Produção ${currentOrder.order_number}] ${whatsappMessage}`,
+              sender_name: senderName,
+              sent_by_user: authUser?.id || undefined,
+              status: 'sent',
+            },
+            {
+              expand: 'sent_by_user,sent_by_user.role_id',
+            },
+          )
         } catch (e) {
           console.error('Error logging WhatsApp notification in messages:', e)
         }

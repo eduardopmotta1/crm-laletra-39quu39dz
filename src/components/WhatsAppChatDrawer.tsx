@@ -16,7 +16,7 @@ import {
   Plus,
   Calendar,
   DollarSign,
-  User,
+  User as UserIcon,
   ShieldCheck,
   AlertTriangle,
   ExternalLink,
@@ -52,10 +52,12 @@ import type {
   Evaluation,
   PostSale,
   ProductionOrder,
+  User,
 } from '@/types/crm'
 import type { Quote } from '@/types/quotes'
 import { isWithin24HourWindow } from '@/types/crm'
-import { whatsappService } from '@/services/whatsapp'
+import { whatsappService, usersService } from '@/services/whatsapp'
+import { rolesService } from '@/services/rolesPermissions'
 import { tasksService } from '@/services/tasks'
 import { clientsService } from '@/services/clients'
 import { dealsService } from '@/services/deals'
@@ -129,6 +131,8 @@ export default function WhatsAppChatDrawer({
   const navigate = useNavigate()
   const { user, isAdmin, hasPermission, canViewFinancials } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
+  const [usersMap, setUsersMap] = useState<Record<string, User>>({})
+  const [rolesMap, setRolesMap] = useState<Record<string, string>>({})
   const [tasks, setTasks] = useState<Task[]>([])
   const [archivedDeals, setArchivedDeals] = useState<ArchivedDeal[]>([])
   const [stageTransitions, setStageTransitions] = useState<StageTransition[]>([])
@@ -392,6 +396,8 @@ export default function WhatsAppChatDrawer({
         ordersList,
         status,
         quotesList,
+        allUsers,
+        allRoles,
       ] = await Promise.all([
         whatsappService.getMessages(clientId),
         tasksService.getByClientId(clientId),
@@ -403,6 +409,8 @@ export default function WhatsAppChatDrawer({
         productionService.getByClientId(clientId),
         whatsappService.getApiStatus(),
         targetAttId ? quotesService.getByAttendanceId(targetAttId) : Promise.resolve([]),
+        usersService.getAll(),
+        rolesService.getAll(),
       ])
       setMessages(msgList)
       setTasks(taskList)
@@ -414,11 +422,74 @@ export default function WhatsAppChatDrawer({
       setPostSales(psList)
       setApiStatus(status)
       setAttendanceQuotes(quotesList)
+
+      // Index users & roles for fast sender resolution
+      const uMap: Record<string, User> = {}
+      allUsers.forEach((u) => {
+        uMap[u.id] = u
+      })
+      setUsersMap(uMap)
+
+      const rMap: Record<string, string> = {}
+      allRoles.forEach((r) => {
+        rMap[r.id] = r.name
+        if (r.slug) {
+          rMap[r.slug] = r.name
+        }
+      })
+      setRolesMap(rMap)
     } catch (err) {
       console.error('Error loading chat drawer data:', err)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Helper to format role/sector name nicely
+  const getRoleDisplayName = (userObj?: User | null) => {
+    if (!userObj) return null
+    if (userObj.expand?.role_id?.name) return userObj.expand.role_id.name
+    if (userObj.role_id && rolesMap[userObj.role_id]) return rolesMap[userObj.role_id]
+    if (userObj.role_slug && rolesMap[userObj.role_slug]) return rolesMap[userObj.role_slug]
+
+    switch (userObj.role_slug) {
+      case 'admin':
+        return 'Administrador'
+      case 'producao':
+        return 'Produção'
+      case 'comercial':
+        return 'Atendimento'
+      case 'custom':
+        return 'Personalizado'
+      default:
+        return userObj.role_slug || null
+    }
+  }
+
+  // Helper to extract formatted sender metadata for team messages: "Nome • Setor • Horário"
+  const formatSenderHeader = (msg: Message) => {
+    const timeStr = formatDateTime(msg.created).split(' ')[1] || ''
+
+    // 1. Try resolving sent_by_user from expand or cached usersMap
+    const senderUser =
+      msg.expand?.sent_by_user || (msg.sent_by_user ? usersMap[msg.sent_by_user] : null)
+    if (senderUser) {
+      const senderName =
+        senderUser.name?.trim() || senderUser.email?.split('@')[0] || msg.sender_name || 'Equipe'
+      const roleName = getRoleDisplayName(senderUser)
+      if (roleName) {
+        return `${senderName} • ${roleName} • ${timeStr}`
+      }
+      return `${senderName} • ${timeStr}`
+    }
+
+    // 2. Fallback for legacy messages or manual sender_name without sent_by_user link
+    if (msg.sender_name) {
+      return `${msg.sender_name} • ${timeStr}`
+    }
+
+    // 3. Ultimate fallback
+    return `Você • ${timeStr}`
   }
 
   const getQuoteStatusBadge = (status: Quote['status']) => {
@@ -1302,11 +1373,35 @@ export default function WhatsAppChatDrawer({
                 ) : (
                   messages.map((msg) => {
                     const isInbound = msg.direction === 'inbound'
+                    const timeStr = formatDateTime(msg.created).split(' ')[1] || ''
                     return (
                       <div
                         key={msg.id}
                         className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}
                       >
+                        {/* Header above message bubble with sender identification */}
+                        <div
+                          className={`flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1 px-1.5 ${
+                            isInbound ? 'justify-start' : 'justify-end'
+                          }`}
+                        >
+                          {isInbound ? (
+                            <>
+                              <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                {msg.sender_name || displayClient.name}
+                              </span>
+                              <span>•</span>
+                              <span className="text-slate-400">Cliente</span>
+                              <span>•</span>
+                              <span className="text-slate-400">{timeStr}</span>
+                            </>
+                          ) : (
+                            <span className="text-slate-600 dark:text-slate-300">
+                              {formatSenderHeader(msg)}
+                            </span>
+                          )}
+                        </div>
+
                         <div
                           className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-xs shadow-sm ${
                             isInbound
@@ -1322,7 +1417,7 @@ export default function WhatsAppChatDrawer({
                                 : 'text-emerald-800 dark:text-emerald-300'
                             }`}
                           >
-                            <span>{formatDateTime(msg.created).split(' ')[1]}</span>
+                            <span>{timeStr}</span>
                             {!isInbound && (
                               <span>
                                 {msg.status === 'read' ? (
@@ -1334,9 +1429,6 @@ export default function WhatsAppChatDrawer({
                             )}
                           </div>
                         </div>
-                        <span className="text-[10px] text-slate-400 mt-0.5 px-1">
-                          {msg.sender_name || (isInbound ? displayClient.name : 'Você')}
-                        </span>
                       </div>
                     )
                   })
