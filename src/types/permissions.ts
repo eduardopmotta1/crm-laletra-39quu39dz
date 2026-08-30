@@ -15,6 +15,7 @@ export type PermissionModule =
   | 'whatsapp'
   | 'quotes'
   | 'production'
+  | 'procedures'
   | 'financial'
   | 'postsale'
   | 'pending'
@@ -362,6 +363,38 @@ export const PERMISSION_MODULES: ModuleGroup[] = [
         label: 'Arquivar pedido',
         description: 'Remover pedido concluído do painel ativo',
         module: 'production',
+      },
+    ],
+  },
+  {
+    id: 'procedures',
+    title: 'Procedimentos & POPs',
+    description: 'Procedimentos operacionais padrão, manuais e guias por setor/categoria',
+    icon: 'BookOpen',
+    permissions: [
+      {
+        key: 'procedures_view',
+        label: 'Visualizar procedimentos',
+        description: 'Permite consultar a base de procedimentos operacionais',
+        module: 'procedures',
+      },
+      {
+        key: 'procedures_create',
+        label: 'Criar procedimentos',
+        description: 'Cadastrar novos POPs e manuais',
+        module: 'procedures',
+      },
+      {
+        key: 'procedures_edit',
+        label: 'Editar procedimentos',
+        description: 'Atualizar conteúdo, passos e observações',
+        module: 'procedures',
+      },
+      {
+        key: 'procedures_archive',
+        label: 'Arquivar procedimentos',
+        description: 'Arquivar ou reativar procedimentos obsoletos',
+        module: 'procedures',
       },
     ],
   },

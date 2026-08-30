@@ -27,6 +27,7 @@ import NewQuotePage from '@/pages/NewQuotePage'
 import PublicTrackingPage from '@/pages/PublicTrackingPage'
 import PublicEvaluationPage from '@/pages/PublicEvaluationPage'
 import PublicQuotePage from '@/pages/PublicQuotePage'
+import ProceduresPage from '@/pages/ProceduresPage'
 import NotFound from '@/pages/NotFound'
 const App = () => (
   <BrowserRouter>
@@ -65,6 +66,7 @@ const App = () => (
             <Route path="/arquivados" element={<ArchivedDealsPage />} />
             <Route path="/pos-venda" element={<PostSalesDashboardPage />} />
             <Route path="/recuperacao" element={<CustomerRecoveryPage />} />
+            <Route path="/procedimentos" element={<ProceduresPage />} />
             <Route path="/orcamentos" element={<QuotesListPage />} />
             <Route path="/orcamentos/novo" element={<NewQuotePage />} />
             <Route path="/orcamentos/:quoteId/editar" element={<NewQuotePage />} />

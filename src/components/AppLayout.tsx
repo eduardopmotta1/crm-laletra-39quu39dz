@@ -25,6 +25,7 @@ import {
   Package,
   Layers,
   AlertCircle,
+  BookOpen,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
@@ -187,6 +188,7 @@ export default function AppLayout() {
     hasPermission('quotes_create') ||
     hasPermission('financial_view_cost')
   const canAccessPostSale = isAdmin || hasPermission('postsale_view')
+  const canAccessProcedures = isAdmin || hasPermission('procedures_view')
   const canAccessTemplates =
     isAdmin || hasPermission('whatsapp_use_templates') || hasPermission('settings_config_templates')
   const canAccessTasks =
@@ -231,6 +233,13 @@ export default function AppLayout() {
       badge: null,
       badgeVariant: 'secondary',
       visible: canAccessProduction,
+    },
+    {
+      to: '/procedimentos',
+      label: 'Procedimentos',
+      icon: BookOpen,
+      badge: null,
+      visible: canAccessProcedures,
     },
     {
       to: '/clientes',

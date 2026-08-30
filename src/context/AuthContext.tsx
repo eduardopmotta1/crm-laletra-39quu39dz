@@ -160,8 +160,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'pending_claim',
           'pending_mark_resolved',
           'reports_production',
+          'procedures_view',
         ]
         return prodAllowed.includes(permissionKey)
+      }
+
+      if (roleSlug === 'comercial') {
+        const comAllowed = [
+          'attendance_view',
+          'attendance_create',
+          'attendance_edit',
+          'attendance_move_kanban',
+          'quotes_view',
+          'quotes_create',
+          'quotes_edit',
+          'clients_view',
+          'clients_create',
+          'clients_edit',
+          'procedures_view',
+        ]
+        return comAllowed.includes(permissionKey)
       }
 
       return false
