@@ -191,6 +191,112 @@ export function formatCurrency(value?: number): string {
   }).format(value)
 }
 
+export function formatDimension(val: number): string {
+  // e.g. 1.5 -> "1,50", 1.55 -> "1,55", 2 -> "2,00"
+  return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+export function formatQuoteWhatsAppMessage(
+  quote: {
+    code: string
+    client_name?: string
+    items?: Array<{
+      product_name?: string
+      quantity?: number
+      width?: number
+      height?: number
+      linear_meters?: number
+      applied_unit_price?: number
+      calculated_unit_price?: number
+      item_total_sale?: number
+      notes?: string
+      additionals?: Array<{
+        name?: string
+        quantity?: number
+        unit_sale?: number
+        total_sale?: number
+      }>
+    }>
+    final_total?: number
+    total_sale?: number
+  },
+  clientName?: string,
+): string {
+  const name = (clientName || quote.client_name || '').trim()
+  const greetingName = name || 'cliente'
+  const totalVal =
+    quote.final_total !== undefined && quote.final_total !== null
+      ? quote.final_total
+      : quote.total_sale || 0
+
+  const lines: string[] = []
+  lines.push(`Olá, ${greetingName}! 😊`)
+  lines.push('')
+  lines.push('Segue seu orçamento:')
+  lines.push('')
+  lines.push(`📄 Orçamento ${quote.code}`)
+  lines.push('')
+
+  if (Array.isArray(quote.items) && quote.items.length > 0) {
+    quote.items.forEach((item, index) => {
+      const prodName = (item.product_name || `Item ${index + 1}`).trim()
+      lines.push(`• ${prodName}`)
+
+      const qty = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1
+      lines.push(`  Quantidade: ${qty}`)
+
+      // Dimensions (width & height in meters)
+      if (
+        item.width !== undefined &&
+        item.width !== null &&
+        item.width > 0 &&
+        item.height !== undefined &&
+        item.height !== null &&
+        item.height > 0
+      ) {
+        lines.push(`  Medida: ${formatDimension(item.width)} x ${formatDimension(item.height)} m`)
+      } else if (
+        item.linear_meters !== undefined &&
+        item.linear_meters !== null &&
+        item.linear_meters > 0
+      ) {
+        lines.push(`  Medida: ${formatDimension(item.linear_meters)} m lineares`)
+      }
+
+      // Additionals if present
+      if (Array.isArray(item.additionals) && item.additionals.length > 0) {
+        const addNames = item.additionals
+          .map((a) => {
+            const addName = a.name?.trim()
+            if (!addName) return null
+            if (a.quantity && a.quantity > 1) {
+              return `${addName} (${a.quantity}x)`
+            }
+            return addName
+          })
+          .filter(Boolean)
+        if (addNames.length > 0) {
+          lines.push(`  Acabamentos: ${addNames.join(', ')}`)
+        }
+      }
+
+      // Value
+      const itemVal =
+        item.item_total_sale !== undefined && item.item_total_sale !== null
+          ? item.item_total_sale
+          : (item.applied_unit_price || item.calculated_unit_price || 0) * qty
+      lines.push(`  Valor: ${formatCurrency(itemVal)}`)
+      lines.push('')
+    })
+  }
+
+  lines.push(`Total do orçamento: ${formatCurrency(totalVal)}`)
+  lines.push('')
+  lines.push('Se estiver tudo certo, me avise por aqui para seguirmos com o pedido. 😊')
+
+  return lines.join('\n')
+}
+
 export function formatDateTime(isoString?: string): string {
   if (!isoString) return '-'
   try {

@@ -61,7 +61,13 @@ import { postSalesService } from '@/services/postSales'
 import { productionService } from '@/services/production'
 import { quotesService } from '@/services/quotes'
 import ProductionOrderModal from './ProductionOrderModal'
-import { calculateSlaInfo, formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
+import {
+  calculateSlaInfo,
+  formatCurrency,
+  formatDateTime,
+  formatQuoteWhatsAppMessage,
+  getWhatsAppDirectUrl,
+} from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
 import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
@@ -125,6 +131,11 @@ export default function WhatsAppChatDrawer({
   const [selectedQuoteToView, setSelectedQuoteToView] = useState<Quote | null>(null)
   const [quoteDetailsOpen, setQuoteDetailsOpen] = useState(false)
 
+  // Send Quote Modal
+  const [selectedQuoteToSend, setSelectedQuoteToSend] = useState<Quote | null>(null)
+  const [sendQuoteModalOpen, setSendQuoteModalOpen] = useState(false)
+  const [isSendingQuote, setIsSendingQuote] = useState(false)
+
   // New task inline
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
@@ -185,7 +196,13 @@ export default function WhatsAppChatDrawer({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         // If any internal dialog/modal is open, let that dialog handle the ESC key
-        if (startModalOpen || archiveModalOpen || orderModalOpen || quoteDetailsOpen) {
+        if (
+          startModalOpen ||
+          archiveModalOpen ||
+          orderModalOpen ||
+          quoteDetailsOpen ||
+          sendQuoteModalOpen
+        ) {
           return
         }
         onClose()
@@ -478,6 +495,61 @@ export default function WhatsAppChatDrawer({
     }
   }
 
+  const handleOpenSendQuote = (quote: Quote) => {
+    setSelectedQuoteToSend(quote)
+    setSendQuoteModalOpen(true)
+  }
+
+  const handleConfirmSendQuote = async () => {
+    if (!selectedQuoteToSend || isSendingQuote || !displayClient) return
+
+    // Verify 24h window
+    if (!within24h) {
+      toast({
+        title: 'Janela de 24h fechada',
+        description: 'Para enviar este orçamento é necessário utilizar um Template Oficial.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIsSendingQuote(true)
+    try {
+      const formattedText = formatQuoteWhatsAppMessage(selectedQuoteToSend, displayClient.name)
+
+      // Send the WhatsApp message using existing mechanism
+      const res = await whatsappService.sendMessage(displayClient.id, formattedText)
+
+      if (res.error) {
+        throw new Error(res.error)
+      }
+
+      // Update quote status to "enviado" using UPDATE/PATCH on the same quote.id
+      await quotesService.updateStatus(selectedQuoteToSend.id, 'enviado')
+
+      toast({
+        title: 'Orçamento enviado!',
+        description: `Orçamento ${selectedQuoteToSend.code} enviado para ${displayClient.name} via WhatsApp.`,
+      })
+
+      setSendQuoteModalOpen(false)
+      setSelectedQuoteToSend(null)
+
+      // Trigger auto-scroll and refresh client & messages
+      shouldAutoScrollNextRef.current = true
+      await loadClientData(displayClient.id, activeAttendance?.id)
+      if (onClientUpdated) onClientUpdated()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao enviar orçamento',
+        description: err?.message || 'Não foi possível enviar o orçamento pelo WhatsApp.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSendingQuote(false)
+    }
+  }
+
   const handleToggleTask = async (taskId: string, currentStatus: string) => {
     try {
       await tasksService.toggleStatus(
@@ -732,9 +804,9 @@ export default function WhatsAppChatDrawer({
                               type="button"
                               variant="outline"
                               size="sm"
-                              disabled
-                              title="Envio de orçamento será habilitado na próxima etapa"
-                              className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 opacity-70 cursor-not-allowed dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
+                              onClick={() => handleOpenSendQuote(quote)}
+                              className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
+                              title={`Enviar orçamento ${quote.code} por WhatsApp`}
                             >
                               <Send className="h-3 w-3" />
                               <span>Enviar</span>
@@ -1816,6 +1888,125 @@ export default function WhatsAppChatDrawer({
           notes: displayClient.notes,
         }}
       />
+
+      {/* Send Quote Modal / Preview */}
+      <Dialog
+        open={sendQuoteModalOpen}
+        onOpenChange={(open) => {
+          if (!isSendingQuote) {
+            setSendQuoteModalOpen(open)
+            if (!open) setSelectedQuoteToSend(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
+              <Send className="h-5 w-5 text-emerald-600" />
+              Enviar orçamento
+            </DialogTitle>
+            <DialogDescription>
+              Confirme a mensagem que será enviada para o cliente pelo WhatsApp.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedQuoteToSend && (
+            <div className="space-y-4 pt-2">
+              <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+                <div>
+                  <span className="text-slate-500 block text-[11px]">Orçamento</span>
+                  <strong className="font-mono text-emerald-700 dark:text-emerald-300 text-sm">
+                    {selectedQuoteToSend.code}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[11px]">Cliente</span>
+                  <strong className="text-slate-900 dark:text-white text-sm">
+                    {displayClient.name}
+                  </strong>
+                  <span className="text-slate-400 block text-[10px]">{displayClient.phone}</span>
+                </div>
+              </div>
+
+              {!within24h ? (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 text-xs space-y-2">
+                  <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">Janela de 24h fechada.</p>
+                      <p className="text-amber-800 dark:text-amber-300 text-[11px] mt-0.5">
+                        Para enviar este orçamento é necessário utilizar um Template Oficial
+                        aprovado pela Meta.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-2 flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setSendQuoteModalOpen(false)
+                        setStartModalOpen(true)
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 px-3 gap-1"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Usar Template Oficial
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    Prévia da Mensagem
+                  </label>
+                  <div className="p-3.5 rounded-xl bg-[#d9fdd3]/60 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 text-xs text-slate-800 dark:text-slate-100 whitespace-pre-wrap font-sans leading-relaxed shadow-inner max-h-64 overflow-y-auto">
+                    {formatQuoteWhatsAppMessage(selectedQuoteToSend, displayClient.name)}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isSendingQuote}
+                  onClick={() => {
+                    setSendQuoteModalOpen(false)
+                    setSelectedQuoteToSend(null)
+                  }}
+                  className="text-xs"
+                >
+                  Cancelar
+                </Button>
+
+                {within24h && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isSendingQuote}
+                    onClick={handleConfirmSendQuote}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-medium"
+                  >
+                    {isSendingQuote ? (
+                      <>
+                        <Clock className="h-3.5 w-3.5 animate-spin" />
+                        <span>Enviando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-3.5 w-3.5" />
+                        <span>Enviar orçamento</span>
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Quote Details View Modal */}
       <Dialog open={quoteDetailsOpen} onOpenChange={setQuoteDetailsOpen}>
