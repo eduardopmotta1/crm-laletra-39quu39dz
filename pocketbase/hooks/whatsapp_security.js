@@ -278,11 +278,40 @@ onRecordCreateRequest((e) => {
         'Sem permissão para responder ou enviar mensagens (whatsapp_reply necessário).',
       )
     }
+
+    // Regra Bloco 40D: Se houver arquivo anexo sendo enviado (campo file preenchido ou multipart file presente),
+    // é OBRIGATÓRIO ter a permissão whatsapp_send_files
+    let hasFile = false
+    if (e.record) {
+      const fileVal = e.record.get('file')
+      if (fileVal && String(fileVal).trim() !== '') {
+        hasFile = true
+      }
+    }
+
+    // Verificar se na requisição há arquivos enviados (multipart files)
+    if (!hasFile && e.httpContext) {
+      try {
+        const reqFiles = e.httpContext.requestFiles()
+        if (reqFiles && (reqFiles['file'] || Object.keys(reqFiles).length > 0)) {
+          hasFile = true
+        }
+      } catch (_) {}
+    }
+
+    if (hasFile) {
+      const canSendFiles = checkPerm('whatsapp_send_files')
+      if (!canSendFiles) {
+        throw new ForbiddenError(
+          'Sem permissão para anexar ou enviar arquivos na conversa (whatsapp_send_files necessário).',
+        )
+      }
+    }
   }
 
   return e.next()
 }, 'messages')
 
 console.log(
-  '[WHATSAPP SECURITY] Hook loaded — whatsapp_view and whatsapp_reply permissions enforced',
+  '[WHATSAPP SECURITY] Hook loaded — whatsapp_view, whatsapp_reply, and whatsapp_send_files permissions enforced',
 )

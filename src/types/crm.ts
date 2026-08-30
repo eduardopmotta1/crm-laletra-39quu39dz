@@ -300,6 +300,10 @@ export interface Message {
   sent_by_user?: string
   whatsapp_message_id?: string
   status?: 'sent' | 'delivered' | 'read' | 'failed'
+  file?: string
+  file_name?: string
+  file_size?: number
+  file_type?: string
   expand?: {
     client_id?: Client
     attendance_id?: Attendance

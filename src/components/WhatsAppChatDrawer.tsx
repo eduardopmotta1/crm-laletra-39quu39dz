@@ -41,6 +41,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   Lock,
+  Download,
+  FileImage,
 } from 'lucide-react'
 import type {
   Client,
@@ -561,13 +563,12 @@ export default function WhatsAppChatDrawer({
 
     setSending(true)
     try {
-      let finalMessage = textToSend
-      if (selectedAttachment) {
-        const fileInfo = `[📎 Anexo: ${selectedAttachment.name} (${(selectedAttachment.size / 1024).toFixed(1)} KB)]`
-        finalMessage = finalMessage ? `${finalMessage}\n${fileInfo}` : fileInfo
-      }
-
-      const res = await whatsappService.sendMessage(displayClient.id, finalMessage)
+      const res = await whatsappService.sendMessage({
+        clientId: displayClient.id,
+        attendanceId: activeAttendance?.id,
+        messageText: textToSend,
+        file: selectedAttachment,
+      })
 
       if (res.error) {
         throw new Error(res.error)
@@ -582,7 +583,7 @@ export default function WhatsAppChatDrawer({
       await loadClientData(displayClient.id, activeAttendance?.id)
       if (onClientUpdated) onClientUpdated()
       toast({
-        title: 'Mensagem enviada no CRM',
+        title: selectedAttachment ? 'Arquivo enviado no chat' : 'Mensagem enviada no CRM',
         description: res.api_dispatched
           ? 'Mensagem despachada via WhatsApp Cloud API e registrada no histórico.'
           : 'Mensagem registrada no histórico do CRM e status atualizado.',
@@ -601,10 +602,10 @@ export default function WhatsAppChatDrawer({
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      if (file.size > 15 * 1024 * 1024) {
+      if (file.size > 50 * 1024 * 1024) {
         toast({
           title: 'Arquivo muito grande',
-          description: 'O tamanho máximo suportado é de 15MB.',
+          description: 'O tamanho máximo suportado é de 50MB.',
           variant: 'destructive',
         })
         return
@@ -615,6 +616,33 @@ export default function WhatsAppChatDrawer({
         description: `${file.name} pronto para envio.`,
       })
     }
+  }
+
+  // Format bytes to readable string (KB / MB)
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes || isNaN(bytes)) return ''
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  // Helper to get file extension from filename or url
+  const getFileExtension = (filename?: string) => {
+    if (!filename) return ''
+    const parts = filename.split('.')
+    return parts.length > 1 ? parts[parts.length - 1].toUpperCase() : ''
+  }
+
+  const isImageFile = (filename?: string, fileType?: string) => {
+    if (fileType && fileType.startsWith('image/')) return true
+    if (!filename) return false
+    return /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(filename)
+  }
+
+  const isPdfFile = (filename?: string, fileType?: string) => {
+    if (fileType === 'application/pdf') return true
+    if (!filename) return false
+    return /\.pdf$/i.test(filename)
   }
 
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -1410,7 +1438,179 @@ export default function WhatsAppChatDrawer({
                               : 'bg-[#d9fdd3] dark:bg-emerald-950 text-slate-900 dark:text-emerald-50 rounded-tr-none'
                           }`}
                         >
-                          <p className="whitespace-pre-wrap leading-relaxed">{msg.message_text}</p>
+                          {/* Render Attached File if present */}
+                          {msg.file &&
+                            (() => {
+                              const fileUrl = whatsappService.getFileUrl(msg, msg.file)
+                              const fileName = msg.file_name || msg.file
+                              const fileExt = getFileExtension(fileName)
+                              const isImage = isImageFile(fileName, msg.file_type)
+                              const isPdf = isPdfFile(fileName, msg.file_type)
+                              const formattedSize = formatFileSize(msg.file_size)
+
+                              return (
+                                <div className="mb-2 overflow-hidden rounded-xl bg-black/5 dark:bg-black/20 border border-slate-200/60 dark:border-slate-700/60">
+                                  {isImage ? (
+                                    <div className="relative group">
+                                      <a
+                                        href={fileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block overflow-hidden bg-slate-100 dark:bg-slate-900"
+                                      >
+                                        <img
+                                          src={fileUrl}
+                                          alt={fileName}
+                                          className="max-h-64 w-full object-cover rounded-t-xl transition-transform duration-200 group-hover:scale-105"
+                                          loading="lazy"
+                                        />
+                                      </a>
+                                      <div className="p-2 flex items-center justify-between gap-2 bg-white/90 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100">
+                                        <div className="min-w-0 flex-1">
+                                          <p
+                                            className="truncate font-medium text-xs"
+                                            title={fileName}
+                                          >
+                                            {fileName}
+                                          </p>
+                                          {formattedSize && (
+                                            <p className="text-[10px] text-slate-400">
+                                              {formattedSize}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <a
+                                            href={fileUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors"
+                                            title="Abrir imagem"
+                                          >
+                                            <Eye className="h-3.5 w-3.5" />
+                                          </a>
+                                          <a
+                                            href={fileUrl}
+                                            download={fileName}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors"
+                                            title="Baixar arquivo"
+                                          >
+                                            <Download className="h-3.5 w-3.5" />
+                                          </a>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : isPdf ? (
+                                    <div className="p-2.5 flex items-center justify-between gap-3 bg-red-50/70 dark:bg-red-950/40 text-slate-800 dark:text-slate-100">
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <div className="h-9 w-9 rounded-lg bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300 flex flex-col items-center justify-center shrink-0">
+                                          <FileText className="h-4 w-4" />
+                                          <span className="text-[8px] font-bold uppercase">
+                                            PDF
+                                          </span>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <p
+                                            className="truncate font-semibold text-xs text-red-950 dark:text-red-200"
+                                            title={fileName}
+                                          >
+                                            {fileName}
+                                          </p>
+                                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                                            <span className="font-medium text-red-700 dark:text-red-400">
+                                              Documento PDF
+                                            </span>
+                                            {formattedSize && <span>• {formattedSize}</span>}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <a
+                                          href={fileUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs transition-colors"
+                                          title="Abrir PDF"
+                                        >
+                                          <Eye className="h-3 w-3 text-red-600" />
+                                          <span>Abrir</span>
+                                        </a>
+                                        <a
+                                          href={fileUrl}
+                                          download={fileName}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-red-600 hover:bg-red-700 text-white shadow-2xs transition-colors"
+                                          title="Baixar PDF"
+                                        >
+                                          <Download className="h-3 w-3" />
+                                          <span>Baixar</span>
+                                        </a>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="p-2.5 flex items-center justify-between gap-3 bg-white/80 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100">
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <div className="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex flex-col items-center justify-center shrink-0">
+                                          <Paperclip className="h-4 w-4" />
+                                          {fileExt && (
+                                            <span className="text-[8px] font-bold uppercase">
+                                              {fileExt.slice(0, 4)}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <p
+                                            className="truncate font-semibold text-xs"
+                                            title={fileName}
+                                          >
+                                            {fileName}
+                                          </p>
+                                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                                            <span>{fileExt || 'Arquivo'}</span>
+                                            {formattedSize && <span>• {formattedSize}</span>}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <a
+                                          href={fileUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs transition-colors"
+                                          title="Abrir arquivo"
+                                        >
+                                          <Eye className="h-3 w-3 text-emerald-600" />
+                                          <span>Abrir</span>
+                                        </a>
+                                        <a
+                                          href={fileUrl}
+                                          download={fileName}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-colors"
+                                          title="Baixar arquivo"
+                                        >
+                                          <Download className="h-3 w-3" />
+                                          <span>Baixar</span>
+                                        </a>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })()}
+
+                          {/* Message Text */}
+                          {msg.message_text &&
+                            (!msg.file || msg.message_text !== msg.file_name) && (
+                              <p className="whitespace-pre-wrap leading-relaxed">
+                                {msg.message_text}
+                              </p>
+                            )}
+
                           <div
                             className={`flex items-center justify-end space-x-1 mt-1 text-[10px] ${
                               isInbound
@@ -1485,9 +1685,10 @@ export default function WhatsAppChatDrawer({
                 </div>
               )}
 
-              {/* Permission Check for Replying */}
+              {/* Permission Check for Replying & Sending Files */}
               {(() => {
                 const canReply = isAdmin || hasPermission('whatsapp_reply')
+                const canSendFiles = isAdmin || hasPermission('whatsapp_send_files')
 
                 if (!canReply) {
                   return (
@@ -1552,15 +1753,36 @@ export default function WhatsAppChatDrawer({
                       </button>
                     </div>
 
-                    {/* Selected Attachment Preview */}
+                    {/* Selected Attachment Preview Before Send (Rule 3) */}
                     {selectedAttachment && (
-                      <div className="shrink-0 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border-t border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <Paperclip className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                          <span className="truncate font-medium">{selectedAttachment.name}</span>
-                          <span className="text-[10px] text-emerald-600/80">
-                            ({(selectedAttachment.size / 1024).toFixed(0)} KB)
-                          </span>
+                      <div className="shrink-0 px-3 py-2 bg-emerald-50 dark:bg-emerald-950/50 border-t border-emerald-200 dark:border-emerald-800/80 flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-200">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                            {selectedAttachment.type.startsWith('image/') ? (
+                              <FileImage className="h-4 w-4" />
+                            ) : selectedAttachment.type === 'application/pdf' ? (
+                              <FileText className="h-4 w-4 text-red-600" />
+                            ) : (
+                              <Paperclip className="h-4 w-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate font-semibold text-xs">
+                                {selectedAttachment.name}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] px-1 py-0 bg-white/80 dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 border-emerald-300 shrink-0"
+                              >
+                                {getFileExtension(selectedAttachment.name) || 'ARQUIVO'}
+                              </Badge>
+                            </div>
+                            <span className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80 block">
+                              {formatFileSize(selectedAttachment.size)} • Pronto para envio na
+                              conversa
+                            </span>
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -1568,10 +1790,10 @@ export default function WhatsAppChatDrawer({
                             setSelectedAttachment(null)
                             if (fileInputRef.current) fileInputRef.current.value = ''
                           }}
-                          className="p-1 hover:bg-emerald-200/60 rounded text-emerald-700"
+                          className="p-1.5 hover:bg-emerald-200/60 dark:hover:bg-emerald-900/60 rounded-lg text-emerald-800 dark:text-emerald-300 transition-colors shrink-0"
                           title="Remover anexo"
                         >
-                          <X className="h-3.5 w-3.5" />
+                          <X className="h-4 w-4" />
                         </button>
                       </div>
                     )}
@@ -1581,31 +1803,38 @@ export default function WhatsAppChatDrawer({
                       onSubmit={handleSendMessage}
                       className="shrink-0 p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
                     >
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileSelected}
-                        className="hidden"
-                        accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ai,.psd,.cdr"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="h-9 w-9 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
-                        title="Anexar arquivo, prova ou documento"
-                      >
-                        <Paperclip className="h-4 w-4" />
-                      </Button>
+                      {/* Attach button rendered ONLY if user has whatsapp_send_files (Rule 2 and 3) */}
+                      {canSendFiles && (
+                        <>
+                          <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileSelected}
+                            className="hidden"
+                            accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ai,.psd,.cdr,.zip,.rar,.txt"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="h-9 w-9 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                            title="Anexar arquivo na conversa (whatsapp_send_files)"
+                          >
+                            <Paperclip className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
 
                       <Input
                         value={inputMessage}
                         onChange={(e) => setInputMessage(e.target.value)}
                         placeholder={
-                          within24h
-                            ? 'Digite sua resposta para o cliente...'
-                            : 'Janela fechada — use um Template Oficial ou envie texto...'
+                          selectedAttachment
+                            ? 'Adicione uma legenda opcional para o arquivo...'
+                            : within24h
+                              ? 'Digite sua resposta para o cliente...'
+                              : 'Janela fechada — use um Template Oficial ou envie texto...'
                         }
                         className="flex-1 text-xs bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
                       />
@@ -1615,7 +1844,7 @@ export default function WhatsAppChatDrawer({
                         className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-4 shrink-0 font-medium"
                       >
                         <Send className="h-4 w-4 mr-1.5" />
-                        Responder
+                        {selectedAttachment ? 'Enviar Arquivo' : 'Responder'}
                       </Button>
                     </form>
                   </>

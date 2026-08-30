@@ -6,6 +6,7 @@ export interface SendMessagePayload {
   attendanceId?: string
   messageText: string
   senderName?: string
+  file?: File | null
 }
 
 export interface SendWhatsAppMessageResponse {
@@ -58,15 +59,23 @@ export const whatsappService = {
     }
   },
 
+  getFileUrl(message: Message, fileName?: string): string {
+    const file = fileName || message.file
+    if (!file) return ''
+    return pb.files.getURL(message, file)
+  },
+
   async sendMessage(
     clientIdOrPayload: string | SendMessagePayload,
     text?: string,
     attendanceId?: string,
+    attachmentFile?: File | null,
   ): Promise<SendWhatsAppMessageResponse> {
     const authRecord = pb.authStore.record
     let clientId: string
     let messageText: string
     let attId: string | undefined = attendanceId
+    let fileToUpload: File | null = attachmentFile || null
     // Official authenticated sender source: always resolve real authenticated user name
     const senderRealName = authRecord?.name?.trim() || authRecord?.email || 'Atendente'
     let senderName: string = senderRealName
@@ -78,6 +87,9 @@ export const whatsappService = {
       clientId = clientIdOrPayload.clientId
       messageText = clientIdOrPayload.messageText
       attId = clientIdOrPayload.attendanceId
+      if (clientIdOrPayload.file) {
+        fileToUpload = clientIdOrPayload.file
+      }
       // If user is authenticated, prioritize the real authenticated user's name
       if (authRecord?.id) {
         senderName = senderRealName
@@ -88,7 +100,7 @@ export const whatsappService = {
 
     const todayDateStr = new Date().toISOString().split('T')[0]
 
-    // Client-side permission guard for whatsapp_reply
+    // Client-side permission guard for whatsapp_reply & whatsapp_send_files
     if (authRecord && authRecord.role_slug !== 'admin') {
       let customPerms: Record<string, boolean> = {}
       try {
@@ -117,15 +129,28 @@ export const whatsappService = {
         }
       }
 
-      const hasReplyPerm =
-        customPerms.whatsapp_reply !== undefined
-          ? customPerms.whatsapp_reply === true
-          : rolePerms.whatsapp_reply === true
+      const checkPerm = (key: string) => {
+        if (customPerms[key] !== undefined) return customPerms[key] === true
+        if (rolePerms[key] !== undefined) return rolePerms[key] === true
+        return false
+      }
 
+      const hasReplyPerm = checkPerm('whatsapp_reply')
       if (!hasReplyPerm) {
         return {
           success: false,
           error: 'Sem permissão para responder mensagens (whatsapp_reply necessário).',
+        }
+      }
+
+      if (fileToUpload) {
+        const hasSendFilesPerm = checkPerm('whatsapp_send_files')
+        if (!hasSendFilesPerm) {
+          return {
+            success: false,
+            error:
+              'Sem permissão para anexar ou enviar arquivos na conversa (whatsapp_send_files necessário).',
+          }
         }
       }
     }
@@ -146,21 +171,43 @@ export const whatsappService = {
     }
 
     try {
-      // 1. Create the message record
-      const message = await pb.collection('messages').create<Message>(
-        {
-          client_id: clientId,
-          attendance_id: attId || undefined,
-          direction: 'outbound',
-          message_text: messageText,
-          sender_name: senderName,
-          sent_by_user: authRecord?.id || undefined,
-          status: 'sent',
-        },
-        {
+      let message: Message
+
+      // When uploading a file, use FormData to support multipart uploads in PocketBase
+      if (fileToUpload) {
+        const formData = new FormData()
+        formData.append('client_id', clientId)
+        if (attId) formData.append('attendance_id', attId)
+        formData.append('direction', 'outbound')
+        formData.append('message_text', messageText || fileToUpload.name)
+        formData.append('sender_name', senderName)
+        if (authRecord?.id) formData.append('sent_by_user', authRecord.id)
+        formData.append('status', 'sent')
+        formData.append('file', fileToUpload)
+        formData.append('file_name', fileToUpload.name)
+        formData.append('file_size', String(fileToUpload.size))
+        formData.append('file_type', fileToUpload.type || '')
+
+        message = await pb.collection('messages').create<Message>(formData, {
           expand: 'sent_by_user,sent_by_user.role_id',
-        },
-      )
+        })
+      } else {
+        // Standard JSON create for text-only messages
+        message = await pb.collection('messages').create<Message>(
+          {
+            client_id: clientId,
+            attendance_id: attId || undefined,
+            direction: 'outbound',
+            message_text: messageText,
+            sender_name: senderName,
+            sent_by_user: authRecord?.id || undefined,
+            status: 'sent',
+          },
+          {
+            expand: 'sent_by_user,sent_by_user.role_id',
+          },
+        )
+      }
 
       // 2. Update attendance last_company_message_at
       if (attId) {
@@ -176,10 +223,12 @@ export const whatsappService = {
       // 3. Update client last_message metadata
       let updatedClient: Client | undefined
       try {
+        const snippet = fileToUpload ? `📎 ${fileToUpload.name}` : messageText.substring(0, 100)
+
         updatedClient = await pb.collection('clients').update<Client>(clientId, {
           last_message_at: todayDateStr,
           last_message_direction: 'outbound',
-          last_message_text: messageText.substring(0, 100),
+          last_message_text: snippet,
         })
       } catch (err) {
         console.error('Error updating client last message:', err)

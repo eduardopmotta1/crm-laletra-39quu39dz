@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T22:05:56.799Z",
+  "generatedAt": "2026-08-30T22:16:45.495Z",
   "collections": [
     {
       "name": "users",
@@ -482,6 +482,30 @@
           "required": false,
           "system": false,
           "collectionRef": "attendances"
+        },
+        {
+          "name": "file",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "file_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "file_size",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "file_type",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": ["CREATE INDEX idx_messages_client ON messages (client_id, created ASC)"]
