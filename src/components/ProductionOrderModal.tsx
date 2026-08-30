@@ -487,6 +487,18 @@ export default function ProductionOrderModal({
     Boolean(orderToEdit.approved_proof_id && orderToEdit.approved_proof_id.trim())
 
   const handleOpenWhatsAppChat = async () => {
+    // Validação de permissão de visualização do WhatsApp
+    const canViewWhatsApp =
+      isAdmin || hasPermission('whatsapp_view') || hasPermission('whatsapp_view_own')
+    if (!canViewWhatsApp) {
+      toast({
+        title: 'Acesso negado',
+        description: 'Você não possui permissão para visualizar esta conversa.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     const targetClientId = orderToEdit?.client_id || clientId
     if (!targetClientId) {
       toast({

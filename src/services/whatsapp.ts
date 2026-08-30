@@ -88,6 +88,48 @@ export const whatsappService = {
 
     const todayDateStr = new Date().toISOString().split('T')[0]
 
+    // Client-side permission guard for whatsapp_reply
+    if (authRecord && authRecord.role_slug !== 'admin') {
+      let customPerms: Record<string, boolean> = {}
+      try {
+        const rawCustom = authRecord.custom_permissions
+        if (typeof rawCustom === 'string' && rawCustom.trim()) {
+          customPerms = JSON.parse(rawCustom)
+        } else if (rawCustom && typeof rawCustom === 'object') {
+          customPerms = rawCustom
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+
+      let rolePerms: Record<string, boolean> = {}
+      if (authRecord.role_id) {
+        try {
+          const roleRecord = (authRecord as any).expand?.role_id
+          if (roleRecord?.permissions) {
+            rolePerms =
+              typeof roleRecord.permissions === 'string'
+                ? JSON.parse(roleRecord.permissions)
+                : roleRecord.permissions
+          }
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
+      const hasReplyPerm =
+        customPerms.whatsapp_reply !== undefined
+          ? customPerms.whatsapp_reply === true
+          : rolePerms.whatsapp_reply === true
+
+      if (!hasReplyPerm) {
+        return {
+          success: false,
+          error: 'Sem permissão para responder mensagens (whatsapp_reply necessário).',
+        }
+      }
+    }
+
     if (!attId && clientId) {
       try {
         const atts = await pb.collection('attendances').getList(1, 1, {

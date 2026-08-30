@@ -40,6 +40,7 @@ import {
   Trash2,
   ThumbsUp,
   ThumbsDown,
+  Lock,
 } from 'lucide-react'
 import type {
   Client,
@@ -1484,118 +1485,142 @@ export default function WhatsAppChatDrawer({
                 </div>
               )}
 
-              {/* Quick Template Chips */}
-              <div className="shrink-0 px-3 py-2 bg-white/80 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 overflow-x-auto flex gap-1.5 scrollbar-none items-center">
-                <span className="text-[10px] font-semibold text-slate-400 uppercase shrink-0">
-                  Respostas Rápidas:
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setInputMessage(
-                      `Olá, ${displayClient.name}! Seu orçamento para ${
-                        displayClient.product_interest || 'impressão gráfica'
-                      } está pronto${
-                        canViewFinancials && displayClient.quote_value
-                          ? ` no valor de ${formatCurrency(displayClient.quote_value)}`
-                          : ''
-                      }. Posso enviar os detalhes?`,
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-[11px] text-slate-700 dark:text-slate-300 whitespace-nowrap transition-colors"
-                >
-                  📄 Enviar Orçamento
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setInputMessage(
-                      `Olá, ${displayClient.name}! Conseguimos aprovar a arte para envio à produção hoje?`,
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-[11px] text-slate-700 dark:text-slate-300 whitespace-nowrap transition-colors"
-                >
-                  🎨 Cobrar Aprovação de Arte
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setInputMessage(
-                      `Olá, ${displayClient.name}! Seu material já foi impresso, refilado e está pronto para retirada/envio!`,
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-[11px] text-slate-700 dark:text-slate-300 whitespace-nowrap transition-colors"
-                >
-                  📦 Material Pronto
-                </button>
-              </div>
+              {/* Permission Check for Replying */}
+              {(() => {
+                const canReply = isAdmin || hasPermission('whatsapp_reply')
 
-              {/* Selected Attachment Preview */}
-              {selectedAttachment && (
-                <div className="shrink-0 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border-t border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                    <span className="truncate font-medium">{selectedAttachment.name}</span>
-                    <span className="text-[10px] text-emerald-600/80">
-                      ({(selectedAttachment.size / 1024).toFixed(0)} KB)
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedAttachment(null)
-                      if (fileInputRef.current) fileInputRef.current.value = ''
-                    }}
-                    className="p-1 hover:bg-emerald-200/60 rounded text-emerald-700"
-                    title="Remover anexo"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
+                if (!canReply) {
+                  return (
+                    <div className="shrink-0 p-3.5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 text-center">
+                      <div className="flex items-center justify-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        <Lock className="h-4 w-4 text-slate-400" />
+                        <span>Você possui acesso somente para visualização.</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                        Para responder ou enviar mensagens, solicite a permissão de resposta
+                        (whatsapp_reply) ao administrador.
+                      </p>
+                    </div>
+                  )
+                }
 
-              {/* Chat Input / Composer */}
-              <form
-                onSubmit={handleSendMessage}
-                className="shrink-0 p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
-              >
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileSelected}
-                  className="hidden"
-                  accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ai,.psd,.cdr"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="h-9 w-9 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
-                  title="Anexar arquivo, prova ou documento"
-                >
-                  <Paperclip className="h-4 w-4" />
-                </Button>
+                return (
+                  <>
+                    {/* Quick Template Chips */}
+                    <div className="shrink-0 px-3 py-2 bg-white/80 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 overflow-x-auto flex gap-1.5 scrollbar-none items-center">
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase shrink-0">
+                        Respostas Rápidas:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setInputMessage(
+                            `Olá, ${displayClient.name}! Seu orçamento para ${
+                              displayClient.product_interest || 'impressão gráfica'
+                            } está pronto${
+                              canViewFinancials && displayClient.quote_value
+                                ? ` no valor de ${formatCurrency(displayClient.quote_value)}`
+                                : ''
+                            }. Posso enviar os detalhes?`,
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-[11px] text-slate-700 dark:text-slate-300 whitespace-nowrap transition-colors"
+                      >
+                        📄 Enviar Orçamento
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setInputMessage(
+                            `Olá, ${displayClient.name}! Conseguimos aprovar a arte para envio à produção hoje?`,
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-[11px] text-slate-700 dark:text-slate-300 whitespace-nowrap transition-colors"
+                      >
+                        🎨 Cobrar Aprovação de Arte
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setInputMessage(
+                            `Olá, ${displayClient.name}! Seu material já foi impresso, refilado e está pronto para retirada/envio!`,
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-[11px] text-slate-700 dark:text-slate-300 whitespace-nowrap transition-colors"
+                      >
+                        📦 Material Pronto
+                      </button>
+                    </div>
 
-                <Input
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  placeholder={
-                    within24h
-                      ? 'Digite sua resposta para o cliente...'
-                      : 'Janela fechada — use um Template Oficial ou envie texto...'
-                  }
-                  className="flex-1 text-xs bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
-                />
-                <Button
-                  type="submit"
-                  disabled={(!inputMessage.trim() && !selectedAttachment) || sending}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-4 shrink-0 font-medium"
-                >
-                  <Send className="h-4 w-4 mr-1.5" />
-                  Responder
-                </Button>
-              </form>
+                    {/* Selected Attachment Preview */}
+                    {selectedAttachment && (
+                      <div className="shrink-0 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border-t border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Paperclip className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                          <span className="truncate font-medium">{selectedAttachment.name}</span>
+                          <span className="text-[10px] text-emerald-600/80">
+                            ({(selectedAttachment.size / 1024).toFixed(0)} KB)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedAttachment(null)
+                            if (fileInputRef.current) fileInputRef.current.value = ''
+                          }}
+                          className="p-1 hover:bg-emerald-200/60 rounded text-emerald-700"
+                          title="Remover anexo"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Chat Input / Composer */}
+                    <form
+                      onSubmit={handleSendMessage}
+                      className="shrink-0 p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
+                    >
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileSelected}
+                        className="hidden"
+                        accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ai,.psd,.cdr"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="h-9 w-9 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                        title="Anexar arquivo, prova ou documento"
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+
+                      <Input
+                        value={inputMessage}
+                        onChange={(e) => setInputMessage(e.target.value)}
+                        placeholder={
+                          within24h
+                            ? 'Digite sua resposta para o cliente...'
+                            : 'Janela fechada — use um Template Oficial ou envie texto...'
+                        }
+                        className="flex-1 text-xs bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+                      />
+                      <Button
+                        type="submit"
+                        disabled={(!inputMessage.trim() && !selectedAttachment) || sending}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 px-4 shrink-0 font-medium"
+                      >
+                        <Send className="h-4 w-4 mr-1.5" />
+                        Responder
+                      </Button>
+                    </form>
+                  </>
+                )
+              })()}
             </div>
 
             {/* RIGHT SIDE: Tabs between Info/Tasks vs History/Audit */}
