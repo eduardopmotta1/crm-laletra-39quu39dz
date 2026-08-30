@@ -66,6 +66,7 @@ export interface QuoteProduct {
   min_price?: number
   fixed_price?: number
   fixed_cost?: number
+  requires_art_approval?: boolean
   internal_notes?: string
   is_active: boolean
   created: string
@@ -85,6 +86,7 @@ export interface QuoteCalculationItem {
   material_id?: string
   material_name?: string
   calc_rule: ProductCalcRule
+  requires_art_approval?: boolean
 
   // Inputs
   width?: number // em metros

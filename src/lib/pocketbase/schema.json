@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T17:14:44.670Z",
+  "generatedAt": "2026-08-30T19:24:39.245Z",
   "collections": [
     {
       "name": "users",
@@ -1410,6 +1410,12 @@
           "required": false,
           "system": false,
           "collectionRef": "production_proofs"
+        },
+        {
+          "name": "requires_art_approval",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -2352,6 +2358,12 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "requires_art_approval",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [

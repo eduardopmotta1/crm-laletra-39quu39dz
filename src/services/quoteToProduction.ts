@@ -11,13 +11,17 @@ export interface QuoteItemsProductionSnapshot {
   totalQuantity: number
   dimensionsSummary: string
   totalValue: number
+  requiresArtApproval: boolean
 }
 
 /**
  * Extracts pure, snapshot data directly from quote.items and quote.total
  * WITHOUT recalculating or querying the current catalog prices/materials.
  */
-export function extractProductionOrderDataFromQuote(quote: Quote): QuoteItemsProductionSnapshot {
+export function extractProductionOrderDataFromQuote(
+  quote: Quote,
+  catalogProductsMap?: Map<string, { requires_art_approval?: boolean }>,
+): QuoteItemsProductionSnapshot {
   const items: QuoteCalculationItem[] = Array.isArray(quote.items) ? quote.items : []
   const totalValue =
     quote.final_total !== undefined &&
@@ -33,6 +37,7 @@ export function extractProductionOrderDataFromQuote(quote: Quote): QuoteItemsPro
       totalQuantity: 1,
       dimensionsSummary: '',
       totalValue,
+      requiresArtApproval: true,
     }
   }
 
@@ -111,12 +116,46 @@ export function extractProductionOrderDataFromQuote(quote: Quote): QuoteItemsPro
   // 4. Total Quantity
   const totalQuantity = items.reduce((sum, it) => sum + (Number(it.quantity) || 1), 0)
 
+  // 5. Determine snapshot requiresArtApproval
+  // If any item explicitly requires art approval or if product in catalog requires it
+  let requiresArtApproval = false
+  for (const it of items) {
+    if (it.requires_art_approval === true) {
+      requiresArtApproval = true
+      break
+    }
+    if (it.product_id && catalogProductsMap?.has(it.product_id)) {
+      const catProd = catalogProductsMap.get(it.product_id)
+      if (catProd?.requires_art_approval === true) {
+        requiresArtApproval = true
+        break
+      }
+    }
+  }
+
+  // If items didn't specify, default to true for custom items if not set
+  if (items.length > 0 && !requiresArtApproval) {
+    // Check if any product has explicit false vs true in catalog
+    const hasExplicitDecision = items.some((it) => {
+      if (it.requires_art_approval !== undefined) return true
+      if (it.product_id && catalogProductsMap?.has(it.product_id)) {
+        return catalogProductsMap.get(it.product_id)?.requires_art_approval !== undefined
+      }
+      return false
+    })
+    if (!hasExplicitDecision) {
+      // Default safely to true for custom items
+      requiresArtApproval = true
+    }
+  }
+
   return {
     productSummary,
     descriptionSummary: descLines.join('\n\n'),
     totalQuantity: totalQuantity > 0 ? totalQuantity : 1,
     dimensionsSummary,
     totalValue,
+    requiresArtApproval,
   }
 }
 
@@ -129,6 +168,7 @@ export interface CreateOrderFromQuoteOptions {
   deliveryType?: ProductionDeliveryType
   trackingCode?: string
   productionNotes?: string
+  requiresArtApproval?: boolean
   attachments?: File[]
 }
 
@@ -213,8 +253,34 @@ export const quoteToProductionService = {
       }
     }
 
+    // Fetch product catalog info for items to resolve requires_art_approval if needed
+    const catalogMap = new Map<string, { requires_art_approval?: boolean }>()
+    const productIds = (freshQuote.items || [])
+      .map((it) => it.product_id)
+      .filter((id): id is string => Boolean(id))
+
+    if (productIds.length > 0) {
+      try {
+        const filterStr = productIds.map((id) => `id = "${id}"`).join(' || ')
+        const prods = await pb.collection('quote_products').getFullList({
+          filter: filterStr,
+          fields: 'id,requires_art_approval',
+          requestKey: null,
+        })
+        for (const p of prods) {
+          catalogMap.set(p.id, { requires_art_approval: p.requires_art_approval })
+        }
+      } catch (err) {
+        console.warn('Could not fetch catalog products for art approval check:', err)
+      }
+    }
+
     // 3. Extract exact snapshot data from quote
-    const snapshot = extractProductionOrderDataFromQuote(freshQuote)
+    const snapshot = extractProductionOrderDataFromQuote(freshQuote, catalogMap)
+    const finalRequiresArtApproval =
+      options.requiresArtApproval !== undefined
+        ? options.requiresArtApproval
+        : snapshot.requiresArtApproval
 
     // Build internal notes carrying the quote link tag for compatibility
     const trackingTag = `[QUOTE_ID:${freshQuote.id}] [ORC:${freshQuote.code}]`
@@ -248,6 +314,7 @@ export const quoteToProductionService = {
         promisedDeadline: options.promisedDeadline,
         deliveryType: options.deliveryType || 'retirada',
         priority: options.priority || 'media',
+        requiresArtApproval: finalRequiresArtApproval,
         notes: combinedNotes,
         attachments: options.attachments,
       })

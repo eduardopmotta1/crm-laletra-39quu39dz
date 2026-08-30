@@ -10,13 +10,13 @@ import { productionStagesService } from './productionStages'
 import { settingsService } from './settings'
 
 export interface CreateProductionOrderPayload {
-  clientId: string
+  clientId?: string
   attendanceId?: string
   quoteId?: string
+  dealOriginId?: string
   clientName: string
   clientPhone: string
   clientEmail?: string
-  dealOriginId?: string
   product: string
   description?: string
   quantity?: number
@@ -29,9 +29,9 @@ export interface CreateProductionOrderPayload {
   notes?: string
   initialStageId?: ProductionStageInternalId
   priority?: 'baixa' | 'media' | 'alta' | 'urgente'
+  requiresArtApproval?: boolean
   attachments?: File[]
 }
-
 export const productionService = {
   /**
    * Generates next sequential order number (e.g. #001844)
@@ -286,6 +286,9 @@ export const productionService = {
       if (payload.notes && payload.notes.trim()) {
         formData.append('notes', payload.notes.trim())
       }
+      const requiresArt =
+        payload.requiresArtApproval !== undefined ? Boolean(payload.requiresArtApproval) : true
+      formData.append('requires_art_approval', String(requiresArt))
       formData.append('art_approved', 'false')
       if (stage?.id) formData.append('stage_id', stage.id)
       formData.append('stage_internal_id', initialStageId)
@@ -376,6 +379,25 @@ export const productionService = {
   ): Promise<ProductionOrder> {
     const currentOrder = await this.getById(orderId)
     if (!currentOrder) throw new Error('Pedido não encontrado.')
+
+    // Rule 5: Bloqueio para "Em produção" (in_production)
+    // When requires_art_approval = true AND (approved_proof_id is empty OR art_approved != true), do not allow moving to in_production.
+    if (targetStageInternalId === 'in_production') {
+      const requiresApproval =
+        currentOrder.requires_art_approval !== undefined &&
+        currentOrder.requires_art_approval !== null
+          ? Boolean(currentOrder.requires_art_approval)
+          : false
+
+      if (requiresApproval) {
+        const isArtApproved =
+          Boolean(currentOrder.art_approved) &&
+          Boolean(currentOrder.approved_proof_id && currentOrder.approved_proof_id.trim())
+        if (!isArtApproved) {
+          throw new Error('Este pedido exige aprovação de arte antes de entrar em produção.')
+        }
+      }
+    }
 
     const targetStage = await productionStagesService.getByInternalId(targetStageInternalId)
     const targetStageName = targetStage?.name || targetStageInternalId

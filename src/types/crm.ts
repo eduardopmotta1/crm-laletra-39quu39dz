@@ -440,6 +440,7 @@ export interface ProductionOrder {
   tracking_code?: string
   notes?: string
   attachments?: string[]
+  requires_art_approval?: boolean
   art_approved?: boolean
   art_approved_at?: string
   approved_proof_id?: string

@@ -91,12 +91,13 @@ export default function ProductsPage() {
     min_price: number | string
     fixed_price: number | string
     fixed_cost: number | string
+    requires_art_approval: boolean
     internal_notes: string
     is_active: boolean
     additionals: string[]
   }>({
     name: '',
-    category: 'Comunicação Visual',
+    category: '',
     description: '',
     main_material_id: '',
     calc_rule: 'm2',
@@ -108,11 +109,11 @@ export default function ProductsPage() {
     min_price: '',
     fixed_price: '',
     fixed_cost: '',
+    requires_art_approval: true,
     internal_notes: '',
     is_active: true,
     additionals: [],
   })
-
   // File Upload State
   const [mainImageFile, setMainImageFile] = useState<File | null>(null)
   const [mainImagePreview, setMainImagePreview] = useState<string | null>(null)
@@ -188,6 +189,8 @@ export default function ProductsPage() {
         min_price: prod.min_price || '',
         fixed_price: prod.fixed_price || '',
         fixed_cost: prod.fixed_cost || '',
+        requires_art_approval:
+          prod.requires_art_approval !== undefined ? Boolean(prod.requires_art_approval) : true,
         internal_notes: prod.internal_notes || '',
         is_active: prod.is_active,
         additionals: prod.additionals || [],
@@ -209,6 +212,7 @@ export default function ProductsPage() {
         min_price: '',
         fixed_price: '',
         fixed_cost: '',
+        requires_art_approval: true,
         internal_notes: '',
         is_active: true,
         additionals: [],
@@ -258,6 +262,7 @@ export default function ProductsPage() {
       formData.append('sale_unit', form.sale_unit)
       formData.append('is_active', String(form.is_active))
       formData.append('has_default_dimensions', String(form.has_default_dimensions))
+      formData.append('requires_art_approval', String(form.requires_art_approval))
       formData.append('internal_notes', form.internal_notes.trim())
 
       if (form.main_material_id) {
@@ -543,13 +548,28 @@ export default function ProductsPage() {
                     </div>
 
                     {/* Rule Badge Bottom */}
-                    <div className="absolute bottom-2 left-2.5">
+                    <div className="absolute bottom-2 left-2.5 flex items-center gap-1.5 flex-wrap">
                       <Badge
                         variant="secondary"
                         className="text-[10px] bg-slate-900/80 text-white backdrop-blur-xs font-mono font-normal"
                       >
                         {CALC_RULE_LABELS[prod.calc_rule] || prod.calc_rule}
                       </Badge>
+                      {prod.requires_art_approval === false ? (
+                        <Badge
+                          variant="secondary"
+                          className="text-[10px] bg-slate-700/90 text-slate-200 backdrop-blur-xs font-semibold"
+                        >
+                          Sem Prova de Arte
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="secondary"
+                          className="text-[10px] bg-amber-900/80 text-amber-200 border border-amber-500/40 backdrop-blur-xs font-semibold"
+                        >
+                          Exige Arte
+                        </Badge>
+                      )}
                     </div>
                   </div>
 
@@ -947,6 +967,49 @@ export default function ProductsPage() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Rule 2: Regra de Exigência de Aprovação de Arte */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 block">
+                    Exige Aprovação de Arte
+                  </label>
+                  <span className="text-xs text-slate-500">
+                    Define se novos pedidos deste produto exigirão arte aprovada antes de entrar na
+                    etapa "Em produção".
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={form.requires_art_approval ? 'default' : 'outline'}
+                    onClick={() => setForm({ ...form, requires_art_approval: true })}
+                    className={`text-xs h-8 px-3.5 ${
+                      form.requires_art_approval
+                        ? 'bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-xs'
+                        : 'border-slate-300 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    SIM (Exige Prova)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={!form.requires_art_approval ? 'default' : 'outline'}
+                    onClick={() => setForm({ ...form, requires_art_approval: false })}
+                    className={`text-xs h-8 px-3.5 ${
+                      !form.requires_art_approval
+                        ? 'bg-slate-700 hover:bg-slate-800 text-white font-bold shadow-xs'
+                        : 'border-slate-300 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    NÃO (Direto Produção)
+                  </Button>
+                </div>
+              </div>
             </div>
 
             {/* Additionals & Finishes selection */}

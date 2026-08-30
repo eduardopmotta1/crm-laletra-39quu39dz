@@ -77,6 +77,7 @@ export default function CreateProductionOrderFromQuoteModal({
   const [productionRepId, setProductionRepId] = useState('')
   const [priority, setPriority] = useState<Priority>('media')
   const [deliveryType, setDeliveryType] = useState<ProductionDeliveryType>('retirada')
+  const [requiresArtApproval, setRequiresArtApproval] = useState<boolean>(true)
   const [productionNotes, setProductionNotes] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null)
 
@@ -91,6 +92,9 @@ export default function CreateProductionOrderFromQuoteModal({
       setProductionRepId('')
       setPriority('media')
       setDeliveryType('retirada')
+      // Rule 3: Compute initial snapshot for requiresArtApproval from quote items
+      const initialSnap = extractProductionOrderDataFromQuote(quote)
+      setRequiresArtApproval(initialSnap.requiresArtApproval)
       setProductionNotes('')
       setSelectedFiles(null)
       setExistingOrder(null)
@@ -157,6 +161,7 @@ export default function CreateProductionOrderFromQuoteModal({
         productionRepId: productionRepId || undefined,
         priority,
         deliveryType,
+        requiresArtApproval,
         productionNotes: productionNotes.trim() || undefined,
         attachments: filesArray,
       })
@@ -424,6 +429,48 @@ export default function CreateProductionOrderFromQuoteModal({
                     <SelectItem value="entrega_propria">🛵 Entrega Própria</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            {/* Configuração de Exigência de Aprovação de Arte */}
+            <div className="p-3 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-bold text-amber-900 dark:text-amber-200 block">
+                  Exige Aprovação de Arte?
+                </span>
+                <span className="text-[11px] text-amber-700 dark:text-amber-400 block">
+                  {requiresArtApproval
+                    ? 'O pedido exigirá arte aprovada antes de entrar em "Em Produção".'
+                    : 'O pedido poderá entrar direto em produção sem fluxo de aprovação de arte (ex: reimpressão / arquivo pronto).'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={requiresArtApproval ? 'default' : 'outline'}
+                  onClick={() => setRequiresArtApproval(true)}
+                  className={`text-xs h-7 px-3 ${
+                    requiresArtApproval
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white font-semibold'
+                      : 'border-amber-300 text-amber-800 dark:text-amber-300'
+                  }`}
+                >
+                  SIM
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!requiresArtApproval ? 'default' : 'outline'}
+                  onClick={() => setRequiresArtApproval(false)}
+                  className={`text-xs h-7 px-3 ${
+                    !requiresArtApproval
+                      ? 'bg-slate-700 hover:bg-slate-800 text-white font-semibold'
+                      : 'border-slate-300 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  NÃO
+                </Button>
               </div>
             </div>
 
