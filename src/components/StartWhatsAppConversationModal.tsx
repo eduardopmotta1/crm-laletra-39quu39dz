@@ -247,8 +247,8 @@ export default function StartWhatsAppConversationModal({
             // Cria attendance ativo para o client existente sem exigir produto
             await attendancesService.createForClient(targetClientId, {
               stage: targetStage as any,
-              product_interest: targetQuote
-                ? formatQuoteItemsSummary(targetQuote.items)
+              product_interest: initialQuote
+                ? formatQuoteItemsSummary(initialQuote.items)
                 : client.product_interest || '',
               assigned_to: client.assigned_to || '',
               source: 'whatsapp_outbound_template',
