@@ -372,50 +372,50 @@ export default function WhatsAppChatDrawer({
       <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
         <div className="w-full max-w-4xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 animate-in slide-in-from-right duration-300">
           {/* Header */}
-          <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="h-11 w-11 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-md">
+          <div className="px-4 sm:px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between gap-3 min-w-0">
+            <div className="flex items-center space-x-3 min-w-0 flex-1">
+              <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-md shrink-0">
                 {displayClient.name.substring(0, 2).toUpperCase()}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base truncate max-w-[200px] sm:max-w-xs">
                     {displayClient.name}
                   </h3>
-                  <Badge variant="outline" className="text-xs">
+                  <Badge variant="outline" className="text-xs shrink-0">
                     {activeAttendance?.stage || displayClient.stage}
                   </Badge>
                   {(displayClient.total_purchases !== undefined &&
                     displayClient.total_purchases > 0) ||
                   displayClient.has_returned === true ? (
-                    <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 text-[10px] px-1.5 py-0 font-bold flex items-center gap-0.5">
+                    <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 text-[10px] px-1.5 py-0 font-bold flex items-center gap-0.5 shrink-0">
                       <span>🔁 Recorrente</span>
                     </Badge>
                   ) : (
-                    <Badge className="bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 text-[10px] px-1.5 py-0 font-bold flex items-center gap-0.5">
+                    <Badge className="bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 text-[10px] px-1.5 py-0 font-bold flex items-center gap-0.5 shrink-0">
                       <span>🆕 Novo</span>
                     </Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
-                  <span className="flex items-center gap-1">
-                    <Phone className="h-3 w-3 text-emerald-600" />
+                <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5 flex-wrap">
+                  <span className="flex items-center gap-1 shrink-0">
+                    <Phone className="h-3 w-3 text-emerald-600 shrink-0" />
                     {displayClient.phone}
                   </span>
                   {displayClient.email && (
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      {displayClient.email}
+                    <span className="hidden md:flex items-center gap-1 truncate max-w-[180px]">
+                      <Mail className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{displayClient.email}</span>
                     </span>
                   )}
                   {within24h ? (
-                    <span className="flex items-center gap-1 text-emerald-600 font-medium">
-                      <ShieldCheck className="h-3.5 w-3.5" />
+                    <span className="flex items-center gap-1 text-emerald-600 font-medium shrink-0">
+                      <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
                       Janela 24h aberta
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 text-amber-600 font-medium">
-                      <AlertTriangle className="h-3.5 w-3.5" />
+                    <span className="flex items-center gap-1 text-amber-600 font-medium shrink-0">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                       Janela 24h fechada
                     </span>
                   )}
@@ -424,7 +424,7 @@ export default function WhatsAppChatDrawer({
             </div>
 
             {/* Action buttons */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               {activeAttendance?.id && (
                 <Button
                   variant="outline"
@@ -436,10 +436,11 @@ export default function WhatsAppChatDrawer({
                       `/orcamentos/novo?attendance_id=${encodeURIComponent(attId)}&client_id=${encodeURIComponent(clientId)}`,
                     )
                   }}
-                  className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                  className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0"
                 >
                   <Plus className="h-3.5 w-3.5 mr-1 text-emerald-600" />
-                  Novo orçamento
+                  <span className="hidden sm:inline">Novo orçamento</span>
+                  <span className="sm:hidden">Orçamento</span>
                 </Button>
               )}
 
@@ -460,20 +461,22 @@ export default function WhatsAppChatDrawer({
                     if (onClientUpdated) onClientUpdated()
                     loadClientData(displayClient.id)
                   }}
-                  className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 font-semibold"
+                  className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 font-semibold shrink-0"
                 >
                   <RotateCcw className="h-3.5 w-3.5 mr-1 text-emerald-600" />
-                  Reabrir Atendimento
+                  <span className="hidden sm:inline">Reabrir Atendimento</span>
+                  <span className="sm:hidden">Reabrir</span>
                 </Button>
               ) : (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setArchiveModalOpen(true)}
-                  className="text-xs border-slate-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"
+                  className="text-xs border-slate-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 shrink-0"
                 >
                   <Archive className="h-3.5 w-3.5 mr-1 text-emerald-600" />
-                  Concluir e Arquivar
+                  <span className="hidden md:inline">Concluir e Arquivar</span>
+                  <span className="md:hidden">Arquivar</span>
                 </Button>
               )}
 
@@ -481,17 +484,18 @@ export default function WhatsAppChatDrawer({
                 variant="outline"
                 size="sm"
                 onClick={() => setStartModalOpen(true)}
-                className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0"
               >
                 <Sparkles className="h-3.5 w-3.5 mr-1" />
-                Template Oficial
+                <span className="hidden sm:inline">Template Oficial</span>
+                <span className="sm:hidden">Template</span>
               </Button>
 
               <a
                 href={getWhatsAppDirectUrl(displayClient.phone)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors shrink-0"
                 title="Abrir WhatsApp Web"
               >
                 <ExternalLink className="h-4 w-4" />
@@ -502,7 +506,7 @@ export default function WhatsAppChatDrawer({
                 onClick={onClose}
                 title="Fechar conversa"
                 aria-label="Fechar conversa"
-                className="p-1.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors ml-1"
+                className="p-1.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0"
               >
                 <X className="h-5 w-5" />
               </button>
