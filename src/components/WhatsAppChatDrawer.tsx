@@ -209,6 +209,17 @@ export default function WhatsAppChatDrawer({
     string | undefined
   >(undefined)
 
+  // Bloco 40E-A2: Add Message File to Production Order State
+  const [fileToAddToOrder, setFileToAddToOrder] = useState<{
+    msgId: string
+    fileName: string
+    fileType?: string
+    fileSize?: number
+    fileUrl: string
+  } | null>(null)
+  const [confirmAddFileDialogOpen, setConfirmAddFileDialogOpen] = useState(false)
+  const [isAddingFileToOrder, setIsAddingFileToOrder] = useState(false)
+
   // New task inline
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
@@ -278,14 +289,14 @@ export default function WhatsAppChatDrawer({
           deleteQuoteDialogOpen ||
           sendQuoteModalOpen ||
           approveDialogOpen ||
-          rejectDialogOpen
+          rejectDialogOpen ||
+          confirmAddFileDialogOpen
         ) {
           return
         }
         onClose()
       }
     }
-
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
@@ -916,6 +927,68 @@ export default function WhatsAppChatDrawer({
     }
   }
 
+  const handleOpenAddFileToOrder = (msg: Message) => {
+    if (!msg.file || !orderContext?.id) return
+    const fileUrl = whatsappService.getFileUrl(msg, msg.file)
+    const fileName = msg.file_name || msg.file
+    setFileToAddToOrder({
+      msgId: msg.id,
+      fileName,
+      fileType: msg.file_type,
+      fileSize: msg.file_size,
+      fileUrl,
+    })
+    setConfirmAddFileDialogOpen(true)
+  }
+
+  const handleConfirmAddFileToOrder = async () => {
+    if (!fileToAddToOrder || !orderContext?.id || isAddingFileToOrder) return
+    setIsAddingFileToOrder(true)
+    const { msgId, fileName, fileType, fileUrl } = fileToAddToOrder
+    const currentOrderId = orderContext.id
+    const currentOrderNum = orderContext.orderNumber
+
+    try {
+      const res = await productionService.addMessageFileToOrder(currentOrderId, msgId, {
+        fileUrl,
+        fileName,
+        fileType,
+      })
+
+      if (!res || res.success === false) {
+        throw new Error('Não foi possível anexar o arquivo ao pedido de produção.')
+      }
+
+      toast({
+        title: 'Arquivo adicionado',
+        description: `Arquivo adicionado ao Pedido #${currentOrderNum}.`,
+      })
+
+      setConfirmAddFileDialogOpen(false)
+      setFileToAddToOrder(null)
+
+      // Recarregar pedidos do cliente
+      if (displayClient?.id) {
+        const freshOrders = await productionService.getByClientId(displayClient.id)
+        setProductionOrders(freshOrders)
+      }
+    } catch (err: any) {
+      console.error('Error adding message file to production order:', err)
+      const errorMsg =
+        err?.message ||
+        err?.response?.message ||
+        (typeof err?.data === 'object' ? JSON.stringify(err.data) : null) ||
+        'Falha ao adicionar arquivo ao pedido.'
+      toast({
+        title: 'Erro ao adicionar arquivo ao pedido',
+        description: errorMsg,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsAddingFileToOrder(false)
+    }
+  }
+
   const handleToggleTask = async (taskId: string, currentStatus: string) => {
     try {
       await tasksService.toggleStatus(
@@ -1479,7 +1552,19 @@ export default function WhatsAppChatDrawer({
                                             </p>
                                           )}
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0">
+                                        <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                                          {orderContext?.id && (
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={() => handleOpenAddFileToOrder(msg)}
+                                              className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
+                                              title={`Adicionar este arquivo ao Pedido #${orderContext.orderNumber}`}
+                                            >
+                                              <Plus className="h-3 w-3" />
+                                              <span>Adicionar ao pedido</span>
+                                            </Button>
+                                          )}
                                           <a
                                             href={fileUrl}
                                             target="_blank"
@@ -1503,7 +1588,7 @@ export default function WhatsAppChatDrawer({
                                       </div>
                                     </div>
                                   ) : isPdf ? (
-                                    <div className="p-2.5 flex items-center justify-between gap-3 bg-red-50/70 dark:bg-red-950/40 text-slate-800 dark:text-slate-100">
+                                    <div className="p-2.5 flex items-center justify-between gap-3 bg-red-50/70 dark:bg-red-950/40 text-slate-800 dark:text-slate-100 flex-wrap sm:flex-nowrap">
                                       <div className="flex items-center gap-2 min-w-0 flex-1">
                                         <div className="h-9 w-9 rounded-lg bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300 flex flex-col items-center justify-center shrink-0">
                                           <FileText className="h-4 w-4" />
@@ -1526,7 +1611,19 @@ export default function WhatsAppChatDrawer({
                                           </div>
                                         </div>
                                       </div>
-                                      <div className="flex items-center gap-1 shrink-0">
+                                      <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                                        {orderContext?.id && (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => handleOpenAddFileToOrder(msg)}
+                                            className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
+                                            title={`Adicionar este PDF ao Pedido #${orderContext.orderNumber}`}
+                                          >
+                                            <Plus className="h-3 w-3" />
+                                            <span>Adicionar ao pedido</span>
+                                          </Button>
+                                        )}
                                         <a
                                           href={fileUrl}
                                           target="_blank"
@@ -1551,7 +1648,7 @@ export default function WhatsAppChatDrawer({
                                       </div>
                                     </div>
                                   ) : (
-                                    <div className="p-2.5 flex items-center justify-between gap-3 bg-white/80 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100">
+                                    <div className="p-2.5 flex items-center justify-between gap-3 bg-white/80 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100 flex-wrap sm:flex-nowrap">
                                       <div className="flex items-center gap-2 min-w-0 flex-1">
                                         <div className="h-9 w-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex flex-col items-center justify-center shrink-0">
                                           <Paperclip className="h-4 w-4" />
@@ -1574,7 +1671,19 @@ export default function WhatsAppChatDrawer({
                                           </div>
                                         </div>
                                       </div>
-                                      <div className="flex items-center gap-1 shrink-0">
+                                      <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                                        {orderContext?.id && (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => handleOpenAddFileToOrder(msg)}
+                                            className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
+                                            title={`Adicionar este arquivo ao Pedido #${orderContext.orderNumber}`}
+                                          >
+                                            <Plus className="h-3 w-3" />
+                                            <span>Adicionar ao pedido</span>
+                                          </Button>
+                                        )}
                                         <a
                                           href={fileUrl}
                                           target="_blank"
@@ -3333,6 +3442,66 @@ export default function WhatsAppChatDrawer({
               className="bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-600"
             >
               {isDeletingQuote ? 'Excluindo...' : 'Excluir orçamento'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* DIALOG DE CONFIRMAÇÃO DE ADICIONAR ARQUIVO AO PEDIDO (Bloco 40E-A2) */}
+      <AlertDialog open={confirmAddFileDialogOpen} onOpenChange={setConfirmAddFileDialogOpen}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Package className="h-5 w-5 text-blue-600" />
+              <span>Adicionar este arquivo ao Pedido #{orderContext?.orderNumber}?</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+              <p>
+                O arquivo será copiado e anexado à lista de documentos do pedido de produção
+                selecionado. A mensagem original continuará intacta.
+              </p>
+
+              {fileToAddToOrder && (
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 flex items-center justify-center shrink-0">
+                    <Paperclip className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate"
+                      title={fileToAddToOrder.fileName}
+                    >
+                      {fileToAddToOrder.fileName}
+                    </p>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      {fileToAddToOrder.fileType && <span>Tipo: {fileToAddToOrder.fileType}</span>}
+                      {fileToAddToOrder.fileSize && (
+                        <span>• {formatFileSize(fileToAddToOrder.fileSize)}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isAddingFileToOrder}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmAddFileToOrder()
+              }}
+              disabled={isAddingFileToOrder}
+              className="bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-600"
+            >
+              {isAddingFileToOrder ? (
+                <>
+                  <Clock className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  <span>Adicionando...</span>
+                </>
+              ) : (
+                'Adicionar ao pedido'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
