@@ -546,43 +546,64 @@ export default function ProductionOrderModal({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white text-lg">
-              <Package className="h-5 w-5 text-emerald-600" />
-              {orderToEdit ? `Pedido ${orderToEdit.order_number}` : 'Novo Pedido de Produção'}
-            </DialogTitle>
-            {orderToEdit && (
-              <div className="flex items-center gap-1.5">
-                {isOrderArtApproved ? (
-                  <Badge className="bg-emerald-600 text-white text-[11px] font-bold px-2 py-0.5 flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" />✅ Arte final aprovada
-                  </Badge>
-                ) : requiresArtApproval ? (
-                  <Badge
-                    variant="outline"
-                    className="border-amber-400 text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[11px] font-bold px-2 py-0.5 flex items-center gap-1"
-                  >
-                    <Lock className="h-3 w-3 text-amber-600" />🔒 Exige aprovação de arte
-                  </Badge>
-                ) : (
-                  <Badge
-                    variant="outline"
-                    className="border-slate-300 text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 text-[11px] px-2 py-0.5"
-                  >
-                    Não exige aprovação de arte
-                  </Badge>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white text-lg">
+                  <Package className="h-5 w-5 text-emerald-600" />
+                  {orderToEdit ? `Pedido ${orderToEdit.order_number}` : 'Novo Pedido de Produção'}
+                </DialogTitle>
+                {orderToEdit && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {isOrderArtApproved ? (
+                      <Badge className="bg-emerald-600 text-white text-[11px] font-bold px-2 py-0.5 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" />✅ Arte final aprovada
+                      </Badge>
+                    ) : requiresArtApproval ? (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-400 text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 text-[11px] font-bold px-2 py-0.5 flex items-center gap-1"
+                      >
+                        <Lock className="h-3 w-3 text-amber-600" />🔒 Exige aprovação de arte
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="border-slate-300 text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 text-[11px] px-2 py-0.5"
+                      >
+                        Não exige aprovação de arte
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className="font-mono text-xs">
+                      Token: {orderToEdit.tracking_token.substring(0, 8)}...
+                    </Badge>
+                  </div>
                 )}
-                <Badge variant="outline" className="font-mono text-xs">
-                  Token: {orderToEdit.tracking_token.substring(0, 8)}...
-                </Badge>
+              </div>
+              <DialogDescription className="text-xs">
+                {orderToEdit
+                  ? 'Gerencie prazos, especificações técnicas, provas de arte e histórico de produção.'
+                  : 'Preencha os dados da ordem de serviço para enviar à esteira de produção.'}
+              </DialogDescription>
+            </div>
+
+            {orderToEdit && (
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleOpenWhatsAppChat}
+                  disabled={loading || loadingChatClient}
+                  className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shadow-sm"
+                  title="Abrir histórico e conversar com o cliente pelo WhatsApp"
+                >
+                  <MessageSquare className="h-4 w-4 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+                  {loadingChatClient ? 'Carregando...' : 'Falar com o cliente'}
+                </Button>
               </div>
             )}
           </div>
-          <DialogDescription className="text-xs">
-            {orderToEdit
-              ? 'Gerencie prazos, especificações técnicas, provas de arte e histórico de produção.'
-              : 'Preencha os dados da ordem de serviço para enviar à esteira de produção.'}
-          </DialogDescription>
         </DialogHeader>
         {/* Tab switch */}
         {orderToEdit && (
