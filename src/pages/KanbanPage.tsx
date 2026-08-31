@@ -3,8 +3,10 @@ import type { Attendance, Client, KanbanColumn, KanbanStage, SlaConfig } from '@
 import { attendancesService } from '@/services/attendances'
 import { clientsService } from '@/services/clients'
 import { columnsService } from '@/services/columns'
+import { quotesService } from '@/services/quotes'
 import { settingsService } from '@/services/settings'
 import { calculateSlaInfo, formatCurrency } from '@/lib/sla'
+import type { Quote } from '@/types/quotes'
 import KanbanCard from '@/components/KanbanCard'
 import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 import ClientFormModal from '@/components/ClientFormModal'
@@ -32,6 +34,9 @@ export default function KanbanPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [columns, setColumns] = useState<KanbanColumn[]>([])
   const [attendances, setAttendances] = useState<Attendance[]>([])
+  const [attendanceQuotesMap, setAttendanceQuotesMap] = useState<
+    Record<string, { latestQuote: Quote; count: number }>
+  >({})
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
     urgentMinutes: 1440,
     warningMinutes: 720,
@@ -69,15 +74,45 @@ export default function KanbanPage() {
 
   const loadData = async () => {
     try {
-      const [cols, atts, cfg, autoArchiveCfg] = await Promise.all([
+      // Carrega colunas, atendimentos ativos, SLA e orçamentos em paralelo (evitando N+1)
+      const [cols, atts, quotesList, cfg, autoArchiveCfg] = await Promise.all([
         columnsService.getVisible(),
         attendancesService.getAll(undefined, '-created', { includeArchived: false }),
+        quotesService.getAll(undefined, '-updated'),
         settingsService.getSlaConfig(),
         settingsService.getAutoArchiveConfig(),
       ])
       setColumns(cols)
       setAttendances(atts)
       setSlaConfig(cfg)
+
+      // BLOCO 41A: Mapear quotes em aberto por attendance_id
+      // Considerar apenas status NÃO 'recusado' e NÃO 'expirado'
+      // Se múltiplos, pegar o mais recente (ordenado por updated DESC)
+      const qMap: Record<string, { latestQuote: Quote; count: number }> = {}
+      for (const q of quotesList) {
+        if (!q.attendance_id) continue
+        if (!quotesService.isOpenQuoteStatus(q.status)) continue
+
+        if (!qMap[q.attendance_id]) {
+          qMap[q.attendance_id] = {
+            latestQuote: q,
+            count: 1,
+          }
+        } else {
+          qMap[q.attendance_id].count += 1
+          // Como a busca já veio com sort '-updated', o primeiro encontrado é o mais recente.
+          // Mas para garantir caso tenhamos timestamps:
+          const existingUpdated = new Date(
+            qMap[q.attendance_id].latestQuote.updated || qMap[q.attendance_id].latestQuote.created,
+          ).getTime()
+          const currentUpdated = new Date(q.updated || q.created).getTime()
+          if (currentUpdated > existingUpdated) {
+            qMap[q.attendance_id].latestQuote = q
+          }
+        }
+      }
+      setAttendanceQuotesMap(qMap)
 
       // Auto-archive check on attendances if configured
       if (autoArchiveCfg.enabled) {
@@ -103,7 +138,11 @@ export default function KanbanPage() {
     loadData()
     const handleUpdate = () => loadData()
     window.addEventListener('crm-client-updated', handleUpdate)
-    return () => window.removeEventListener('crm-client-updated', handleUpdate)
+    window.addEventListener('quotes-updated', handleUpdate)
+    return () => {
+      window.removeEventListener('crm-client-updated', handleUpdate)
+      window.removeEventListener('quotes-updated', handleUpdate)
+    }
   }, [])
 
   // Auto-open attendance chat drawer if attendance_id / attendanceId query param is present
@@ -503,12 +542,15 @@ export default function KanbanPage() {
                   ) : (
                     stageItems.map((att) => {
                       const clientObj = getClientFromAttendance(att)
+                      const quoteInfo = attendanceQuotesMap[att.id]
                       return (
                         <KanbanCard
                           key={att.id}
                           client={clientObj}
                           attendance={att}
                           column={column}
+                          realQuote={quoteInfo?.latestQuote || null}
+                          openQuotesCount={quoteInfo?.count || 0}
                           slaConfig={slaConfig}
                           onDragStart={(e) => handleDragStart(e, att.id)}
                           onClick={() => {

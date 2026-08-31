@@ -62,6 +62,37 @@ export const quotesService = {
     }
   },
 
+  /**
+   * Status válidos de orçamentos considerados "em aberto" (não finalizados/recusados/expirados)
+   */
+  isOpenQuoteStatus(status?: string): boolean {
+    if (!status) return false
+    return status !== 'recusado' && status !== 'expirado'
+  },
+
+  /**
+   * Retorna o valor real total de um orçamento (final_total ou total_sale como fallback)
+   */
+  getQuoteTotal(quote: Quote | Partial<Quote>): number {
+    if (
+      quote.final_total !== undefined &&
+      quote.final_total !== null &&
+      !isNaN(Number(quote.final_total)) &&
+      Number(quote.final_total) > 0
+    ) {
+      return Number(quote.final_total)
+    }
+    if (
+      quote.total_sale !== undefined &&
+      quote.total_sale !== null &&
+      !isNaN(Number(quote.total_sale)) &&
+      Number(quote.total_sale) > 0
+    ) {
+      return Number(quote.total_sale)
+    }
+    return 0
+  },
+
   async generateNextCode(): Promise<string> {
     try {
       const year = new Date().getFullYear()

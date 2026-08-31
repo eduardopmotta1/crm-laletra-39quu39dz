@@ -10,6 +10,7 @@ import {
   Archive,
   Lock,
   MoreVertical,
+  FileText,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -18,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { Client, Attendance, Priority, KanbanColumn, SlaConfig } from '@/types/crm'
+import type { Quote } from '@/types/quotes'
 import { calculateSlaInfo, formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
@@ -27,6 +29,8 @@ interface KanbanCardProps {
   attendance?: Attendance
   slaConfig: SlaConfig
   column?: KanbanColumn
+  realQuote?: Quote | null
+  openQuotesCount?: number
   onClick: () => void
   onOpenChat: (e: React.MouseEvent) => void
   onCompleteAndArchive?: (client: Client, e: React.MouseEvent) => void
@@ -38,6 +42,8 @@ export default function KanbanCard({
   attendance,
   slaConfig,
   column,
+  realQuote,
+  openQuotesCount = 0,
   onClick,
   onOpenChat,
   onCompleteAndArchive,
@@ -50,8 +56,13 @@ export default function KanbanCard({
     attendance?.product_interest !== undefined
       ? attendance.product_interest
       : client.product_interest
+
+  // BLOCO 41A: Usar SOMENTE quote real vinculada ao attendance.id (quotes em aberto).
+  // Se não existir orçamento real em aberto, quoteValue é null (oculta a linha).
   const quoteValue =
-    attendance?.quote_value !== undefined ? attendance.quote_value : client.quote_value
+    realQuote && (realQuote.final_total || realQuote.total_sale)
+      ? Number(realQuote.final_total || realQuote.total_sale)
+      : null
 
   const slaInfo = calculateSlaInfo(
     client.last_message_at,
@@ -164,14 +175,25 @@ export default function KanbanCard({
         </div>
 
         {/* Quote Value Badge (Protected: Completely hidden if user lacks financial permission) */}
-        {canViewFinancials && quoteValue ? (
+        {canViewFinancials && quoteValue !== null ? (
           <div className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60">
-            <span className="text-[10px] text-slate-500 font-medium">Orçamento:</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-slate-500 font-medium">Orçamento:</span>
+              {openQuotesCount > 1 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                  title={`${openQuotesCount} orçamentos vinculados a este atendimento`}
+                >
+                  <FileText className="h-2.5 w-2.5" />
+                  {openQuotesCount} orçamentos
+                </span>
+              )}
+            </div>
             <span className="font-bold text-emerald-700 dark:text-emerald-400">
               {formatCurrency(quoteValue)}
             </span>
           </div>
-        ) : !canViewFinancials && quoteValue ? (
+        ) : !canViewFinancials && quoteValue !== null ? (
           <div className="flex items-center justify-between text-[11px] py-1 px-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700">
             <span className="flex items-center gap-1">
               <Lock className="h-3 w-3 text-slate-400" />
