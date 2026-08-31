@@ -222,30 +222,21 @@ export default function ClientFormModal({
         phone: formData.phone.trim(),
         stage: formData.stage,
         priority: formData.priority,
-      }
-
-      if (formData.email.trim()) {
-        payload.email = formData.email.trim()
-      }
-      if (formData.product_interest.trim()) {
-        payload.product_interest = formData.product_interest.trim()
-      }
-      if (formData.quote_value !== '' && !isNaN(Number(formData.quote_value))) {
-        payload.quote_value = Number(formData.quote_value)
-      }
-      if (formData.assigned_to && formData.assigned_to.trim()) {
-        payload.assigned_to = formData.assigned_to.trim()
-      }
-      if (formData.notes.trim()) {
-        payload.notes = formData.notes.trim()
-      }
-      if (formData.next_action.trim()) {
-        payload.next_action = formData.next_action.trim()
-      }
-      if (formData.next_action_date && formData.next_action_date.trim()) {
-        payload.next_action_date = formData.next_action_date.includes('T')
-          ? formData.next_action_date.split('T')[0]
-          : formData.next_action_date.trim()
+        email: formData.email.trim(),
+        product_interest: formData.product_interest.trim(),
+        quote_value:
+          formData.quote_value !== '' && !isNaN(Number(formData.quote_value))
+            ? Number(formData.quote_value)
+            : 0,
+        assigned_to: formData.assigned_to ? formData.assigned_to.trim() : '',
+        notes: formData.notes.trim(),
+        next_action: formData.next_action.trim(),
+        next_action_date:
+          formData.next_action_date && formData.next_action_date.trim()
+            ? formData.next_action_date.includes('T')
+              ? formData.next_action_date.split('T')[0]
+              : formData.next_action_date.trim()
+            : '',
       }
 
       let savedClient: Client
@@ -298,6 +289,9 @@ export default function ClientFormModal({
         }
         if (formData.email.trim() && !existingClient.email) {
           clientUpdateData.email = formData.email.trim()
+        }
+        if (formData.product_interest.trim()) {
+          clientUpdateData.product_interest = formData.product_interest.trim()
         }
         if (Object.keys(clientUpdateData).length > 0) {
           try {
