@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-31T12:05:08.635Z",
+  "generatedAt": "2026-08-31T12:19:59.241Z",
   "collections": [
     {
       "name": "users",
@@ -2929,6 +2929,65 @@
         "CREATE INDEX idx_proc_exec_status ON procedure_executions (status)",
         "CREATE INDEX idx_proc_exec_user ON procedure_executions (assigned_to_user_id)",
         "CREATE INDEX idx_proc_exec_role ON procedure_executions (assigned_role_slug)"
+      ]
+    },
+    {
+      "name": "production_order_message_attachments",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "production_order_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "production_orders"
+        },
+        {
+          "name": "message_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "messages"
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "file_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_poma_order_message ON production_order_message_attachments (production_order_id, message_id)",
+        "CREATE INDEX idx_poma_order ON production_order_message_attachments (production_order_id)",
+        "CREATE INDEX idx_poma_message ON production_order_message_attachments (message_id)"
       ]
     }
   ]

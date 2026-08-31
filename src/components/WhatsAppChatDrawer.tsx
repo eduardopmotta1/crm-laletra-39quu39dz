@@ -959,10 +959,17 @@ export default function WhatsAppChatDrawer({
         throw new Error('Não foi possível anexar o arquivo ao pedido de produção.')
       }
 
-      toast({
-        title: 'Arquivo adicionado',
-        description: `Arquivo adicionado ao Pedido #${currentOrderNum}.`,
-      })
+      if (res.alreadyExists) {
+        toast({
+          title: 'Arquivo já vinculado',
+          description: `Este arquivo já foi adicionado ao Pedido #${currentOrderNum}.`,
+        })
+      } else {
+        toast({
+          title: 'Arquivo adicionado',
+          description: `Arquivo adicionado ao Pedido #${currentOrderNum}.`,
+        })
+      }
 
       setConfirmAddFileDialogOpen(false)
       setFileToAddToOrder(null)
@@ -1553,18 +1560,21 @@ export default function WhatsAppChatDrawer({
                                           )}
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-                                          {orderContext?.id && (
-                                            <Button
-                                              type="button"
-                                              size="sm"
-                                              onClick={() => handleOpenAddFileToOrder(msg)}
-                                              className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
-                                              title={`Adicionar este arquivo ao Pedido #${orderContext.orderNumber}`}
-                                            >
-                                              <Plus className="h-3 w-3" />
-                                              <span>Adicionar ao pedido</span>
-                                            </Button>
-                                          )}
+                                          {orderContext?.id &&
+                                            (isAdmin ||
+                                              hasPermission('production_attach_files') ||
+                                              hasPermission('production_edit')) && (
+                                              <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={() => handleOpenAddFileToOrder(msg)}
+                                                className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
+                                                title={`Adicionar este arquivo ao Pedido #${orderContext.orderNumber}`}
+                                              >
+                                                <Plus className="h-3 w-3" />
+                                                <span>Adicionar ao pedido</span>
+                                              </Button>
+                                            )}
                                           <a
                                             href={fileUrl}
                                             target="_blank"
@@ -1612,18 +1622,21 @@ export default function WhatsAppChatDrawer({
                                         </div>
                                       </div>
                                       <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-                                        {orderContext?.id && (
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            onClick={() => handleOpenAddFileToOrder(msg)}
-                                            className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
-                                            title={`Adicionar este PDF ao Pedido #${orderContext.orderNumber}`}
-                                          >
-                                            <Plus className="h-3 w-3" />
-                                            <span>Adicionar ao pedido</span>
-                                          </Button>
-                                        )}
+                                        {orderContext?.id &&
+                                          (isAdmin ||
+                                            hasPermission('production_attach_files') ||
+                                            hasPermission('production_edit')) && (
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={() => handleOpenAddFileToOrder(msg)}
+                                              className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
+                                              title={`Adicionar este PDF ao Pedido #${orderContext.orderNumber}`}
+                                            >
+                                              <Plus className="h-3 w-3" />
+                                              <span>Adicionar ao pedido</span>
+                                            </Button>
+                                          )}
                                         <a
                                           href={fileUrl}
                                           target="_blank"
@@ -1672,18 +1685,21 @@ export default function WhatsAppChatDrawer({
                                         </div>
                                       </div>
                                       <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-                                        {orderContext?.id && (
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            onClick={() => handleOpenAddFileToOrder(msg)}
-                                            className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
-                                            title={`Adicionar este arquivo ao Pedido #${orderContext.orderNumber}`}
-                                          >
-                                            <Plus className="h-3 w-3" />
-                                            <span>Adicionar ao pedido</span>
-                                          </Button>
-                                        )}
+                                        {orderContext?.id &&
+                                          (isAdmin ||
+                                            hasPermission('production_attach_files') ||
+                                            hasPermission('production_edit')) && (
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={() => handleOpenAddFileToOrder(msg)}
+                                              className="h-7 px-2 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-2xs shrink-0"
+                                              title={`Adicionar este arquivo ao Pedido #${orderContext.orderNumber}`}
+                                            >
+                                              <Plus className="h-3 w-3" />
+                                              <span>Adicionar ao pedido</span>
+                                            </Button>
+                                          )}
                                         <a
                                           href={fileUrl}
                                           target="_blank"

@@ -857,10 +857,17 @@ export const productionService = {
     productionOrderId: string,
     messageId: string,
     fallbackInfo?: { fileUrl?: string; fileName?: string; fileType?: string },
-  ): Promise<{ success: boolean; alreadyExists?: boolean; order?: ProductionOrder }> {
-    // 1. Tentar primeiro via hook backend endpoint caso esteja disponibilizado
+  ): Promise<{
+    success: boolean
+    alreadyExists?: boolean
+    order?: ProductionOrder
+    message?: string
+  }> {
+    // 1. Chamar o endpoint oficial de backend (production_order_attachments.js)
+    // Valida autenticação, permissão real de produção e impede duplicidade atômica via DB UNIQUE
+    let backendResult: any = null
     try {
-      const res = await pb.send('/api/crm/production/attach-message-file', {
+      backendResult = await pb.send('/api/crm/production/attach-message-file', {
         method: 'POST',
         body: {
           production_order_id: productionOrderId,
@@ -868,20 +875,28 @@ export const productionService = {
           message_id: messageId,
         },
       })
-      if (res && res.success !== false) {
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(
-            new CustomEvent('production-order-updated', { detail: { orderId: productionOrderId } }),
-          )
-        }
-        return {
-          success: true,
-          alreadyExists: Boolean(res.already_exists),
-          order: res.order,
-        }
+    } catch (err: any) {
+      // Se for erro de permissão (403), autenticação (401) ou não encontrado (404), repassar imediatamente
+      const status = err?.status || err?.statusCode || err?.response?.status
+      const errorMsg =
+        err?.data?.error ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'Erro na validação do pedido no backend.'
+      if (status === 403 || status === 401 || status === 400 || status === 404) {
+        throw new Error(errorMsg)
       }
-    } catch {
-      // Se endpoint de hook não responder ou retornar 404, executa a cópia direta client-side preservando a integridade
+      console.warn('Backend attach endpoint warning:', err)
+    }
+
+    // Se o backend indicou que este arquivo já foi vinculado a este pedido
+    if (backendResult && (backendResult.already_added || backendResult.already_exists)) {
+      return {
+        success: true,
+        alreadyExists: true,
+        order: backendResult.order,
+        message: backendResult.message || 'Este arquivo já foi adicionado a este pedido.',
+      }
     }
 
     // 2. Obter a mensagem original com o arquivo
