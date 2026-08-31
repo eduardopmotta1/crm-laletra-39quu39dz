@@ -276,7 +276,7 @@ export default function CreateProductionOrderFromQuoteModal({
                   {quote.client_name}
                 </strong>
                 <span className="text-slate-500 text-[11px] font-mono">
-                  {quote.client_phone || 'Sem telefone'}
+                  {quote.client_phone || (quote as any).expand?.client_id?.phone || 'Sem telefone'}
                 </span>
               </div>
 

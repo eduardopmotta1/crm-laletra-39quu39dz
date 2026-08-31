@@ -292,7 +292,37 @@ export const quoteToProductionService = {
       .filter(Boolean)
       .join('\n\n')
 
-    // 4. Create the Production Order using productionService.create
+    // 4. Fallback seguro para obter o telefone do cliente
+    let clientPhone = freshQuote.client_phone?.trim() || ''
+
+    if (!clientPhone && freshQuote.client_id) {
+      // Tenta obter do expand já carregado ou busca na collection clients
+      const expandedClient = (freshQuote as any).expand?.client_id
+      if (
+        expandedClient &&
+        typeof expandedClient.phone === 'string' &&
+        expandedClient.phone.trim()
+      ) {
+        clientPhone = expandedClient.phone.trim()
+      } else {
+        try {
+          const clientRecord = await pb.collection('clients').getOne(freshQuote.client_id)
+          if (clientRecord && clientRecord.phone && clientRecord.phone.trim()) {
+            clientPhone = clientRecord.phone.trim()
+          }
+        } catch (clientErr) {
+          console.warn('Não foi possível obter telefone do cliente vinculado:', clientErr)
+        }
+      }
+    }
+
+    if (!clientPhone) {
+      throw new Error(
+        'Não foi possível criar o pedido de produção: o cliente não possui telefone cadastrado.',
+      )
+    }
+
+    // 5. Create the Production Order using productionService.create
     // Handles race condition & unique constraint on quote_id or order_number gracefully
     let createdOrder: ProductionOrder | null = null
     try {
@@ -301,7 +331,7 @@ export const quoteToProductionService = {
         attendanceId: freshQuote.attendance_id || undefined,
         quoteId: freshQuote.id,
         clientName: freshQuote.client_name,
-        clientPhone: freshQuote.client_phone || '',
+        clientPhone: clientPhone,
         clientEmail: freshQuote.client_email || undefined,
         product: snapshot.productSummary,
         description: snapshot.descriptionSummary,
