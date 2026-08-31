@@ -846,6 +846,82 @@ export const productionService = {
   },
 
   /**
+   * BLOCO 40E: Adicionar arquivo de uma mensagem do chat ao pedido de produção
+   * - Copia o arquivo de messages.file para production_orders.attachments
+   * - Preserva o arquivo na mensagem original
+   * - Previne duplicação determinística
+   * - Valida permissão production_attach_files no frontend e backend
+   * - Registra log de auditoria da produção
+   * - NÃO altera art_approved, approved_proof_id nem cria production_proofs
+   */
+  async attachMessageFileToOrder(params: {
+    orderId: string
+    messageId: string
+    fileUrl: string
+    fileName: string
+    fileType?: string
+  }): Promise<{ success: boolean; alreadyExists?: boolean; order?: ProductionOrder }> {
+    const { orderId, messageId, fileUrl, fileName, fileType } = params
+
+    // 1. Chamar o endpoint backend de validação e segurança
+    const checkRes = await pb.send('/api/crm/production/attach-message-file', {
+      method: 'POST',
+      body: {
+        order_id: orderId,
+        message_id: messageId,
+      },
+    })
+
+    if (checkRes?.already_exists) {
+      return {
+        success: true,
+        alreadyExists: true,
+        order: checkRes.order,
+      }
+    }
+
+    // 2. Baixar o arquivo da mensagem original via Blob para recriar o File de forma segura
+    const response = await fetch(fileUrl)
+    if (!response.ok) {
+      throw new Error(`Não foi possível carregar o arquivo da mensagem (HTTP ${response.status}).`)
+    }
+    const blob = await response.blob()
+    const finalFileType = fileType || blob.type || 'application/octet-stream'
+    const safeFileName = fileName || 'arquivo_anexo'
+    const fileObj = new File([blob], safeFileName, { type: finalFileType })
+
+    // 3. Atualizar o pedido de produção adicionando o arquivo aos attachments (FormData multipart)
+    const formData = new FormData()
+    formData.append('attachments', fileObj)
+
+    const updatedOrder = await pb
+      .collection('production_orders')
+      .update<ProductionOrder>(orderId, formData)
+
+    // 4. Registrar log de auditoria no histórico do pedido
+    await this.logTransition({
+      orderId,
+      toStageId: updatedOrder.stage_internal_id,
+      toStageName: updatedOrder.stage_name,
+      changeType: 'manual',
+      notes: `Arquivo "${safeFileName}" importado da conversa de WhatsApp e adicionado aos anexos do pedido.`,
+      whatsappSent: false,
+      whatsappStatus: 'nao_enviado',
+    })
+
+    // 5. Disparar evento para atualizar UIs conectadas
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('production-order-updated', { detail: { orderId } }))
+    }
+
+    return {
+      success: true,
+      alreadyExists: false,
+      order: updatedOrder,
+    }
+  },
+
+  /**
    * Calculate Deadline Status & Alerts (yellow for today/tomorrow, red for overdue)
    */
   calculateDeadlineStatus(deadline?: string, isCompleted?: boolean): ProductionDeadlineStatus {
