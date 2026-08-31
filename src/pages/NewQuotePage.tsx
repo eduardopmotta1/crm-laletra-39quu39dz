@@ -348,13 +348,9 @@ export default function NewQuotePage() {
     setSaving(true)
     setSaveErrorInfo(null)
     try {
-      const defaultStatus = isEditing
-        ? quoteStatus === 'alteracao_solicitada' ||
-          quoteStatus === 'aprovado' ||
-          quoteStatus === 'recusado'
-          ? 'rascunho'
-          : quoteStatus || 'rascunho'
-        : 'rascunho'
+      // Ao salvar alterações de um orçamento existente (a não ser que statusOverride explícito como 'enviado' seja passado),
+      // qualquer status ('enviado', 'alteracao_solicitada', 'aprovado', 'recusado') deve ser redefinido para 'rascunho'
+      const defaultStatus = 'rascunho'
 
       const finalStatus = statusOverride !== undefined ? statusOverride : defaultStatus
 
@@ -1123,17 +1119,7 @@ export default function NewQuotePage() {
               {/* Action Buttons */}
               <div className="space-y-2 pt-2">
                 <Button
-                  onClick={() =>
-                    handleSaveQuote(
-                      isEditing
-                        ? quoteStatus === 'alteracao_solicitada' ||
-                          quoteStatus === 'aprovado' ||
-                          quoteStatus === 'recusado'
-                          ? 'rascunho'
-                          : quoteStatus
-                        : 'rascunho',
-                    )
-                  }
+                  onClick={() => handleSaveQuote('rascunho')}
                   disabled={saving || items.length === 0}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-10 shadow-sm"
                 >
