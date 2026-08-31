@@ -537,9 +537,11 @@ export default function ProductionOrderModal({
 
       if (onOpenChat) {
         onOpenChat(clientRecord, ctx)
+        // Se onOpenChat foi fornecido, o pai cuida de renderizar o drawer no topo mantendo o modal aberto
         return
       }
 
+      // Caso não tenha handler externo de chat, abre o drawer embutido
       setChatClient(clientRecord)
       setChatDrawerOpen(true)
     } catch (err: any) {

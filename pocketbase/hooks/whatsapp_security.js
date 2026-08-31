@@ -435,7 +435,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/order-conversation', (e) => {
     }
   }
 
-  // Buscar mensagens do cliente via consulta interna
+  // Buscar mensagens do cliente via consulta interna (expandindo sent_by_user para identificação "Nome • Setor • Horário")
   let messages = []
   try {
     const rawRecords = $app.findRecordsByFilter(
@@ -446,8 +446,37 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/order-conversation', (e) => {
       0,
     )
     if (rawRecords && rawRecords.length > 0) {
+      // Buscar usuários e papéis para enriquecer expand de sent_by_user se necessário
+      let usersCache = {}
+      let rolesCache = {}
+      try {
+        const uList = $app.findRecordsByFilter('users', '', '', 500, 0)
+        for (let u = 0; u < uList.length; u++) {
+          const uRec = uList[u]
+          usersCache[uRec.id] = uRec.publicExport()
+        }
+        const rList = $app.findRecordsByFilter('roles', '', '', 100, 0)
+        for (let r = 0; r < rList.length; r++) {
+          const rRec = rList[r]
+          rolesCache[rRec.id] = rRec.publicExport()
+        }
+      } catch (_) {}
+
       for (let i = 0; i < rawRecords.length; i++) {
-        messages.push(rawRecords[i].publicExport())
+        const rec = rawRecords[i]
+        const exported = rec.publicExport()
+        const sentByUserId = rec.get('sent_by_user')
+        if (sentByUserId && usersCache[sentByUserId]) {
+          const uObj = usersCache[sentByUserId]
+          const roleId = uObj.role_id
+          if (roleId && rolesCache[roleId]) {
+            uObj.expand = uObj.expand || {}
+            uObj.expand.role_id = rolesCache[roleId]
+          }
+          exported.expand = exported.expand || {}
+          exported.expand.sent_by_user = uObj
+        }
+        messages.push(exported)
       }
     }
   } catch (queryErr) {

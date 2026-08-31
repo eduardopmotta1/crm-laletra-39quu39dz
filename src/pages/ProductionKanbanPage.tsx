@@ -898,8 +898,7 @@ export default function ProductionKanbanPage() {
         orderToEdit={orderToEdit}
         initialStageId={newOrderStageId}
         onOpenChat={(client, orderContext) => {
-          setOrderModalOpen(false)
-          setOrderToEdit(null)
+          // Mantém o modal do pedido aberto e abre o chat no nível da página (com z-index superior z-[70])
           setChatClient(client)
           setChatOrderContext(orderContext)
           setChatDrawerOpen(true)

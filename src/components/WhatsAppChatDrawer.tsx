@@ -1016,7 +1016,7 @@ export default function WhatsAppChatDrawer({
   return (
     <>
       <div
-        className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 cursor-pointer"
+        className="fixed inset-0 z-[70] flex justify-end bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 cursor-pointer"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             onClose()
@@ -1024,7 +1024,7 @@ export default function WhatsAppChatDrawer({
         }}
       >
         <div
-          className="w-full max-w-4xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 animate-in slide-in-from-right duration-300 cursor-default"
+          className="w-full max-w-4xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 animate-in slide-in-from-right duration-300 cursor-default relative z-10"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
