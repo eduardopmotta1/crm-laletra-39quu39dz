@@ -62,7 +62,7 @@ export const whatsappService = {
   async getOrderConversationMessages(productionOrderId: string): Promise<Message[]> {
     try {
       const res = await pb.send<{ success: boolean; messages: Message[]; error?: string }>(
-        '/api/crm/whatsapp/order-conversation',
+        '/backend/v1/crm/whatsapp/order-conversation',
         {
           method: 'POST',
           body: { production_order_id: productionOrderId },

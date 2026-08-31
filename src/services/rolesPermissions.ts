@@ -145,7 +145,7 @@ export const usersAdminService = {
         transferred_tasks?: number
         transferred_orders?: number
         deactivated?: boolean
-      }>('/api/crm/transfer-user-workload', {
+      }>('/backend/v1/crm/transfer-user-workload', {
         method: 'POST',
         body: {
           from_user_id: params.fromUserId,
@@ -278,7 +278,7 @@ export const auditLogsService = {
     newValue?: any
   }): Promise<boolean> {
     try {
-      await pb.send('/api/crm/audit-log', {
+      await pb.send('/backend/v1/crm/audit-log', {
         method: 'POST',
         body: {
           action: params.action,

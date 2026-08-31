@@ -867,7 +867,7 @@ export const productionService = {
     // Valida autenticação, permissão real de produção (production_attach_files / admin) e checa duplicidade existente
     let backendResult: any = null
     try {
-      backendResult = await pb.send('/api/crm/production/attach-message-file', {
+      backendResult = await pb.send('/backend/v1/crm/production/attach-message-file', {
         method: 'POST',
         body: {
           production_order_id: productionOrderId,
@@ -933,7 +933,7 @@ export const productionService = {
     // SOMENTE DEPOIS que o arquivo foi adicionado com sucesso em production_orders.attachments,
     // registramos a confirmação e o vínculo definitivo em production_order_message_attachments
     try {
-      await pb.send('/api/crm/production/confirm-message-file-attached', {
+      await pb.send('/backend/v1/crm/production/confirm-message-file-attached', {
         method: 'POST',
         body: {
           production_order_id: productionOrderId,

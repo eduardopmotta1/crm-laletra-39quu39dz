@@ -86,7 +86,7 @@ export const whatsappTemplatesService = {
         count?: number
         message?: string
         error?: string
-      }>('/api/crm/whatsapp-sync-templates', {
+      }>('/backend/v1/crm/whatsapp-sync-templates', {
         method: 'POST',
       })
       return response

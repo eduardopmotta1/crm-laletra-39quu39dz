@@ -1,5 +1,5 @@
 // WhatsApp Webhook — validação GET e recebimento POST da Meta
-routerAdd('GET', '/api/crm/whatsapp-webhook', (e) => {
+routerAdd('GET', '/backend/v1/crm/whatsapp-webhook', (e) => {
   const hubMode = e.request.url.query().get('hub.mode')
   const hubToken = e.request.url.query().get('hub.verify_token')
   const hubChallenge = e.request.url.query().get('hub.challenge')
@@ -20,7 +20,7 @@ routerAdd('GET', '/api/crm/whatsapp-webhook', (e) => {
   return e.string(403, 'Forbidden')
 })
 
-routerAdd('POST', '/api/crm/whatsapp-webhook', (e) => {
+routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
   console.log('[WHATSAPP WEBHOOK POST] received')
   try {
     const body = e.requestInfo().body

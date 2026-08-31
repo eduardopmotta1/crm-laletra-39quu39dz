@@ -1,4 +1,4 @@
-routerAdd('GET', '/api/crm/evaluation', (e) => {
+routerAdd('GET', '/backend/v1/crm/evaluation', (e) => {
   const token = e.request.url.query().get('token')
   if (!token) {
     return e.json(400, { error: 'Token is required' })

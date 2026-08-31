@@ -2,7 +2,7 @@
 // Endpoint seguro para adicionar arquivos de mensagens de chat ao Pedido de Produção
 // Protege contra duplicidade (production_order_id + message_id) e valida permissão real (production_attach_files / production_edit / admin)
 
-routerAdd('POST', '/api/crm/production/attach-message-file', (e) => {
+routerAdd('POST', '/backend/v1/crm/production/attach-message-file', (e) => {
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
   if (!auth) {
     return e.json(401, {
@@ -145,7 +145,7 @@ routerAdd('POST', '/api/crm/production/attach-message-file', (e) => {
 })
 
 // 2. Endpoint de confirmação e criação do vínculo após sucesso da cópia
-routerAdd('POST', '/api/crm/production/confirm-message-file-attached', (e) => {
+routerAdd('POST', '/backend/v1/crm/production/confirm-message-file-attached', (e) => {
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
   if (!auth) {
     return e.json(401, {

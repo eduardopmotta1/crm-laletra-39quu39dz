@@ -78,7 +78,7 @@ export const evaluationsService = {
     comment?: string
   }> {
     const res = await fetch(
-      `${pb.baseUrl}/api/crm/get-evaluation-token?token=${encodeURIComponent(token)}`,
+      `${pb.baseUrl}/backend/v1/crm/get-evaluation-token?token=${encodeURIComponent(token)}`,
       {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -99,7 +99,7 @@ export const evaluationsService = {
     message: string
     is_dissatisfied: boolean
   }> {
-    const res = await fetch(`${pb.baseUrl}/api/crm/submit-evaluation`, {
+    const res = await fetch(`${pb.baseUrl}/backend/v1/crm/submit-evaluation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

@@ -858,7 +858,7 @@ routerAdd('GET', '/api/run-all-user-tests-matrix', (e) => {
   return e.json(200, { results: results })
 })
 
-routerAdd('POST', '/api/crm/audit-log', (e) => {
+routerAdd('POST', '/backend/v1/crm/audit-log', (e) => {
   try {
     const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
     const body = e.requestInfo().body || {}

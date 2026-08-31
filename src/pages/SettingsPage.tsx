@@ -200,8 +200,8 @@ export default function SettingsPage() {
 
   const { isAdmin, hasPermission } = useAuth()
   const productionWebhookUrl =
-    'https://crm-grafica-whatsapp-7b1a5.goskip.app/api/crm/whatsapp-webhook'
-  const currentOriginWebhookUrl = `${window.location.origin}/api/crm/whatsapp-webhook`
+    'https://crm-grafica-whatsapp-7b1a5.goskip.app/backend/v1/crm/whatsapp-webhook'
+  const currentOriginWebhookUrl = `${window.location.origin}/backend/v1/crm/whatsapp-webhook`
   const [useProductionUrl, setUseProductionUrl] = useState(true)
   const webhookUrl = useProductionUrl ? productionWebhookUrl : currentOriginWebhookUrl
 

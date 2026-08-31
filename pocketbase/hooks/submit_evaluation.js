@@ -1,4 +1,4 @@
-routerAdd('POST', '/api/crm/submit-evaluation', (e) => {
+routerAdd('POST', '/backend/v1/crm/submit-evaluation', (e) => {
   try {
     const body = e.requestInfo().body
     const token = body.token

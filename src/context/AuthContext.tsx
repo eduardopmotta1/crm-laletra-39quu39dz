@@ -218,7 +218,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Log login activity
       try {
-        await pb.send('/api/crm/audit-log', {
+        await pb.send('/backend/v1/crm/audit-log', {
           method: 'POST',
           body: {
             action: 'user_login',
@@ -291,7 +291,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     if (user) {
       try {
-        pb.send('/api/crm/audit-log', {
+        pb.send('/backend/v1/crm/audit-log', {
           method: 'POST',
           body: {
             action: 'user_logout',

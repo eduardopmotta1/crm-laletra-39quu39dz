@@ -314,7 +314,7 @@ onRecordCreateRequest((e) => {
 
 // Endpoint contextual: visualização segura da conversa do cliente vinculado ao Pedido de Produção
 // Permite que usuários com permissão de Produção vejam o histórico de mensagens do cliente daquele pedido
-routerAdd('POST', '/api/crm/whatsapp/order-conversation', (e) => {
+routerAdd('POST', '/backend/v1/crm/whatsapp/order-conversation', (e) => {
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
   if (!auth) {
     return e.json(401, {
