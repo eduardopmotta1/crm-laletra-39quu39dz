@@ -923,7 +923,7 @@ export const productionService = {
 
     // 5. Atualizar o production_order adicionando aos attachments existentes
     const formData = new FormData()
-    formData.append('attachments', fileObj)
+    formData.append('attachments+', fileObj)
 
     const updatedOrder = await pb
       .collection('production_orders')
