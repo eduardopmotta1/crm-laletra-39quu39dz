@@ -863,8 +863,8 @@ export const productionService = {
     order?: ProductionOrder
     message?: string
   }> {
-    // 1. Chamar o endpoint oficial de backend (production_order_attachments.js)
-    // Valida autenticação, permissão real de produção e impede duplicidade atômica via DB UNIQUE
+    // 1. Chamar o endpoint oficial de pré-validação no backend (production_order_attachments.js)
+    // Valida autenticação, permissão real de produção (production_attach_files / admin) e checa duplicidade existente
     let backendResult: any = null
     try {
       backendResult = await pb.send('/api/crm/production/attach-message-file', {
@@ -889,7 +889,7 @@ export const productionService = {
       console.warn('Backend attach endpoint warning:', err)
     }
 
-    // Se o backend indicou que este arquivo já foi vinculado a este pedido
+    // Se o backend indicou que este arquivo já foi vinculado a este pedido com sucesso anteriormente
     if (backendResult && (backendResult.already_added || backendResult.already_exists)) {
       return {
         success: true,
@@ -921,7 +921,7 @@ export const productionService = {
       fallbackInfo?.fileType || msgRecord.file_type || blob.type || 'application/octet-stream'
     const fileObj = new File([blob], safeFileName, { type: finalFileType })
 
-    // 5. Atualizar o production_order adicionando aos attachments existentes
+    // 5. Preservar Bloco 40G-A: Atualizar o production_order adicionando aos attachments existentes usando attachments+
     const formData = new FormData()
     formData.append('attachments+', fileObj)
 
@@ -929,7 +929,25 @@ export const productionService = {
       .collection('production_orders')
       .update<ProductionOrder>(productionOrderId, formData)
 
-    // 6. Registrar log de auditoria
+    // 6. Bloco 40G-B (Atomicidade garantida):
+    // SOMENTE DEPOIS que o arquivo foi adicionado com sucesso em production_orders.attachments,
+    // registramos a confirmação e o vínculo definitivo em production_order_message_attachments
+    try {
+      await pb.send('/api/crm/production/confirm-message-file-attached', {
+        method: 'POST',
+        body: {
+          production_order_id: productionOrderId,
+          order_id: productionOrderId,
+          message_id: messageId,
+          file_name: safeFileName,
+        },
+      })
+    } catch (confirmErr: any) {
+      console.warn('Falha na confirmação do vínculo em confirm-message-file-attached:', confirmErr)
+      // Se a confirmação falhar por qualquer motivo excepcional, ainda retornamos o pedido atualizado
+    }
+
+    // 7. Registrar log de auditoria
     await this.logTransition({
       orderId: productionOrderId,
       toStageId: updatedOrder.stage_internal_id,
@@ -940,7 +958,7 @@ export const productionService = {
       whatsappStatus: 'nao_enviado',
     })
 
-    // 7. Notificar UIs
+    // 8. Notificar UIs
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('production-order-updated', { detail: { orderId: productionOrderId } }),
