@@ -487,9 +487,22 @@ export default function ProductionOrderModal({
     Boolean(orderToEdit.approved_proof_id && orderToEdit.approved_proof_id.trim())
 
   const handleOpenWhatsAppChat = async () => {
-    // Validação de permissão de visualização do WhatsApp
+    // Validação de permissão de visualização do WhatsApp:
+    // 1. Admin -> permite
+    // 2. hasPermission('whatsapp_view') || hasPermission('whatsapp_view_own') -> permite (fluxo comercial)
+    // 3. orderToEdit existente E possui permissão de produção (production_view / production_view_all / production_view_assigned) -> permite (acesso contextual de Produção)
+    const canViewProductionContext =
+      Boolean(orderToEdit) &&
+      (hasPermission('production_view') ||
+        hasPermission('production_view_all') ||
+        hasPermission('production_view_assigned'))
+
     const canViewWhatsApp =
-      isAdmin || hasPermission('whatsapp_view') || hasPermission('whatsapp_view_own')
+      isAdmin ||
+      hasPermission('whatsapp_view') ||
+      hasPermission('whatsapp_view_own') ||
+      canViewProductionContext
+
     if (!canViewWhatsApp) {
       toast({
         title: 'Acesso negado',

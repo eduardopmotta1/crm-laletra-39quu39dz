@@ -59,6 +59,25 @@ export const whatsappService = {
     }
   },
 
+  async getOrderConversationMessages(productionOrderId: string): Promise<Message[]> {
+    try {
+      const res = await pb.send<{ success: boolean; messages: Message[]; error?: string }>(
+        '/api/crm/whatsapp/order-conversation',
+        {
+          method: 'POST',
+          body: { production_order_id: productionOrderId },
+        },
+      )
+      if (res && res.success && Array.isArray(res.messages)) {
+        return res.messages
+      }
+      return []
+    } catch (error) {
+      console.error('Error fetching order conversation messages:', error)
+      return []
+    }
+  },
+
   getFileUrl(message: Message, fileName?: string): string {
     const file = fileName || message.file
     if (!file) return ''

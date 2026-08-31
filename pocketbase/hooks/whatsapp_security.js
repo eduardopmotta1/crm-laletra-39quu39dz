@@ -312,6 +312,160 @@ onRecordCreateRequest((e) => {
   return e.next()
 }, 'messages')
 
+// Endpoint contextual: visualização segura da conversa do cliente vinculado ao Pedido de Produção
+// Permite que usuários com permissão de Produção vejam o histórico de mensagens do cliente daquele pedido
+routerAdd('POST', '/api/crm/whatsapp/order-conversation', (e) => {
+  const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
+  if (!auth) {
+    return e.json(401, {
+      success: false,
+      error: 'Autenticação necessária.',
+    })
+  }
+
+  // Admin tem acesso irrestrito
+  const roleSlug = auth.get('role_slug') || ''
+  const isAdmin = roleSlug === 'admin'
+
+  // Usuário inativo tem acesso bloqueado
+  if (auth.get('is_active') === false) {
+    return e.json(403, {
+      success: false,
+      error: 'Usuário inativo.',
+    })
+  }
+
+  // Ler production_order_id do corpo
+  const body = e.requestInfo().body || {}
+  const productionOrderId = String(body.production_order_id || body.order_id || '').trim()
+
+  if (!productionOrderId) {
+    return e.json(400, {
+      success: false,
+      error: 'Parâmetro obrigatório ausente: production_order_id.',
+    })
+  }
+
+  // Buscar pedido em production_orders
+  let orderRecord = null
+  try {
+    orderRecord = $app.findRecordById('production_orders', productionOrderId)
+  } catch (_) {
+    return e.json(404, {
+      success: false,
+      error: 'Pedido de produção não encontrado.',
+    })
+  }
+
+  // Obter client_id do pedido
+  const clientId = orderRecord.get('client_id')
+  if (!clientId || String(clientId).trim() === '') {
+    return e.json(400, {
+      success: false,
+      error: 'O pedido informado não possui cliente vinculado.',
+    })
+  }
+
+  // Validar permissões se não for admin
+  if (!isAdmin) {
+    let customPerms = {}
+    try {
+      const rawCustom = auth.get('custom_permissions')
+      if (typeof rawCustom === 'string' && rawCustom.trim()) {
+        customPerms = JSON.parse(rawCustom)
+      } else if (rawCustom && typeof rawCustom === 'object') {
+        customPerms = rawCustom
+      }
+    } catch (_) {}
+
+    let rolePerms = {}
+    const roleId = auth.get('role_id')
+    if (roleId) {
+      try {
+        const roleRec = $app.findRecordById('roles', roleId)
+        if (roleRec) {
+          const rawRole = roleRec.get('permissions')
+          if (typeof rawRole === 'string' && rawRole.trim()) {
+            rolePerms = JSON.parse(rawRole)
+          } else if (rawRole && typeof rawRole === 'object') {
+            rolePerms = rawRole
+          }
+        }
+      } catch (_) {}
+    }
+
+    const checkPerm = function (key) {
+      if (customPerms && customPerms[key] !== undefined) {
+        return customPerms[key] === true
+      }
+      if (rolePerms && rolePerms[key] !== undefined) {
+        return rolePerms[key] === true
+      }
+      return false
+    }
+
+    const canViewAll = checkPerm('production_view_all')
+    const canViewAssigned = checkPerm('production_view_assigned')
+    const canViewGeneral = checkPerm('production_view')
+
+    const hasProductionAccess = canViewGeneral || canViewAll || canViewAssigned
+
+    if (!hasProductionAccess) {
+      return e.json(403, {
+        success: false,
+        error: 'Acesso negado: sem permissão para acessar o módulo de produção.',
+      })
+    }
+
+    // Se não possui production_view_all, e possui apenas production_view_assigned (ou production_view genérico sem _all),
+    // verificar se tem apenas assigned
+    if (!canViewAll) {
+      if (canViewAssigned) {
+        const prodRep = orderRecord.get('production_rep_id')
+        const salesRep = orderRecord.get('sales_rep_id')
+        const isAssigned = prodRep === auth.id || salesRep === auth.id
+
+        if (!isAssigned && !canViewGeneral) {
+          return e.json(403, {
+            success: false,
+            error: 'Acesso restrito: este pedido de produção pertence a outro colaborador.',
+          })
+        }
+      }
+    }
+  }
+
+  // Buscar mensagens do cliente via consulta interna
+  let messages = []
+  try {
+    const rawRecords = $app.findRecordsByFilter(
+      'messages',
+      "client_id = '" + clientId + "'",
+      'created',
+      5000,
+      0,
+    )
+    if (rawRecords && rawRecords.length > 0) {
+      for (let i = 0; i < rawRecords.length; i++) {
+        messages.push(rawRecords[i].publicExport())
+      }
+    }
+  } catch (queryErr) {
+    console.error('[ORDER CONVERSATION] Error fetching messages:', queryErr)
+    return e.json(500, {
+      success: false,
+      error: 'Erro ao carregar mensagens da conversa.',
+    })
+  }
+
+  return e.json(200, {
+    success: true,
+    client_id: clientId,
+    production_order_id: productionOrderId,
+    messages: messages,
+  })
+})
+
 console.log(
   '[WHATSAPP SECURITY] Hook loaded — whatsapp_view, whatsapp_reply, and whatsapp_send_files permissions enforced',
 )

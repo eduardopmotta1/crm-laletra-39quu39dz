@@ -316,7 +316,7 @@ export default function WhatsAppChatDrawer({
       setCurrentClient(client)
       loadClientData(client.id, activeAttendance?.id)
     }
-  }, [client, isOpen, activeAttendance?.id])
+  }, [client, isOpen, activeAttendance?.id, orderContext?.id])
 
   // Real-time listener for incoming/updated messages and client events while drawer is open
   useEffect(() => {
@@ -399,6 +399,10 @@ export default function WhatsAppChatDrawer({
     try {
       const targetAttId = attendanceId || activeAttendance?.id
 
+      const messagesPromise = orderContext?.id
+        ? whatsappService.getOrderConversationMessages(orderContext.id)
+        : whatsappService.getMessages(clientId)
+
       const [
         msgList,
         taskList,
@@ -413,7 +417,7 @@ export default function WhatsAppChatDrawer({
         allUsers,
         allRoles,
       ] = await Promise.all([
-        whatsappService.getMessages(clientId),
+        messagesPromise,
         tasksService.getByClientId(clientId),
         clientsService.getById(clientId),
         dealsService.getByClientId(clientId),
