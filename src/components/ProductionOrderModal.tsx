@@ -87,6 +87,7 @@ interface ProductionOrderModalProps {
     quoteValue?: number
     notes?: string
   }
+  onOpenChat?: (client: Client, orderContext: { id: string; orderNumber: string }) => void
 }
 
 export default function ProductionOrderModal({
@@ -97,6 +98,7 @@ export default function ProductionOrderModal({
   initialClientId,
   initialStageId,
   prefillData,
+  onOpenChat,
 }: ProductionOrderModalProps) {
   const [stages, setStages] = useState<ProductionStage[]>([])
   const [users, setUsers] = useState<UserType[]>([])
@@ -528,6 +530,16 @@ export default function ProductionOrderModal({
       if (!clientRecord) {
         throw new Error('Cliente não encontrado no sistema.')
       }
+
+      const ctx = orderToEdit
+        ? { id: orderToEdit.id, orderNumber: orderToEdit.order_number }
+        : { id: '', orderNumber: '' }
+
+      if (onOpenChat) {
+        onOpenChat(clientRecord, ctx)
+        return
+      }
+
       setChatClient(clientRecord)
       setChatDrawerOpen(true)
     } catch (err: any) {

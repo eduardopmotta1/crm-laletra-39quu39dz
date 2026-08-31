@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import type { ProductionOrder, ProductionStage, Priority } from '@/types/crm'
+import type { ProductionOrder, ProductionStage, Priority, Client } from '@/types/crm'
 import { productionService } from '@/services/production'
 import { productionStagesService } from '@/services/productionStages'
 import { formatCurrency, formatDateTime } from '@/lib/sla'
@@ -7,6 +7,7 @@ import ProductionCard from '@/components/ProductionCard'
 import ProductionOrderModal from '@/components/ProductionOrderModal'
 import ProductionStageManagerModal from '@/components/ProductionStageManagerModal'
 import ProofApprovalModal from '@/components/ProofApprovalModal'
+import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -76,6 +77,14 @@ export default function ProductionKanbanPage() {
   const [proofApprovalModalOpen, setProofApprovalModalOpen] = useState(false)
   const [orderForApproval, setOrderForApproval] = useState<ProductionOrder | null>(null)
   const [newOrderStageId, setNewOrderStageId] = useState<string>('order_received')
+
+  // Page-level WhatsApp Chat Drawer state
+  const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
+  const [chatClient, setChatClient] = useState<Client | null>(null)
+  const [chatOrderContext, setChatOrderContext] = useState<{
+    id: string
+    orderNumber: string
+  } | null>(null)
 
   // Reopen Modal
   const [reopenModalOpen, setReopenModalOpen] = useState(false)
@@ -888,6 +897,13 @@ export default function ProductionKanbanPage() {
         onSaved={loadData}
         orderToEdit={orderToEdit}
         initialStageId={newOrderStageId}
+        onOpenChat={(client, orderContext) => {
+          setOrderModalOpen(false)
+          setOrderToEdit(null)
+          setChatClient(client)
+          setChatOrderContext(orderContext)
+          setChatDrawerOpen(true)
+        }}
       />
 
       {/* Production Stages Manager Modal */}
@@ -979,6 +995,20 @@ export default function ProductionKanbanPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* WhatsApp Chat Drawer no nível da página (fora de Dialogs) */}
+      {chatClient && (
+        <WhatsAppChatDrawer
+          isOpen={chatDrawerOpen}
+          onClose={() => {
+            setChatDrawerOpen(false)
+            setChatClient(null)
+            setChatOrderContext(null)
+          }}
+          client={chatClient}
+          orderContext={chatOrderContext}
+        />
+      )}
     </div>
   )
 }
