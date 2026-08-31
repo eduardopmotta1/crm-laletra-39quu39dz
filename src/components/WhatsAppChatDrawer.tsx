@@ -2695,6 +2695,7 @@ export default function WhatsAppChatDrawer({
       {/* Start Official WhatsApp Template Modal */}
       <StartWhatsAppConversationModal
         isOpen={startModalOpen}
+        zIndexClass="z-[80]"
         onClose={() => {
           setStartModalOpen(false)
           setStartModalInitialQuote(null)
@@ -2715,6 +2716,7 @@ export default function WhatsAppChatDrawer({
       {/* Complete and Archive Modal */}
       <CompleteAndArchiveModal
         isOpen={archiveModalOpen}
+        zIndexClass="z-[80]"
         onClose={() => setArchiveModalOpen(false)}
         client={displayClient}
         attendanceId={activeAttendance?.id}
@@ -2727,6 +2729,7 @@ export default function WhatsAppChatDrawer({
       {/* Create Production Order from Approved Quote Modal */}
       <CreateProductionOrderFromQuoteModal
         isOpen={createOrderFromQuoteModalOpen}
+        zIndexClass="z-[80]"
         onClose={() => {
           setCreateOrderFromQuoteModalOpen(false)
           setQuoteToCreateOrder(null)
@@ -2751,6 +2754,7 @@ export default function WhatsAppChatDrawer({
       {/* Production Order Create/Edit from Drawer */}
       <ProductionOrderModal
         isOpen={orderModalOpen}
+        zIndexClass="z-[80]"
         onClose={() => {
           setOrderModalOpen(false)
           setSelectedOrderToEdit(null)
@@ -2782,7 +2786,7 @@ export default function WhatsAppChatDrawer({
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent zIndexClass="z-[80]" className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
               <Send className="h-5 w-5 text-emerald-600" />
@@ -2907,7 +2911,7 @@ export default function WhatsAppChatDrawer({
 
       {/* Quote Details View Modal */}
       <Dialog open={quoteDetailsOpen} onOpenChange={setQuoteDetailsOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent zIndexClass="z-[80]" className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white font-mono">
               <FileText className="h-5 w-5 text-emerald-600" />
@@ -3240,7 +3244,7 @@ export default function WhatsAppChatDrawer({
 
       {/* MODAL: CONFIRMAÇÃO DE APROVAÇÃO DE ORÇAMENTO */}
       <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent zIndexClass="z-[80]" className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
@@ -3324,7 +3328,7 @@ export default function WhatsAppChatDrawer({
 
       {/* MODAL: RECUSA DE ORÇAMENTO */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent zIndexClass="z-[80]" className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
               <XCircle className="h-5 w-5 text-rose-600" />
@@ -3366,7 +3370,7 @@ export default function WhatsAppChatDrawer({
                   <SelectTrigger className="text-xs">
                     <SelectValue placeholder="Selecione o motivo da recusa..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[90]">
                     <SelectItem value="Preço">Preço</SelectItem>
                     <SelectItem value="Prazo">Prazo</SelectItem>
                     <SelectItem value="Fechou com concorrente">Fechou com concorrente</SelectItem>
@@ -3441,7 +3445,7 @@ export default function WhatsAppChatDrawer({
       </Dialog>
       {/* DIALOG DE CONFIRMAÇÃO DE EXCLUSÃO DE ORÇAMENTO */}
       <AlertDialog open={deleteQuoteDialogOpen} onOpenChange={setDeleteQuoteDialogOpen}>
-        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+        <AlertDialogContent zIndexClass="z-[80]" onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
               <Trash2 className="h-5 w-5 text-rose-600" />
@@ -3469,7 +3473,7 @@ export default function WhatsAppChatDrawer({
 
       {/* DIALOG DE CONFIRMAÇÃO DE ADICIONAR ARQUIVO AO PEDIDO (Bloco 40E-A2) */}
       <AlertDialog open={confirmAddFileDialogOpen} onOpenChange={setConfirmAddFileDialogOpen}>
-        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+        <AlertDialogContent zIndexClass="z-[80]" onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
               <Package className="h-5 w-5 text-blue-600" />

@@ -88,6 +88,7 @@ interface ProductionOrderModalProps {
     notes?: string
   }
   onOpenChat?: (client: Client, orderContext: { id: string; orderNumber: string }) => void
+  zIndexClass?: string
 }
 
 export default function ProductionOrderModal({
@@ -99,6 +100,7 @@ export default function ProductionOrderModal({
   initialStageId,
   prefillData,
   onOpenChat,
+  zIndexClass = 'z-50',
 }: ProductionOrderModalProps) {
   const [stages, setStages] = useState<ProductionStage[]>([])
   const [users, setUsers] = useState<UserType[]>([])
@@ -558,7 +560,7 @@ export default function ProductionOrderModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent zIndexClass={zIndexClass} className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="space-y-1">

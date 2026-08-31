@@ -57,6 +57,7 @@ interface CreateProductionOrderFromQuoteModalProps {
   quote: Quote | null
   onOrderCreated?: (order: ProductionOrder, isExisting: boolean) => void
   onOpenExistingOrder?: (order: ProductionOrder) => void
+  zIndexClass?: string
 }
 
 export default function CreateProductionOrderFromQuoteModal({
@@ -65,6 +66,7 @@ export default function CreateProductionOrderFromQuoteModal({
   quote,
   onOrderCreated,
   onOpenExistingOrder,
+  zIndexClass = 'z-50',
 }: CreateProductionOrderFromQuoteModalProps) {
   const [users, setUsers] = useState<UserType[]>([])
   const [loading, setLoading] = useState(false)
@@ -203,7 +205,7 @@ export default function CreateProductionOrderFromQuoteModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent zIndexClass={zIndexClass} className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white text-lg">

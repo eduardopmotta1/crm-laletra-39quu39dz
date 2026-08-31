@@ -49,6 +49,7 @@ interface StartWhatsAppConversationModalProps {
   initialQuote?: Quote | null
   initialTemplateName?: string
   onSuccess?: (updatedClient: Client) => void
+  zIndexClass?: string
 }
 
 export default function StartWhatsAppConversationModal({
@@ -58,6 +59,7 @@ export default function StartWhatsAppConversationModal({
   initialQuote,
   initialTemplateName,
   onSuccess,
+  zIndexClass = 'z-50',
 }: StartWhatsAppConversationModalProps) {
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
@@ -318,7 +320,7 @@ export default function StartWhatsAppConversationModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent zIndexClass={zIndexClass} className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center space-x-2">
             <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600">
@@ -390,7 +392,7 @@ export default function StartWhatsAppConversationModal({
                 <SelectTrigger className="text-xs">
                   <SelectValue placeholder="Selecione um template..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={zIndexClass === 'z-[80]' ? 'z-[90]' : undefined}>
                   {templates.map((tpl) => (
                     <SelectItem key={tpl.id} value={tpl.id} className="text-xs">
                       <div className="flex items-center gap-2">

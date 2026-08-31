@@ -32,6 +32,7 @@ interface CompleteAndArchiveModalProps {
   attendanceId?: string
   initialResult?: DealResult
   onSuccess?: () => void
+  zIndexClass?: string
 }
 
 const LOSS_REASON_PRESETS = [
@@ -51,6 +52,7 @@ export default function CompleteAndArchiveModal({
   attendanceId,
   initialResult = 'Venda fechada',
   onSuccess,
+  zIndexClass = 'z-50',
 }: CompleteAndArchiveModalProps) {
   const [result, setResult] = useState<DealResult>(initialResult)
   const [quoteValue, setQuoteValue] = useState<string>(
@@ -161,7 +163,7 @@ export default function CompleteAndArchiveModal({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent zIndexClass={zIndexClass} className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white text-base">
               <Archive className="h-5 w-5 text-emerald-600" />
@@ -233,7 +235,7 @@ export default function CompleteAndArchiveModal({
                     <SelectTrigger className="mt-1 text-xs bg-white dark:bg-slate-900">
                       <SelectValue placeholder="Selecione o motivo principal..." />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={zIndexClass === 'z-[80]' ? 'z-[90]' : undefined}>
                       {LOSS_REASON_PRESETS.map((preset) => (
                         <SelectItem key={preset} value={preset}>
                           {preset}
@@ -353,6 +355,7 @@ export default function CompleteAndArchiveModal({
       {/* Production Order Modal triggered after winning deal */}
       <ProductionOrderModal
         isOpen={productionModalOpen}
+        zIndexClass={zIndexClass}
         onClose={() => {
           setProductionModalOpen(false)
           if (onSuccess) onSuccess()
