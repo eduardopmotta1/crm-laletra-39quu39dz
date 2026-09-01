@@ -315,6 +315,7 @@ onRecordCreateRequest((e) => {
 // Endpoint contextual: visualização segura da conversa do cliente vinculado ao Pedido de Produção
 // Permite que usuários com permissão de Produção vejam o histórico de mensagens do cliente daquele pedido
 routerAdd('POST', '/backend/v1/crm/whatsapp/order-conversation', (e) => {
+  console.log('[ORDER CONVERSATION ROUTE] Request received')
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
   if (!auth) {
     return e.json(401, {
@@ -496,5 +497,5 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/order-conversation', (e) => {
 })
 
 console.log(
-  '[WHATSAPP SECURITY] Hook loaded — whatsapp_view, whatsapp_reply, and whatsapp_send_files permissions enforced',
+  '[WHATSAPP SECURITY] Hook loaded v2 — order-conversation route registered and whatsapp_view, whatsapp_reply, whatsapp_send_files permissions enforced',
 )
