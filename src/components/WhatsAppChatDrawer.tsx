@@ -400,7 +400,7 @@ export default function WhatsAppChatDrawer({
       const targetAttId = attendanceId || activeAttendance?.id
 
       const messagesPromise = orderContext?.id
-        ? whatsappService.getOrderConversationMessages(orderContext.id)
+        ? whatsappService.getOrderConversationMessages(orderContext.id, clientId)
         : whatsappService.getMessages(clientId)
 
       const [
