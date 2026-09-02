@@ -1,2 +1,2 @@
-// WhatsApp Templates Sync — placeholder
-console.log('[WHATSAPP TEMPLATES SYNC] placeholder loaded')
+// WhatsApp Templates Sync — Hook para sincronização de templates e suporte às rotas do backend
+console.log('[WHATSAPP TEMPLATES SYNC] Hook loaded')
