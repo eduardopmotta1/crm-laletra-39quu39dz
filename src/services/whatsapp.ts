@@ -208,8 +208,10 @@ export const whatsappService = {
 
     try {
       let message: Message
+      let updatedClient: Client | undefined
 
-      // When uploading a file, use FormData to support multipart uploads in PocketBase
+      // Se houver arquivo anexo (mídia fora do escopo da Etapa 2 de texto da Meta Cloud API),
+      // mantém o upload de arquivos via FormData da collection messages
       if (fileToUpload) {
         const formData = new FormData()
         formData.append('client_id', clientId)
@@ -227,60 +229,76 @@ export const whatsappService = {
         message = await pb.collection('messages').create<Message>(formData, {
           expand: 'sent_by_user,sent_by_user.role_id',
         })
-      } else {
-        // Standard JSON create for text-only messages
-        message = await pb.collection('messages').create<Message>(
-          {
-            client_id: clientId,
-            attendance_id: attId || undefined,
-            direction: 'outbound',
-            message_text: messageText,
-            sender_name: senderName,
-            sent_by_user: authRecord?.id || undefined,
-            status: 'sent',
-          },
-          {
-            expand: 'sent_by_user,sent_by_user.role_id',
-          },
-        )
-      }
 
-      // 2. Update attendance last_company_message_at
-      if (attId) {
+        if (attId) {
+          try {
+            await pb.collection('attendances').update(attId, {
+              last_company_message_at: todayDateStr,
+            })
+          } catch (err) {
+            console.warn('Error updating attendance message metadata:', err)
+          }
+        }
+
         try {
-          await pb.collection('attendances').update(attId, {
-            last_company_message_at: todayDateStr,
+          const snippet = `📎 ${fileToUpload.name}`
+          updatedClient = await pb.collection('clients').update<Client>(clientId, {
+            last_message_at: todayDateStr,
+            last_message_direction: 'outbound',
+            last_message_text: snippet,
           })
         } catch (err) {
-          console.warn('Error updating attendance message metadata:', err)
+          console.error('Error updating client last message:', err)
+        }
+
+        return {
+          success: true,
+          message,
+          client: updatedClient,
+          api_dispatched: true,
         }
       }
 
-      // 3. Update client last_message metadata
-      let updatedClient: Client | undefined
-      try {
-        const snippet = fileToUpload ? `📎 ${fileToUpload.name}` : messageText.substring(0, 100)
+      // ENVIO REAL DE TEXTO VIA CLOUD API DA META (ETAPA 2)
+      // Chama o endpoint seguro do backend: POST /backend/v1/crm/whatsapp/send
+      const sendRes = await pb.send<{
+        success: boolean
+        status?: string
+        whatsapp_message_id?: string
+        message?: Message
+        client?: Client
+        error?: string
+        configured?: boolean
+      }>('/backend/v1/crm/whatsapp/send', {
+        method: 'POST',
+        body: {
+          client_id: clientId,
+          attendance_id: attId || undefined,
+          message_text: messageText,
+        },
+      })
 
-        updatedClient = await pb.collection('clients').update<Client>(clientId, {
-          last_message_at: todayDateStr,
-          last_message_direction: 'outbound',
-          last_message_text: snippet,
-        })
-      } catch (err) {
-        console.error('Error updating client last message:', err)
+      if (!sendRes || !sendRes.success) {
+        throw new Error(sendRes?.error || 'Não foi possível enviar a mensagem pelo WhatsApp.')
       }
 
       return {
         success: true,
-        message,
-        client: updatedClient,
+        message: sendRes.message,
+        client: sendRes.client,
         api_dispatched: true,
       }
     } catch (err: any) {
       console.error('Error sending message:', err)
+      const errorMsg =
+        err?.response?.error ||
+        err?.response?.message ||
+        err?.data?.error ||
+        err?.message ||
+        'Não foi possível enviar a mensagem pelo WhatsApp.'
       return {
         success: false,
-        error: err?.message || 'Falha ao enviar mensagem',
+        error: errorMsg,
       }
     }
   },
