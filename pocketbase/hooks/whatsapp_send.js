@@ -74,6 +74,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
 
   // 3. Extrair e validar dados do body
   const body = e.requestInfo().body || {}
+  const clientId = String(body.client_id || body.clientId || '').trim()
   const rawText = String(body.message_text || body.messageText || body.text || '').trim()
   let attendanceId = String(body.attendance_id || body.attendanceId || '').trim()
   const clientProvidedPhone = String(body.phone || body.to || '').trim()
