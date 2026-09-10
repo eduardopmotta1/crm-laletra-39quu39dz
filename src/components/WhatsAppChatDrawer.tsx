@@ -331,15 +331,127 @@ export default function WhatsAppChatDrawer({
     return () => window.removeEventListener('crm-client-updated', handleWindowUpdate)
   }, [isOpen, activeClientId, activeAttendance?.id])
 
-  // Real-time listener for incoming/created messages in PocketBase collection
+  // Real-time listener for messages in PocketBase collection (create, update, delete)
+  // vinculadas ao cliente/atendimento atualmente aberto no Drawer
   useRealtime(
     'messages',
     (data: any) => {
-      if (data.action === 'create' && activeClientId && data.record?.client_id === activeClientId) {
+      const rec = data.record as Message | undefined
+      if (!rec || !activeClientId) return
+
+      // Verifica se a mensagem pertence ao cliente ou atendimento atualmente aberto
+      const matchesClient = rec.client_id === activeClientId
+      const matchesAttendance =
+        activeAttendance?.id && rec.attendance_id
+          ? rec.attendance_id === activeAttendance.id
+          : false
+
+      if (!matchesClient && !matchesAttendance) {
+        return
+      }
+
+      if (data.action === 'create') {
         setMessages((prev) => {
-          if (prev.some((m) => m.id === data.record.id)) return prev
-          return [...prev, data.record as Message]
+          // Idempotência estrita: evitar duplicatas por id ou por whatsapp_message_id
+          const exists = prev.some(
+            (m) =>
+              m.id === rec.id ||
+              (rec.whatsapp_message_id &&
+                m.whatsapp_message_id &&
+                m.whatsapp_message_id === rec.whatsapp_message_id),
+          )
+          if (exists) return prev
+
+          // Enriquecer expand com dados em cache (usuário e papel) se não vier populado no evento realtime
+          const enrichedRec: Message = { ...rec }
+          if (enrichedRec.sent_by_user && !enrichedRec.expand?.sent_by_user) {
+            const senderUser = usersMap[enrichedRec.sent_by_user]
+            if (senderUser) {
+              enrichedRec.expand = {
+                ...enrichedRec.expand,
+                sent_by_user: senderUser,
+              }
+            }
+          }
+
+          const next = [...prev, enrichedRec]
+          // Manter ordenação cronológica estrita por created (mesma do load inicial)
+          next.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
+          return next
         })
+
+        // Atualiza metadados visuais do cliente (janela 24h, última mensagem)
+        setCurrentClient((prevClient) => {
+          if (!prevClient) return prevClient
+          return {
+            ...prevClient,
+            last_message_at: rec.created || new Date().toISOString(),
+            last_message_direction: rec.direction,
+            last_message_text:
+              rec.message_text ||
+              (rec.file_name ? `📎 ${rec.file_name}` : prevClient.last_message_text),
+          }
+        })
+      } else if (data.action === 'update') {
+        setMessages((prev) => {
+          const index = prev.findIndex(
+            (m) =>
+              m.id === rec.id ||
+              (rec.whatsapp_message_id &&
+                m.whatsapp_message_id &&
+                m.whatsapp_message_id === rec.whatsapp_message_id),
+          )
+
+          if (index === -1) {
+            // Se a mensagem ainda não constava na lista local, insere ordenado
+            const enrichedRec: Message = { ...rec }
+            if (enrichedRec.sent_by_user && !enrichedRec.expand?.sent_by_user) {
+              const senderUser = usersMap[enrichedRec.sent_by_user]
+              if (senderUser) {
+                enrichedRec.expand = {
+                  ...enrichedRec.expand,
+                  sent_by_user: senderUser,
+                }
+              }
+            }
+            const next = [...prev, enrichedRec]
+            next.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
+            return next
+          }
+
+          // Atualiza registro existente preservando expands prévios se o update vier sem expand
+          const existing = prev[index]
+          const updatedMsg: Message = {
+            ...existing,
+            ...rec,
+            expand: {
+              ...existing.expand,
+              ...rec.expand,
+            },
+          }
+
+          if (updatedMsg.sent_by_user && !updatedMsg.expand?.sent_by_user) {
+            const senderUser = usersMap[updatedMsg.sent_by_user]
+            if (senderUser) {
+              updatedMsg.expand = {
+                ...updatedMsg.expand,
+                sent_by_user: senderUser,
+              }
+            }
+          }
+
+          const next = [...prev]
+          next[index] = updatedMsg
+          return next
+        })
+      } else if (data.action === 'delete') {
+        setMessages((prev) =>
+          prev.filter(
+            (m) =>
+              m.id !== rec.id &&
+              (!rec.whatsapp_message_id || m.whatsapp_message_id !== rec.whatsapp_message_id),
+          ),
+        )
       }
     },
     isOpen && !!activeClientId,
