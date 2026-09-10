@@ -18,7 +18,7 @@ export const dealsService = {
   /**
    * Concluir e Arquivar Atendimento
    * - Upserts archived_deals based on attendance_id
-   * - Marks attendance and client is_archived = true
+   * - Marks attendance is_archived = true (client remains active in clients collection)
    * - Does NOT delete client, messages, quotes, tasks, notes or history
    * - Logs the final stage transition
    */
@@ -203,7 +203,6 @@ export const dealsService = {
       const lastPurchase = isWon ? todayDateStr : client.last_purchase_date
 
       const rawClientUpdateData: Record<string, any> = {
-        is_archived: true,
         stage: finalStage,
         closed_at: todayDateStr,
         last_archived_deal_id: archived.id,

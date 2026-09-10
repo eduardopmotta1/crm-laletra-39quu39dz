@@ -389,15 +389,14 @@ export default function ProductionOrderModal({
           attachments: filesArray,
         })
 
-        // If this order originated from a commercial deal, automatically archive the client attendance
+        // If this order originated from a commercial deal, register last_archived_deal_id on client without archiving the client record
         if (prefillData?.dealOriginId) {
           try {
             await pb.collection('clients').update(targetClientId, {
-              is_archived: true,
               last_archived_deal_id: prefillData.dealOriginId,
             })
           } catch (archiveErr) {
-            console.error('Error archiving client after production order creation:', archiveErr)
+            console.error('Error updating client after production order creation:', archiveErr)
           }
         }
 
