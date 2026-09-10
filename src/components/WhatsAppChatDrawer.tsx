@@ -58,6 +58,7 @@ import type {
   User,
 } from '@/types/crm'
 import type { Quote } from '@/types/quotes'
+import pb from '@/lib/pocketbase/client'
 import { isWithin24HourWindow } from '@/types/crm'
 import { whatsappService, usersService } from '@/services/whatsapp'
 import { rolesService } from '@/services/rolesPermissions'
@@ -249,6 +250,95 @@ export default function WhatsAppChatDrawer({
   const lastConversationKeyRef = useRef<string | null>(null)
   const shouldAutoScrollNextRef = useRef<boolean>(false)
 
+  // Função utilitária para merge idempotente com deduplicação por id / whatsapp_message_id e ordenação cronológica
+  const mergeMessages = useCallback(
+    (existing: Message[], incoming: Message[]): Message[] => {
+      if (!incoming || incoming.length === 0) return existing
+      if (!existing || existing.length === 0) {
+        const enriched = incoming.map((msg) => {
+          if (msg.sent_by_user && !msg.expand?.sent_by_user && usersMap[msg.sent_by_user]) {
+            return {
+              ...msg,
+              expand: {
+                ...msg.expand,
+                sent_by_user: usersMap[msg.sent_by_user],
+              },
+            }
+          }
+          return msg
+        })
+        enriched.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
+        return enriched
+      }
+
+      const mapById = new Map<string, Message>()
+      const mapByWamid = new Map<string, Message>()
+
+      for (const m of existing) {
+        mapById.set(m.id, m)
+        if (m.whatsapp_message_id) {
+          mapByWamid.set(m.whatsapp_message_id, m)
+        }
+      }
+
+      for (const inc of incoming) {
+        let match: Message | undefined = mapById.get(inc.id)
+        if (!match && inc.whatsapp_message_id) {
+          match = mapByWamid.get(inc.whatsapp_message_id)
+        }
+
+        if (match) {
+          const merged: Message = {
+            ...match,
+            ...inc,
+            expand: {
+              ...match.expand,
+              ...inc.expand,
+            },
+          }
+          if (
+            merged.sent_by_user &&
+            !merged.expand?.sent_by_user &&
+            usersMap[merged.sent_by_user]
+          ) {
+            merged.expand = {
+              ...merged.expand,
+              sent_by_user: usersMap[merged.sent_by_user],
+            }
+          }
+          mapById.set(match.id, merged)
+          if (inc.id && inc.id !== match.id) {
+            mapById.set(inc.id, merged)
+          }
+          if (merged.whatsapp_message_id) {
+            mapByWamid.set(merged.whatsapp_message_id, merged)
+          }
+        } else {
+          const enriched: Message = { ...inc }
+          if (
+            enriched.sent_by_user &&
+            !enriched.expand?.sent_by_user &&
+            usersMap[enriched.sent_by_user]
+          ) {
+            enriched.expand = {
+              ...enriched.expand,
+              sent_by_user: usersMap[enriched.sent_by_user],
+            }
+          }
+          mapById.set(enriched.id, enriched)
+          if (enriched.whatsapp_message_id) {
+            mapByWamid.set(enriched.whatsapp_message_id, enriched)
+          }
+        }
+      }
+
+      const uniqueResults = Array.from(new Set(mapById.values()))
+      uniqueResults.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
+      return uniqueResults
+    },
+    [usersMap],
+  )
+
   // Function to check if user is near bottom of the message container (~150px threshold)
   const checkIfNearBottom = useCallback(() => {
     const container = messagesContainerRef.current
@@ -311,12 +401,59 @@ export default function WhatsAppChatDrawer({
     onClose,
   ])
 
+  // Carrega e sincroniza dados do cliente ao abrir ou alternar contexto por ID estável
   useEffect(() => {
-    if (client && isOpen) {
+    if (!isOpen || !activeClientId) return
+
+    if (client && client.id === activeClientId) {
       setCurrentClient(client)
-      loadClientData(client.id, activeAttendance?.id)
     }
-  }, [client, isOpen, activeAttendance?.id, orderContext?.id])
+
+    loadClientData(activeClientId, activeAttendance?.id)
+  }, [isOpen, activeClientId, activeAttendance?.id, orderContext?.id])
+
+  // Polling leve a cada 10 segundos como fallback se o SSE/realtime falhar no ambiente publicado
+  useEffect(() => {
+    if (!isOpen || !activeClientId) return
+
+    const pollMessages = async () => {
+      try {
+        let incoming: Message[] = []
+        if (orderContext?.id) {
+          incoming = await whatsappService.getOrderConversationMessages(
+            orderContext.id,
+            activeClientId,
+          )
+        } else {
+          // Busca mensagens recentes da conversa atual para merge
+          const targetAttId = activeAttendance?.id
+          const filter = targetAttId
+            ? `attendance_id = "${targetAttId}" || client_id = "${activeClientId}"`
+            : `client_id = "${activeClientId}"`
+
+          const page = await pb.collection('messages').getList<Message>(1, 50, {
+            filter,
+            sort: '-created',
+            expand: 'sent_by_user,sent_by_user.role_id',
+            requestKey: null,
+          })
+          incoming = page.items
+        }
+
+        if (incoming && incoming.length > 0) {
+          setMessages((prev) => mergeMessages(prev, incoming))
+        }
+      } catch (err) {
+        console.warn('[WhatsAppChatDrawer] Polling de mensagens fallback:', err)
+      }
+    }
+
+    const intervalId = setInterval(pollMessages, 10000)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [isOpen, activeClientId, activeAttendance?.id, orderContext?.id, mergeMessages])
 
   // Real-time listener for incoming/updated messages and client events while drawer is open
   useEffect(() => {
@@ -542,7 +679,7 @@ export default function WhatsAppChatDrawer({
         usersService.getAll(),
         rolesService.getAll(),
       ])
-      setMessages(msgList)
+      setMessages((prev) => mergeMessages(prev, msgList))
       setTasks(taskList)
       if (freshClient) setCurrentClient(freshClient)
       setArchivedDeals(pastDeals)
