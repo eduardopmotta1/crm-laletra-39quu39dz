@@ -376,10 +376,102 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
             } catch (_) {}
           }
 
+          // Se NÃO existir cliente pelo telefone normalizado, criar automaticamente
+          if (!foundClient) {
+            // Nova checagem por telefone normalizado para evitar duplicidade em chamadas simultâneas (race condition)
+            try {
+              if (normalizedPhoneWithDDI) {
+                const raceCheck = $app.findRecordsByFilter(
+                  'clients',
+                  "normalized_phone = '" + normalizedPhoneWithDDI + "'",
+                  '-created',
+                  1,
+                  0,
+                )
+                if (raceCheck && raceCheck.length > 0) {
+                  foundClient = raceCheck[0]
+                }
+              }
+              if (!foundClient && normalizedPhoneWithoutDDI) {
+                const raceCheck2 = $app.findRecordsByFilter(
+                  'clients',
+                  "normalized_phone = '" + normalizedPhoneWithoutDDI + "'",
+                  '-created',
+                  1,
+                  0,
+                )
+                if (raceCheck2 && raceCheck2.length > 0) {
+                  foundClient = raceCheck2[0]
+                }
+              }
+            } catch (errRaceCheck) {
+              console.warn(
+                '[WHATSAPP WEBHOOK POST] Aviso na checagem de concorrência por telefone:',
+                errRaceCheck,
+              )
+            }
+
+            if (!foundClient) {
+              try {
+                const clientsCol = $app.findCollectionByNameOrId('clients')
+                const newClientRecord = new Record(clientsCol)
+
+                const phoneToSave = normalizedPhoneWithDDI || normalizedPhoneWithoutDDI || fromWaId
+                const clientName = profileName || 'Cliente WhatsApp ' + phoneToSave
+
+                newClientRecord.set('phone', phoneToSave)
+                newClientRecord.set('normalized_phone', phoneToSave)
+                newClientRecord.set('name', clientName)
+                newClientRecord.set('stage', 'Novo contato')
+                newClientRecord.set('priority', 'media')
+                newClientRecord.set('is_archived', false)
+                newClientRecord.set('last_message_at', currentTimestampIso)
+                newClientRecord.set('last_message_direction', 'inbound')
+                newClientRecord.set('last_message_text', msgBodyText.substring(0, 100))
+
+                $app.save(newClientRecord)
+                foundClient = newClientRecord
+
+                console.log(
+                  '[WHATSAPP WEBHOOK POST] Cliente criado automaticamente com sucesso:',
+                  foundClient.id,
+                  '| Telefone:',
+                  phoneToSave,
+                  '| Nome:',
+                  clientName,
+                )
+              } catch (clientCreateErr) {
+                console.error(
+                  '[WHATSAPP WEBHOOK POST] Erro crítico ao criar cliente automaticamente:',
+                  {
+                    phone: normalizedPhoneWithDDI || fromWaId,
+                    stage: 'create_client',
+                    error: clientCreateErr,
+                  },
+                )
+                // Se a criação falhou (ex: race condition índice único), tentar buscar mais uma vez
+                try {
+                  const retryList = $app.findRecordsByFilter(
+                    'clients',
+                    "normalized_phone = '" +
+                      (normalizedPhoneWithDDI || normalizedPhoneWithoutDDI) +
+                      "'",
+                    '-created',
+                    1,
+                    0,
+                  )
+                  if (retryList && retryList.length > 0) {
+                    foundClient = retryList[0]
+                  }
+                } catch (_) {}
+              }
+            }
+          }
+
           if (foundClient) {
             clientId = foundClient.id
 
-            // Lógica de Atendimento Aberto Comercial (Regras 1 a 6)
+            // Lógica de Atendimento Aberto Comercial
             // 1. Procurar atendimento comercial ABERTO: is_archived != true && stage != 'Venda fechada' && stage != 'Não fechou'
             try {
               const openAttFilter =
@@ -427,7 +519,8 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                 // - Criar exatamente 1 novo attendance para o cliente.
                 // - stage = "Novo contato", is_archived = false.
                 // - Vincular a mensagem recebida ao novo attendance.
-                // - Preencher last_customer_message_at.
+                // - Preencher last_customer_message_at com timestamp ISO completo.
+                // - source = "whatsapp" (campo verificado na collection attendances).
                 // - assigned_to: herdar do cliente se existir; não inventar responsável.
                 const attendancesCol = $app.findCollectionByNameOrId('attendances')
                 const newAtt = new Record(attendancesCol)
@@ -457,43 +550,70 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                 )
               }
             } catch (attProcErr) {
-              console.error(
-                '[WHATSAPP WEBHOOK POST] Erro ao resolver/criar atendimento para o cliente ' +
-                  clientId +
-                  ':',
-                attProcErr,
-              )
+              console.error('[WHATSAPP WEBHOOK POST] Erro crítico ao resolver/criar atendimento:', {
+                phone: normalizedPhoneWithDDI || fromWaId,
+                clientId: clientId,
+                stage: 'resolve_or_create_attendance',
+                error: attProcErr,
+              })
             }
           } else {
-            // Requisito 7: Se NÃO existir cliente, NÃO criar automaticamente.
-            console.log(
-              '[WHATSAPP WEBHOOK POST] Cliente não cadastrado para o remetente: ' +
-                normalizedPhoneWithDDI +
-                '. A mensagem não será vinculada a client_id.',
+            console.error(
+              '[WHATSAPP WEBHOOK POST] Falha crítica: cliente não pôde ser encontrado nem criado para o remetente:',
+              {
+                phone: normalizedPhoneWithDDI || fromWaId,
+                stage: 'client_resolution_failed',
+              },
             )
           }
 
           // 7. Gravar na collection 'messages'
-          const newMsgRecord = new Record(messagesCol)
-          if (clientId) {
-            newMsgRecord.set('client_id', clientId)
-          }
-          if (attendanceId) {
-            newMsgRecord.set('attendance_id', attendanceId)
-          }
-          newMsgRecord.set('direction', 'inbound')
-          newMsgRecord.set('message_text', msgBodyText)
-          newMsgRecord.set(
-            'sender_name',
-            profileName || (foundClient ? foundClient.get('name') : 'Cliente WhatsApp'),
-          )
-          newMsgRecord.set('status', 'delivered')
-          if (metaMsgId) {
-            newMsgRecord.set('whatsapp_message_id', metaMsgId)
-          }
+          try {
+            const newMsgRecord = new Record(messagesCol)
+            if (clientId) {
+              newMsgRecord.set('client_id', clientId)
+            }
+            if (attendanceId) {
+              newMsgRecord.set('attendance_id', attendanceId)
+            }
+            newMsgRecord.set('direction', 'inbound')
+            newMsgRecord.set('message_text', msgBodyText)
+            newMsgRecord.set(
+              'sender_name',
+              profileName ||
+                (foundClient
+                  ? foundClient.get('name')
+                  : 'Cliente WhatsApp ' + (normalizedPhoneWithDDI || fromWaId)),
+            )
+            newMsgRecord.set('status', 'delivered')
+            if (metaMsgId) {
+              newMsgRecord.set('whatsapp_message_id', metaMsgId)
+            }
 
-          $app.save(newMsgRecord)
-          processedCount++
+            $app.save(newMsgRecord)
+            processedCount++
+
+            // Log seguro (sem secrets ou access tokens)
+            console.log('[WHATSAPP WEBHOOK POST] Mensagem processada e salva com sucesso:', {
+              recordId: newMsgRecord.id,
+              metaMsgId: metaMsgId,
+              phone: normalizedPhoneWithDDI,
+              clientId: clientId || null,
+              attendanceId: attendanceId || null,
+              textPreview:
+                msgBodyText.length > 40 ? msgBodyText.substring(0, 40) + '...' : msgBodyText,
+              timestamp: msgTimestamp,
+              phoneNumberId: phoneNumberId,
+            })
+          } catch (msgSaveErr) {
+            console.error('[WHATSAPP WEBHOOK POST] Erro crítico ao salvar mensagem inbound:', {
+              phone: normalizedPhoneWithDDI || fromWaId,
+              clientId: clientId,
+              attendanceId: attendanceId,
+              stage: 'save_message',
+              error: msgSaveErr,
+            })
+          }
 
           // 8. Se cliente existir, atualizar last_message_*
           if (foundClient) {
@@ -506,19 +626,6 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
               console.warn('[WHATSAPP WEBHOOK POST] Aviso ao atualizar client last_message:', cErr)
             }
           }
-
-          // Log seguro (sem secrets ou access tokens)
-          console.log('[WHATSAPP WEBHOOK POST] Mensagem processada com sucesso:', {
-            recordId: newMsgRecord.id,
-            metaMsgId: metaMsgId,
-            phone: normalizedPhoneWithDDI,
-            hasClient: Boolean(clientId),
-            clientId: clientId || null,
-            textPreview:
-              msgBodyText.length > 40 ? msgBodyText.substring(0, 40) + '...' : msgBodyText,
-            timestamp: msgTimestamp,
-            phoneNumberId: phoneNumberId,
-          })
         }
       }
     }
