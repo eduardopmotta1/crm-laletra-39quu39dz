@@ -23,53 +23,40 @@ routerAdd('GET', '/api/public/quotes/{token}', (c) => {
 
     // 1. Ler o campo items já salvo no registro do quote
     let rawItems = []
-    let debugInfo = ''
     try {
       const it = q.get('items')
-      debugInfo =
-        'type: ' +
-        typeof it +
-        ' | isArray: ' +
-        Array.isArray(it) +
-        ' | str: ' +
-        String(it).substring(0, 50)
       if (typeof it === 'string') {
         try {
           rawItems = JSON.parse(it)
-        } catch (e1) {
-          debugInfo += ' | parseErr: ' + e1.message
+        } catch (_) {
+          rawItems = []
         }
       } else if (Array.isArray(it)) {
         rawItems = it
       } else if (it !== null && typeof it === 'object') {
         try {
           const str = JSON.stringify(it)
-          debugInfo += ' | stringified: ' + str.substring(0, 50)
           const parsed = JSON.parse(str)
           if (Array.isArray(parsed)) {
             rawItems = parsed
           } else if (parsed && typeof parsed === 'object') {
             rawItems = [parsed]
           }
-        } catch (e2) {
-          debugInfo += ' | objErr: ' + e2.message
+        } catch (_) {
+          rawItems = []
         }
       }
 
       if ((!rawItems || rawItems.length === 0) && q.getString) {
         const str = q.getString('items')
-        debugInfo += ' | getString: ' + String(str).substring(0, 50)
         if (str) {
           try {
             const parsed = JSON.parse(str)
             if (Array.isArray(parsed)) rawItems = parsed
-          } catch (e3) {
-            debugInfo += ' | getStringErr: ' + e3.message
-          }
+          } catch (_) {}
         }
       }
-    } catch (e) {
-      debugInfo = 'outerErr: ' + e.message
+    } catch (_) {
       rawItems = []
     }
 
@@ -244,7 +231,7 @@ routerAdd('GET', '/api/public/quotes/{token}', (c) => {
       total_sale: Number(q.getFloat('total_sale') || 0),
       discount_amount: Number(q.getFloat('discount_amount') || 0),
       final_total: Number(q.getFloat('final_total') || 0),
-      notes: q.getString('notes') || ('rawLen: ' + rawItems.length + ' | norm0Type: ' + typeof normalizedRawItems[0] + ' | norm0Keys: ' + Object.keys(normalizedRawItems[0] || {}).join(',') + ' | validLen: ' + validItems.length),
+      notes: q.getString('notes') || '',
       valid_until: q.getString('valid_until') || '',
       approved_at: q.getString('approved_at') || '',
       rejected_at: q.getString('rejected_at') || '',
