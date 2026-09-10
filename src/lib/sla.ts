@@ -22,6 +22,7 @@ export function calculateSlaInfo(
   lastMessageDirection?: 'inbound' | 'outbound',
   stage?: string,
   config: SlaConfig = DEFAULT_SLA_CONFIG,
+  nowTimestamp?: number,
 ): SlaInfo {
   const urgentMins = config.urgentMinutes ?? (config.urgentHours ? config.urgentHours * 60 : 1440)
   const warningMins =
@@ -43,7 +44,7 @@ export function calculateSlaInfo(
   }
 
   const messageTime = new Date(lastMessageAt).getTime()
-  const now = Date.now()
+  const now = nowTimestamp ?? Date.now()
   const diffMinutes = Math.max(0, Math.floor((now - messageTime) / (1000 * 60)))
   const diffHours = Math.round(diffMinutes / 60)
 

@@ -49,6 +49,19 @@ export default function KanbanPage() {
   const [slaFilterOnly, setSlaFilterOnly] = useState(false)
   const [returnedFilterOnly, setReturnedFilterOnly] = useState(false)
 
+  // Tick local a cada 30s para recálculo visual do SLA sem requisições ao backend
+  const [now, setNow] = useState<number>(() => Date.now())
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now())
+    }, 30000)
+
+    return () => {
+      clearInterval(timer)
+    }
+  }, [])
+
   // Drag & drop state
   const [draggedAttendanceId, setDraggedAttendanceId] = useState<string | null>(null)
   const [dragOverStageName, setDragOverStageName] = useState<string | null>(null)
@@ -443,9 +456,11 @@ export default function KanbanPage() {
 
     if (slaFilterOnly) {
       if (att.stage === 'Venda fechada' || att.stage === 'Não fechou') return false
-      const lastMsgAt = client?.last_message_at || att.last_customer_message_at || att.created
-      const lastDir = client?.last_message_direction || 'inbound'
-      const sla = calculateSlaInfo(lastMsgAt, lastDir, att.stage, slaConfig)
+      const lastMsgAt = att.last_customer_message_at || client?.last_message_at || att.created
+      const lastDir = att.last_customer_message_at
+        ? 'inbound'
+        : client?.last_message_direction || 'inbound'
+      const sla = calculateSlaInfo(lastMsgAt, lastDir, att.stage, slaConfig, now)
       return sla.status === 'urgent' || sla.status === 'warning'
     }
 
@@ -674,9 +689,11 @@ export default function KanbanPage() {
             const urgentInStage = stageItems.filter((a) => {
               if (isFinalStage) return false
               const client = a.expand?.client_id
-              const lastMsgAt = client?.last_message_at || a.last_customer_message_at || a.created
-              const lastDir = client?.last_message_direction || 'inbound'
-              const sla = calculateSlaInfo(lastMsgAt, lastDir, a.stage, slaConfig)
+              const lastMsgAt = a.last_customer_message_at || client?.last_message_at || a.created
+              const lastDir = a.last_customer_message_at
+                ? 'inbound'
+                : client?.last_message_direction || 'inbound'
+              const sla = calculateSlaInfo(lastMsgAt, lastDir, a.stage, slaConfig, now)
               return sla.status === 'urgent'
             }).length
 
@@ -771,6 +788,7 @@ export default function KanbanPage() {
                           realQuote={quoteInfo?.latestQuote || null}
                           openQuotesCount={quoteInfo?.count || 0}
                           slaConfig={slaConfig}
+                          now={now}
                           onDragStart={(e) => handleDragStart(e, att.id)}
                           onClick={() => {
                             setClientToEdit(clientObj)

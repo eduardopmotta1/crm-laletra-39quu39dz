@@ -31,6 +31,7 @@ interface KanbanCardProps {
   column?: KanbanColumn
   realQuote?: Quote | null
   openQuotesCount?: number
+  now?: number
   onClick: () => void
   onOpenChat: (e: React.MouseEvent) => void
   onCompleteAndArchive?: (client: Client, e: React.MouseEvent) => void
@@ -44,6 +45,7 @@ export default function KanbanCard({
   column,
   realQuote,
   openQuotesCount = 0,
+  now,
   onClick,
   onOpenChat,
   onCompleteAndArchive,
@@ -64,12 +66,16 @@ export default function KanbanCard({
       ? Number(realQuote.final_total || realQuote.total_sale)
       : null
 
-  const slaInfo = calculateSlaInfo(
-    client.last_message_at,
-    client.last_message_direction,
-    currentStage,
-    slaConfig,
-  )
+  // SLA do card: usar attendance.last_customer_message_at como referência PRINCIPAL.
+  // Se attendance.last_customer_message_at estiver preenchido, a direção para cálculo de tempo
+  // de espera do cliente é 'inbound' (mensagem recebida do cliente aguardando resposta).
+  // Fallback: manter client.last_message_at e client.last_message_direction se last_customer_message_at não existir.
+  const slaReferenceTime = attendance?.last_customer_message_at || client.last_message_at
+  const slaDirection = attendance?.last_customer_message_at
+    ? 'inbound'
+    : client.last_message_direction
+
+  const slaInfo = calculateSlaInfo(slaReferenceTime, slaDirection, currentStage, slaConfig, now)
 
   const priorityColors: Record<Priority, string> = {
     urgente: 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300',
