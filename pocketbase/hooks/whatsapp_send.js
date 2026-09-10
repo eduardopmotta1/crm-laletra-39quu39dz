@@ -267,16 +267,16 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
   messageRecord.set('sender_name', senderName)
   messageRecord.set('sent_by_user', userId)
 
-  const todayDateStr = new Date().toISOString().split('T')[0]
+  const currentTimestampIso = new Date().toISOString()
 
   if (isMetaSuccess) {
     messageRecord.set('status', 'sent')
     messageRecord.set('whatsapp_message_id', externalMessageId)
     $app.save(messageRecord)
 
-    // Atualizar last_message do cliente
+    // Atualizar last_message do cliente com timestamp completo
     try {
-      clientRecord.set('last_message_at', todayDateStr)
+      clientRecord.set('last_message_at', currentTimestampIso)
       clientRecord.set('last_message_direction', 'outbound')
       clientRecord.set('last_message_text', rawText.substring(0, 100))
       $app.save(clientRecord)
@@ -284,12 +284,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
       console.warn('[WHATSAPP SEND] Erro ao atualizar client:', cErr)
     }
 
-    // Atualizar last_company_message_at no atendimento
+    // Atualizar last_company_message_at no atendimento com timestamp completo (sem alterar last_customer_message_at)
     if (attendanceId) {
       try {
         const attRec = $app.findRecordById('attendances', attendanceId)
         if (attRec) {
-          attRec.set('last_company_message_at', todayDateStr)
+          attRec.set('last_company_message_at', currentTimestampIso)
           $app.save(attRec)
         }
       } catch (aErr) {

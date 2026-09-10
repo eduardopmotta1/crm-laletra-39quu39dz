@@ -520,10 +520,16 @@ export default function WhatsAppChatDrawer({
         // Atualiza metadados visuais do cliente (janela 24h, última mensagem)
         setCurrentClient((prevClient) => {
           if (!prevClient) return prevClient
+          const preservedDirection =
+            rec.direction === 'inbound'
+              ? 'inbound'
+              : activeAttendance?.last_customer_message_at
+                ? 'inbound'
+                : rec.direction
           return {
             ...prevClient,
             last_message_at: rec.created || new Date().toISOString(),
-            last_message_direction: rec.direction,
+            last_message_direction: preservedDirection,
             last_message_text:
               rec.message_text ||
               (rec.file_name ? `📎 ${rec.file_name}` : prevClient.last_message_text),
@@ -824,6 +830,9 @@ export default function WhatsAppChatDrawer({
   const within24h = isWithin24HourWindow(
     displayClient.last_message_at,
     displayClient.last_message_direction,
+    {
+      lastCustomerMessageAt: activeAttendance?.last_customer_message_at,
+    },
   )
   const sla = calculateSlaInfo(
     displayClient.last_message_at,
@@ -860,14 +869,18 @@ export default function WhatsAppChatDrawer({
         setMessages((prev) => mergeMessages(prev, [res.message!]))
       }
 
-      // Atualizar metadados visuais do cliente (janela 24h, última mensagem)
+      // Atualizar metadados visuais do cliente (última mensagem) sem fechar a janela 24h
       const nowIso = res.message?.created || new Date().toISOString()
       setCurrentClient((prevClient) => {
         const baseClient = res.client || prevClient || displayClient
+        // Outbound NÃO altera last_message_direction para 'outbound' se houver attendance ativo ou direção inbound preservada
+        const preservedDirection = activeAttendance?.last_customer_message_at
+          ? 'inbound'
+          : baseClient.last_message_direction || 'inbound'
         return {
           ...baseClient,
           last_message_at: nowIso,
-          last_message_direction: 'outbound',
+          last_message_direction: preservedDirection,
           last_message_text:
             textToSend ||
             (res.message?.file_name ? `📎 ${res.message.file_name}` : baseClient.last_message_text),
@@ -1205,10 +1218,13 @@ export default function WhatsAppChatDrawer({
       const nowIso = res.message?.created || new Date().toISOString()
       setCurrentClient((prevClient) => {
         const baseClient = res.client || prevClient || displayClient
+        const preservedDirection = activeAttendance?.last_customer_message_at
+          ? 'inbound'
+          : baseClient.last_message_direction || 'inbound'
         return {
           ...baseClient,
           last_message_at: nowIso,
-          last_message_direction: 'outbound',
+          last_message_direction: preservedDirection,
           last_message_text: formattedText.substring(0, 100),
         }
       })

@@ -364,7 +364,17 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
 
           let clientId = ''
           let attendanceId = ''
-          const todayDateStr = new Date().toISOString().split('T')[0]
+          let currentTimestampIso = new Date().toISOString()
+          if (msgTimestamp) {
+            try {
+              const parsedEpoch = Number(msgTimestamp)
+              if (!isNaN(parsedEpoch) && parsedEpoch > 0) {
+                // Se timestamp for em segundos (formato Unix padrão da Meta), multiplicar por 1000
+                const epochMs = parsedEpoch < 1e11 ? parsedEpoch * 1000 : parsedEpoch
+                currentTimestampIso = new Date(epochMs).toISOString()
+              }
+            } catch (_) {}
+          }
 
           if (foundClient) {
             clientId = foundClient.id
@@ -393,9 +403,11 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                 // - Mover stage para "Precisa responder" (EXCEÇÃO: se já estiver em "Novo contato", permanecer).
                 const targetAtt = openAttendances[0]
                 attendanceId = targetAtt.id
-                const currentStage = String(targetAtt.get('stage') || '')
+                const currentStage = targetAtt.getString
+                  ? targetAtt.getString('stage')
+                  : String(targetAtt.get('stage') || '')
 
-                targetAtt.set('last_customer_message_at', todayDateStr)
+                targetAtt.set('last_customer_message_at', currentTimestampIso)
 
                 if (currentStage !== 'Novo contato' && currentStage !== 'Precisa responder') {
                   targetAtt.set('stage', 'Precisa responder')
@@ -422,10 +434,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                 newAtt.set('client_id', clientId)
                 newAtt.set('stage', 'Novo contato')
                 newAtt.set('is_archived', false)
-                newAtt.set('last_customer_message_at', todayDateStr)
+                newAtt.set('last_customer_message_at', currentTimestampIso)
                 newAtt.set('source', 'whatsapp')
 
-                const clientAssignedTo = foundClient.get('assigned_to')
+                const clientAssignedTo = foundClient.getString
+                  ? foundClient.getString('assigned_to')
+                  : foundClient.get('assigned_to')
                 if (clientAssignedTo) {
                   newAtt.set('assigned_to', clientAssignedTo)
                 }
@@ -484,7 +498,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
           // 8. Se cliente existir, atualizar last_message_*
           if (foundClient) {
             try {
-              foundClient.set('last_message_at', todayDateStr)
+              foundClient.set('last_message_at', currentTimestampIso)
               foundClient.set('last_message_direction', 'inbound')
               foundClient.set('last_message_text', msgBodyText.substring(0, 100))
               $app.save(foundClient)

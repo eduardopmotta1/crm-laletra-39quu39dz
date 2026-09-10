@@ -134,7 +134,7 @@ export const whatsappService = {
       }
     }
 
-    const todayDateStr = new Date().toISOString().split('T')[0]
+    const currentTimestampIso = new Date().toISOString()
 
     // Client-side permission guard for whatsapp_reply & whatsapp_send_files
     if (authRecord && authRecord.role_slug !== 'admin') {
@@ -233,7 +233,7 @@ export const whatsappService = {
         if (attId) {
           try {
             await pb.collection('attendances').update(attId, {
-              last_company_message_at: todayDateStr,
+              last_company_message_at: currentTimestampIso,
             })
           } catch (err) {
             console.warn('Error updating attendance message metadata:', err)
@@ -243,7 +243,7 @@ export const whatsappService = {
         try {
           const snippet = `📎 ${fileToUpload.name}`
           updatedClient = await pb.collection('clients').update<Client>(clientId, {
-            last_message_at: todayDateStr,
+            last_message_at: currentTimestampIso,
             last_message_text: snippet,
           })
         } catch (err) {
@@ -323,7 +323,7 @@ export const whatsappService = {
     senderName?: string,
     attendanceId?: string,
   ): Promise<Message> {
-    const todayDateStr = new Date().toISOString().split('T')[0]
+    const currentTimestampIso = new Date().toISOString()
 
     let attId = attendanceId
     if (!attId && clientId) {
@@ -355,7 +355,7 @@ export const whatsappService = {
     if (attId) {
       try {
         await pb.collection('attendances').update(attId, {
-          last_customer_message_at: todayDateStr,
+          last_customer_message_at: currentTimestampIso,
           stage: 'Precisa responder',
         })
       } catch {
@@ -366,7 +366,7 @@ export const whatsappService = {
     // 3. Update client last_message metadata and move to 'Precisa responder'
     try {
       await pb.collection('clients').update(clientId, {
-        last_message_at: todayDateStr,
+        last_message_at: currentTimestampIso,
         last_message_direction: 'inbound',
         last_message_text: messageText.substring(0, 100),
         stage: 'Precisa responder',

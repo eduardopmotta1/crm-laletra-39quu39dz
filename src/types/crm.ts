@@ -632,18 +632,42 @@ export interface EfficiencyMetrics {
 }
 
 /**
- * Checks if a client is within the Meta 24-hour service window
- * (Customer sent an inbound message less than 24h ago).
+ * Checks if an interaction is within the Meta 24-hour service window.
+ * Business Rule:
+ * - Reference is the last customer inbound message timestamp (attendance.last_customer_message_at).
+ * - Outbound replies from the company do NOT alter or close the 24-hour customer window.
+ * - If last_customer_message_at is provided, direction is implicitly inbound.
+ * - Fallback: uses client lastMessageAt and lastMessageDirection when attendance timestamp is absent.
  */
 export function isWithin24HourWindow(
   lastMessageAt?: string,
   lastMessageDirection?: 'inbound' | 'outbound',
+  options?: {
+    lastCustomerMessageAt?: string
+    referenceTime?: string | number | Date
+  },
 ): boolean {
-  if (!lastMessageAt || lastMessageDirection !== 'inbound') {
+  const customerTimestamp =
+    options?.lastCustomerMessageAt ||
+    (lastMessageDirection === 'inbound' ? lastMessageAt : undefined)
+
+  if (!customerTimestamp) {
     return false
   }
-  const messageTime = new Date(lastMessageAt).getTime()
-  const now = Date.now()
-  const diffHours = (now - messageTime) / (1000 * 60 * 60)
-  return diffHours <= 24
+
+  const messageTime = new Date(customerTimestamp).getTime()
+  if (isNaN(messageTime) || messageTime <= 0) {
+    return false
+  }
+
+  const refTime = options?.referenceTime ? new Date(options.referenceTime).getTime() : Date.now()
+  if (isNaN(refTime)) {
+    return false
+  }
+
+  const diffMs = refTime - messageTime
+  // Janela válida se a mensagem foi no passado recente (até 24 horas) ou mesmo timestamp futuro por drift pequeno de relógio (>= 0)
+  const diffHours = diffMs / (1000 * 60 * 60)
+
+  return diffHours >= 0 && diffHours <= 24
 }
