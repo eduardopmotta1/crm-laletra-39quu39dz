@@ -14,6 +14,7 @@ import {
 import { Printer, Lock, Mail, ArrowRight, MessageSquare, AlertCircle } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
+// Login com suporte a redefinição de senha
 export default function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
