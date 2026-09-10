@@ -131,12 +131,82 @@ export const quotesService = {
     }
   },
 
+  /**
+   * Filtra e sanitiza o array de itens do orçamento, descartando itens vazios ou genéricos sem produto real.
+   * REGRA de item válido: ter product_name preenchido OU product_id preenchido.
+   * Descarta também linhas totalmente vazias (sem nome e sem produto, com quantidade vazia/0 e total_sale 0).
+   * PRESERVA integralmente nos itens válidos: medidas (width/height/linear_meters), quantity, unit_sale/valor unitário,
+   * total_sale, materiais, adicionais, observações e qualquer snapshot existente.
+   */
+  filterValidItems(items?: any[]): any[] {
+    if (!Array.isArray(items)) return []
+
+    return items.filter((item) => {
+      if (!item || typeof item !== 'object') return false
+
+      const hasProductName =
+        typeof item.product_name === 'string' &&
+        item.product_name.trim() !== '' &&
+        item.product_name.trim().toLowerCase() !== 'item'
+
+      const hasProductId = typeof item.product_id === 'string' && item.product_id.trim() !== ''
+
+      // Item precisa ter product_name real OU product_id
+      if (!hasProductName && !hasProductId) {
+        return false
+      }
+
+      // Descartar também linhas totalmente vazias (sem nome e sem produto, ou quantidade vazia/0 e total_sale 0)
+      const qty = Number(item.quantity) || 0
+      const totalSale =
+        Number(item.item_total_sale !== undefined ? item.item_total_sale : item.total_sale) || 0
+
+      if (qty <= 0 && totalSale <= 0 && !hasProductId) {
+        return false
+      }
+
+      return true
+    })
+  },
+
+  /**
+   * Resolve o client_name canônico buscando na coleção 'clients' quando houver client_id válido.
+   */
+  async resolveCanonicalClientName(
+    clientId?: string,
+    fallbackName?: string,
+  ): Promise<string | undefined> {
+    if (clientId && typeof clientId === 'string' && clientId.trim() !== '') {
+      try {
+        const clientRecord = await pb.collection('clients').getOne(clientId.trim())
+        if (clientRecord && clientRecord.name && clientRecord.name.trim() !== '') {
+          return clientRecord.name.trim()
+        }
+      } catch (err) {
+        console.warn(`[quotesService] Falha ao resolver nome do cliente ${clientId}:`, err)
+      }
+    }
+    return fallbackName !== undefined ? fallbackName : undefined
+  },
+
   async create(data: Partial<Quote>): Promise<Quote> {
     const code = data.code || (await this.generateNextCode())
     const public_token = data.public_token || this.generatePublicToken()
+
+    // 1. Filtrar itens inválidos/vazios preservando itens válidos
+    const filteredItems = data.items ? this.filterValidItems(data.items) : data.items
+
+    // 2. Snapshot client_name: buscar registro real do cliente se houver client_id válido
+    let resolvedClientName = data.client_name
+    if (data.client_id) {
+      resolvedClientName = await this.resolveCanonicalClientName(data.client_id, data.client_name)
+    }
+
     return await pb.collection('quotes').create<Quote>(
       {
         ...data,
+        items: filteredItems,
+        ...(resolvedClientName !== undefined ? { client_name: resolvedClientName } : {}),
         code,
         public_token,
         status: data.status || 'rascunho',
@@ -229,6 +299,23 @@ export const quotesService = {
   async update(id: string, data: Partial<Quote>): Promise<Quote> {
     // Explicitly omit 'code' and 'id' so that the original quote number and record ID remain completely immutable
     const { code: _omitCode, id: _omitId, ...payload } = data as any
+
+    // 1. Filtrar itens inválidos/vazios se items foi enviado
+    if (payload.items) {
+      payload.items = this.filterValidItems(payload.items)
+    }
+
+    // 2. Snapshot client_name: buscar registro real do cliente se houver client_id válido
+    if (payload.client_id) {
+      const resolvedName = await this.resolveCanonicalClientName(
+        payload.client_id,
+        payload.client_name,
+      )
+      if (resolvedName !== undefined) {
+        payload.client_name = resolvedName
+      }
+    }
+
     return await pb.collection('quotes').update<Quote>(id, payload, {
       expand: 'client_id,attendance_id,user_id',
     })

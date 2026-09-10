@@ -327,19 +327,49 @@ export default function NewQuotePage() {
 
   // Save the full quote (Create or Update)
   const handleSaveQuote = async (statusOverride?: Quote['status']) => {
-    if (!clientName.trim()) {
+    // 1. Filtrar array de itens removendo qualquer item que não seja um produto real
+    // REGRA: ter product_name preenchido OU product_id preenchido. Descartar linhas vazias.
+    const validItems = quotesService.filterValidItems(items)
+
+    if (validItems.length === 0) {
       toast({
-        title: 'Nome do cliente obrigatório',
-        description: 'Informe o nome do cliente antes de salvar o orçamento.',
+        title: 'Nenhum item válido no orçamento',
+        description: 'Adicione pelo menos um produto real antes de salvar.',
         variant: 'destructive',
       })
       return
     }
 
-    if (items.length === 0) {
+    // Se itens inválidos foram filtrados, sincroniza o state local
+    if (validItems.length !== items.length) {
+      setItems(validItems)
+    }
+
+    // Recalcular totais com base nos itens estritamente válidos
+    const validSummary = calculateQuoteSummary(validItems, Number(discountAmount) || 0)
+
+    // 2. Snapshot client_name: ao salvar com client_id válido, buscar registro real do cliente
+    let finalClientName = clientName.trim()
+    if (selectedClientId) {
+      try {
+        const found = clients.find((c) => c.id === selectedClientId)
+        if (found && found.name && found.name.trim() !== '') {
+          finalClientName = found.name.trim()
+        } else {
+          const direct = await clientsService.getById(selectedClientId)
+          if (direct && direct.name && direct.name.trim() !== '') {
+            finalClientName = direct.name.trim()
+          }
+        }
+      } catch (clientErr) {
+        console.warn('Erro ao buscar nome oficial do cliente:', clientErr)
+      }
+    }
+
+    if (!finalClientName) {
       toast({
-        title: 'Nenhum item no orçamento',
-        description: 'Adicione pelo menos um produto antes de salvar.',
+        title: 'Nome do cliente obrigatório',
+        description: 'Informe o nome do cliente antes de salvar o orçamento.',
         variant: 'destructive',
       })
       return
@@ -371,17 +401,17 @@ export default function NewQuotePage() {
         const updatePayload: Record<string, any> = {
           client_id: selectedClientId || undefined,
           attendance_id: attendanceId.trim() || undefined,
-          client_name: clientName.trim(),
+          client_name: finalClientName,
           client_phone: clientPhone.trim(),
           client_email: clientEmail.trim(),
           status: finalStatus,
-          items,
-          total_cost: quoteSummary.subtotal_cost,
-          total_sale: quoteSummary.subtotal_sale,
-          discount_amount: quoteSummary.discount_amount,
-          final_total: quoteSummary.final_total,
-          gross_profit: quoteSummary.gross_profit,
-          profit_margin_pct: quoteSummary.profit_margin_pct,
+          items: validItems,
+          total_cost: validSummary.subtotal_cost,
+          total_sale: validSummary.subtotal_sale,
+          discount_amount: validSummary.discount_amount,
+          final_total: validSummary.final_total,
+          gross_profit: validSummary.gross_profit,
+          profit_margin_pct: validSummary.profit_margin_pct,
           notes: quoteNotes.trim(),
         }
 
@@ -403,23 +433,23 @@ export default function NewQuotePage() {
         savedQuote = await quotesService.create({
           client_id: selectedClientId || undefined,
           attendance_id: attendanceId.trim() || undefined,
-          client_name: clientName.trim(),
+          client_name: finalClientName,
           client_phone: clientPhone.trim(),
           client_email: clientEmail.trim(),
           status: finalStatus,
-          items,
-          total_cost: quoteSummary.subtotal_cost,
-          total_sale: quoteSummary.subtotal_sale,
-          discount_amount: quoteSummary.discount_amount,
-          final_total: quoteSummary.final_total,
-          gross_profit: quoteSummary.gross_profit,
-          profit_margin_pct: quoteSummary.profit_margin_pct,
+          items: validItems,
+          total_cost: validSummary.subtotal_cost,
+          total_sale: validSummary.subtotal_sale,
+          discount_amount: validSummary.discount_amount,
+          final_total: validSummary.final_total,
+          gross_profit: validSummary.gross_profit,
+          profit_margin_pct: validSummary.profit_margin_pct,
           notes: quoteNotes.trim(),
         })
 
         toast({
           title: 'Orçamento salvo!',
-          description: `Proposta gerada com sucesso (${savedQuote.code}) para "${clientName}".`,
+          description: `Proposta gerada com sucesso (${savedQuote.code}) para "${finalClientName}".`,
         })
       }
 
