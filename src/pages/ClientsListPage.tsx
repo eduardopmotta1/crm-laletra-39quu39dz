@@ -69,8 +69,6 @@ export default function ClientsListPage() {
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
-  const [showArchived, setShowArchived] = useState(false)
-
   const [attendancesByClient, setAttendancesByClient] = useState<
     Record<string, { total: number; active: number }>
   >({})
@@ -116,11 +114,10 @@ export default function ClientsListPage() {
       (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (c.product_interest && c.product_interest.toLowerCase().includes(searchTerm.toLowerCase()))
 
-    const matchesArchived = showArchived || !c.is_archived
     const matchesStage = stageFilter === 'all' || c.stage === stageFilter
     const matchesPriority = priorityFilter === 'all' || c.priority === priorityFilter
 
-    return matchesSearch && matchesArchived && matchesStage && matchesPriority
+    return matchesSearch && matchesStage && matchesPriority
   })
 
   const handleDeleteClient = async (id: string, name: string) => {
@@ -324,12 +321,16 @@ export default function ClientsListPage() {
                               <span className="text-emerald-600 font-semibold">
                                 ● 1 ativo ({attendancesByClient[client.id]?.total || 1} no total)
                               </span>
-                            ) : (
+                            ) : attendancesByClient[client.id]?.total ? (
                               <span>
-                                ○ {attendancesByClient[client.id]?.total || 0} ciclos arquivados
+                                ○ {attendancesByClient[client.id]?.total} ciclo
+                                {attendancesByClient[client.id]?.total === 1 ? '' : 's'} arquivado
+                                {attendancesByClient[client.id]?.total === 1 ? '' : 's'}
                               </span>
+                            ) : (
+                              <span className="text-slate-400">Sem atendimento ativo</span>
                             )}
-                          </span>
+                          </span>{' '}
                         </div>
                       </td>
 
