@@ -244,7 +244,6 @@ export const whatsappService = {
           const snippet = `📎 ${fileToUpload.name}`
           updatedClient = await pb.collection('clients').update<Client>(clientId, {
             last_message_at: todayDateStr,
-            last_message_direction: 'outbound',
             last_message_text: snippet,
           })
         } catch (err) {
@@ -433,10 +432,10 @@ export const whatsappService = {
     lastTrigger?: string
   }> {
     return {
-      url: '/api/whatsapp/webhook',
+      url: '/backend/v1/crm/whatsapp-webhook',
       reachable: true,
       published: true,
-      webhook_url: '/api/whatsapp/webhook',
+      webhook_url: '/backend/v1/crm/whatsapp-webhook',
       last_meta_event_at: new Date().toISOString(),
       last_meta_event_type: 'messages',
       total_inbound_messages: 10,
