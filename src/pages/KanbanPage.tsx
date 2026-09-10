@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import type { Attendance, Client, KanbanColumn, KanbanStage, SlaConfig } from '@/types/crm'
 import { attendancesService } from '@/services/attendances'
 import { clientsService } from '@/services/clients'
 import { columnsService } from '@/services/columns'
 import { quotesService } from '@/services/quotes'
 import { settingsService } from '@/services/settings'
+import { useRealtime } from '@/hooks/use-realtime'
 import { calculateSlaInfo, formatCurrency } from '@/lib/sla'
 import type { Quote } from '@/types/quotes'
 import KanbanCard from '@/components/KanbanCard'
@@ -71,6 +72,224 @@ export default function KanbanPage() {
   const [archiveModalOpen, setArchiveModalOpen] = useState(false)
   const [clientToArchive, setClientToArchive] = useState<Client | null>(null)
   const [attendanceToArchive, setAttendanceToArchive] = useState<Attendance | null>(null)
+
+  // Ref to track attendances for lookup without triggering stale closures
+  const attendancesRef = useRef<Attendance[]>([])
+  attendancesRef.current = attendances
+
+  // Real-time enrichment cache for quotes per attendance
+  const updateAttendanceQuote = useCallback(async (attendanceId: string) => {
+    try {
+      const attQuotes = await quotesService.getByAttendanceId(attendanceId)
+      const openQuotes = attQuotes.filter((q) => quotesService.isOpenQuoteStatus(q.status))
+      if (openQuotes.length > 0) {
+        // Sort descending by updated || created
+        openQuotes.sort(
+          (a, b) =>
+            new Date(b.updated || b.created).getTime() - new Date(a.updated || a.created).getTime(),
+        )
+        setAttendanceQuotesMap((prev) => ({
+          ...prev,
+          [attendanceId]: {
+            latestQuote: openQuotes[0],
+            count: openQuotes.length,
+          },
+        }))
+      }
+    } catch {
+      // Non-fatal quote enrichment failure
+    }
+  }, [])
+
+  // Helper to enrich newly received attendance record with client expand if missing
+  const enrichAttendanceRecord = useCallback(async (rec: Attendance): Promise<Attendance> => {
+    let enriched: Attendance = { ...rec }
+
+    // 1. If client_id is present and expand.client_id is missing, try reusing from existing state or fetch
+    if (rec.client_id && !enriched.expand?.client_id) {
+      const existing = attendancesRef.current.find(
+        (a) => a.id === rec.id || a.client_id === rec.client_id,
+      )
+      if (existing?.expand?.client_id) {
+        enriched = {
+          ...enriched,
+          expand: {
+            ...enriched.expand,
+            client_id: existing.expand.client_id,
+          },
+        }
+      } else {
+        try {
+          const fetchedClient = await clientsService.getById(rec.client_id)
+          if (fetchedClient) {
+            enriched = {
+              ...enriched,
+              expand: {
+                ...enriched.expand,
+                client_id: fetchedClient,
+              },
+            }
+          }
+        } catch {
+          // Fallback: getClientFromAttendance handles minimal fallback gracefully
+        }
+      }
+    }
+
+    // 2. If assigned_to is present and expand.assigned_to is missing, try reusing from existing
+    if (rec.assigned_to && !enriched.expand?.assigned_to) {
+      const existingWithUser = attendancesRef.current.find(
+        (a) => a.assigned_to === rec.assigned_to && a.expand?.assigned_to,
+      )
+      if (existingWithUser?.expand?.assigned_to) {
+        enriched = {
+          ...enriched,
+          expand: {
+            ...enriched.expand,
+            assigned_to: existingWithUser.expand.assigned_to,
+          },
+        }
+      }
+    }
+
+    return enriched
+  }, [])
+
+  // Real-time subscription to 'attendances' collection
+  useRealtime(
+    'attendances',
+    useCallback(
+      (data: any) => {
+        const rawRec = data.record as Attendance | undefined
+        if (!rawRec || !rawRec.id) return
+
+        if (data.action === 'create') {
+          // CREATE:
+          // - se o attendance criado não estiver arquivado;
+          // - inserir o novo card imediatamente na coluna correspondente ao stage;
+          // - evitar duplicidade por attendance.id;
+          // - enriquecer com expand de cliente e ordenar por created DESC.
+          if (rawRec.is_archived === true) return
+
+          enrichAttendanceRecord(rawRec).then((enrichedRec) => {
+            setAttendances((prev) => {
+              // Dedupe por attendance.id
+              const exists = prev.some((a) => a.id === enrichedRec.id)
+              if (exists) {
+                // If it already existed, merge and update
+                return prev.map((a) =>
+                  a.id === enrichedRec.id
+                    ? {
+                        ...a,
+                        ...enrichedRec,
+                        expand: {
+                          ...a.expand,
+                          ...enrichedRec.expand,
+                        },
+                      }
+                    : a,
+                )
+              }
+
+              // Inserir novo card imediatamente e manter ordenação consistente por created DESC
+              const next = [enrichedRec, ...prev]
+              next.sort(
+                (a, b) => new Date(b.created || 0).getTime() - new Date(a.created || 0).getTime(),
+              )
+              return next
+            })
+
+            // Se o card já vier com quote_value ou interesse, verificar orçamentos em background
+            if (enrichedRec.quote_value) {
+              updateAttendanceQuote(enrichedRec.id)
+            }
+          })
+        } else if (data.action === 'update') {
+          // UPDATE:
+          // - se stage, assigned_to, is_archived ou dados exibidos no card mudarem;
+          // - atualizar o card existente;
+          // - se o stage mudar, mover o card para a coluna correta (automático pelo React via att.stage);
+          // - se is_archived = true, remover do Kanban;
+          // - merge/dedupe por attendance.id preservando expand prévio se o payload vier sem expand.
+          if (rawRec.is_archived === true) {
+            setAttendances((prev) => prev.filter((a) => a.id !== rawRec.id))
+            setAttendanceQuotesMap((prev) => {
+              if (!prev[rawRec.id]) return prev
+              const copy = { ...prev }
+              delete copy[rawRec.id]
+              return copy
+            })
+            return
+          }
+
+          setAttendances((prev) => {
+            const index = prev.findIndex((a) => a.id === rawRec.id)
+            if (index === -1) {
+              // Não estava no array (talvez desarquivado ou criado recentemente fora da view)
+              // Inserir imediatamente enriquecido se não arquivado
+              enrichAttendanceRecord(rawRec).then((enrichedRec) => {
+                setAttendances((latest) => {
+                  if (latest.some((a) => a.id === enrichedRec.id)) {
+                    return latest.map((a) =>
+                      a.id === enrichedRec.id
+                        ? { ...a, ...enrichedRec, expand: { ...a.expand, ...enrichedRec.expand } }
+                        : a,
+                    )
+                  }
+                  const next = [enrichedRec, ...latest]
+                  next.sort(
+                    (a, b) =>
+                      new Date(b.created || 0).getTime() - new Date(a.created || 0).getTime(),
+                  )
+                  return next
+                })
+              })
+              return prev
+            }
+
+            const existing = prev[index]
+            const updatedRec: Attendance = {
+              ...existing,
+              ...rawRec,
+              expand: {
+                ...existing.expand,
+                ...rawRec.expand,
+              },
+            }
+
+            // Preservar cliente expand se o update veio sem expand
+            if (!rawRec.expand?.client_id && existing.expand?.client_id) {
+              updatedRec.expand = {
+                ...updatedRec.expand,
+                client_id: existing.expand.client_id,
+              }
+            }
+            if (!rawRec.expand?.assigned_to && existing.expand?.assigned_to) {
+              updatedRec.expand = {
+                ...updatedRec.expand,
+                assigned_to: existing.expand.assigned_to,
+              }
+            }
+
+            const next = [...prev]
+            next[index] = updatedRec
+            return next
+          })
+        } else if (data.action === 'delete') {
+          // DELETE: remover o card da tela imediatamente
+          setAttendances((prev) => prev.filter((a) => a.id !== rawRec.id))
+          setAttendanceQuotesMap((prev) => {
+            if (!prev[rawRec.id]) return prev
+            const copy = { ...prev }
+            delete copy[rawRec.id]
+            return copy
+          })
+        }
+      },
+      [enrichAttendanceRecord, updateAttendanceQuote],
+    ),
+    true,
+  )
 
   const loadData = async () => {
     try {
