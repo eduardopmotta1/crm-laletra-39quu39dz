@@ -60,6 +60,9 @@ export default function ClientsListPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [stageFilter, setStageFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<'name_asc' | 'name_desc' | 'created_desc' | 'created_asc'>(
+    'name_asc',
+  )
 
   // Selected client for Drawer & Modal
   const [selectedClientForChat, setSelectedClientForChat] = useState<Client | null>(null)
@@ -107,18 +110,38 @@ export default function ClientsListPage() {
     return () => window.removeEventListener('crm-client-updated', handleUpdate)
   }, [])
 
-  const filteredClients = clients.filter((c) => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone.includes(searchTerm) ||
-      (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (c.product_interest && c.product_interest.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredClients = clients
+    .filter((c) => {
+      const matchesSearch =
+        c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.phone.includes(searchTerm) ||
+        (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (c.product_interest && c.product_interest.toLowerCase().includes(searchTerm.toLowerCase()))
 
-    const matchesStage = stageFilter === 'all' || c.stage === stageFilter
-    const matchesPriority = priorityFilter === 'all' || c.priority === priorityFilter
+      const matchesStage = stageFilter === 'all' || c.stage === stageFilter
+      const matchesPriority = priorityFilter === 'all' || c.priority === priorityFilter
 
-    return matchesSearch && matchesStage && matchesPriority
-  })
+      return matchesSearch && matchesStage && matchesPriority
+    })
+    .sort((a, b) => {
+      if (sortBy === 'name_asc') {
+        return (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' })
+      }
+      if (sortBy === 'name_desc') {
+        return (b.name || '').localeCompare(a.name || '', 'pt-BR', { sensitivity: 'base' })
+      }
+      if (sortBy === 'created_desc') {
+        const timeA = a.created ? new Date(a.created).getTime() : 0
+        const timeB = b.created ? new Date(b.created).getTime() : 0
+        return timeB - timeA
+      }
+      if (sortBy === 'created_asc') {
+        const timeA = a.created ? new Date(a.created).getTime() : 0
+        const timeB = b.created ? new Date(b.created).getTime() : 0
+        return timeA - timeB
+      }
+      return 0
+    })
 
   const handleDeleteClient = async (id: string, name: string) => {
     if (!confirm(`Deseja realmente remover o cliente "${name}"?`)) return
@@ -202,6 +225,24 @@ export default function ClientsListPage() {
               <SelectItem value="media">Média</SelectItem>
               <SelectItem value="alta">Alta</SelectItem>
               <SelectItem value="urgente">Urgente</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Sort Selector */}
+          <Select
+            value={sortBy}
+            onValueChange={(val: 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc') =>
+              setSortBy(val)
+            }
+          >
+            <SelectTrigger className="w-full sm:w-40 text-xs h-9 bg-slate-50 dark:bg-slate-800">
+              <SelectValue placeholder="Ordenar por" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name_asc">Nome A → Z</SelectItem>
+              <SelectItem value="name_desc">Nome Z → A</SelectItem>
+              <SelectItem value="created_desc">Mais recentes</SelectItem>
+              <SelectItem value="created_asc">Mais antigos</SelectItem>
             </SelectContent>
           </Select>
 
