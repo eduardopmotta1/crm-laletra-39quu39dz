@@ -643,14 +643,22 @@ export default function WhatsAppChatDrawer({
     previousMessagesCountRef.current = currentCount
   }, [messages, isOpen, activeClientId, activeAttendance?.id, scrollToBottom])
 
-  const loadClientData = async (clientId: string, attendanceId?: string) => {
-    setLoading(true)
+  const loadClientData = async (
+    clientId: string,
+    attendanceId?: string,
+    options?: { silent?: boolean; skipMessages?: boolean },
+  ) => {
+    if (!options?.silent) {
+      setLoading(true)
+    }
     try {
       const targetAttId = attendanceId || activeAttendance?.id
 
-      const messagesPromise = orderContext?.id
-        ? whatsappService.getOrderConversationMessages(orderContext.id, clientId)
-        : whatsappService.getMessages(clientId)
+      const messagesPromise = options?.skipMessages
+        ? Promise.resolve(null)
+        : orderContext?.id
+          ? whatsappService.getOrderConversationMessages(orderContext.id, clientId)
+          : whatsappService.getMessages(clientId)
 
       const [
         msgList,
@@ -679,7 +687,9 @@ export default function WhatsAppChatDrawer({
         usersService.getAll(),
         rolesService.getAll(),
       ])
-      setMessages((prev) => mergeMessages(prev, msgList))
+      if (msgList !== null) {
+        setMessages((prev) => mergeMessages(prev, msgList))
+      }
       setTasks(taskList)
       if (freshClient) setCurrentClient(freshClient)
       setArchivedDeals(pastDeals)
@@ -708,7 +718,9 @@ export default function WhatsAppChatDrawer({
     } catch (err) {
       console.error('Error loading chat drawer data:', err)
     } finally {
-      setLoading(false)
+      if (!options?.silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -843,8 +855,33 @@ export default function WhatsAppChatDrawer({
       setAttachmentNote('')
       if (fileInputRef.current) fileInputRef.current.value = ''
 
-      shouldAutoScrollNextRef.current = true
-      await loadClientData(displayClient.id, activeAttendance?.id)
+      // Inserir / mesclar a mensagem enviada de imediato no estado local com deduplicação por id / wamid
+      if (res.message) {
+        setMessages((prev) => mergeMessages(prev, [res.message!]))
+      }
+
+      // Atualizar metadados visuais do cliente (janela 24h, última mensagem)
+      const nowIso = res.message?.created || new Date().toISOString()
+      setCurrentClient((prevClient) => {
+        const baseClient = res.client || prevClient || displayClient
+        return {
+          ...baseClient,
+          last_message_at: nowIso,
+          last_message_direction: 'outbound',
+          last_message_text:
+            textToSend ||
+            (res.message?.file_name ? `📎 ${res.message.file_name}` : baseClient.last_message_text),
+        }
+      })
+
+      // Rolar suavemente SOMENTE até o final, a partir da posição atual (sem pular para o topo)
+      requestAnimationFrame(() => {
+        scrollToBottom('smooth')
+      })
+
+      // Sincronizar metadados auxiliares em segundo plano (silent: não liga loading, skipMessages: não recarrega histórico)
+      loadClientData(displayClient.id, activeAttendance?.id, { silent: true, skipMessages: true })
+
       if (onClientUpdated) onClientUpdated()
       toast({
         title: selectedAttachment ? 'Arquivo enviado no chat' : 'Mensagem enviada no CRM',
@@ -1161,9 +1198,26 @@ export default function WhatsAppChatDrawer({
       setSendQuoteModalOpen(false)
       setSelectedQuoteToSend(null)
 
-      // Trigger auto-scroll and refresh client & messages
-      shouldAutoScrollNextRef.current = true
-      await loadClientData(displayClient.id, activeAttendance?.id)
+      if (res.message) {
+        setMessages((prev) => mergeMessages(prev, [res.message!]))
+      }
+
+      const nowIso = res.message?.created || new Date().toISOString()
+      setCurrentClient((prevClient) => {
+        const baseClient = res.client || prevClient || displayClient
+        return {
+          ...baseClient,
+          last_message_at: nowIso,
+          last_message_direction: 'outbound',
+          last_message_text: formattedText.substring(0, 100),
+        }
+      })
+
+      requestAnimationFrame(() => {
+        scrollToBottom('smooth')
+      })
+
+      loadClientData(displayClient.id, activeAttendance?.id, { silent: true, skipMessages: true })
       if (onClientUpdated) onClientUpdated()
       window.dispatchEvent(new CustomEvent('crm-client-updated'))
       window.dispatchEvent(new CustomEvent('quotes-updated'))
