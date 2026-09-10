@@ -364,22 +364,92 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
 
           let clientId = ''
           let attendanceId = ''
+          const todayDateStr = new Date().toISOString().split('T')[0]
 
           if (foundClient) {
             clientId = foundClient.id
-            // Tentar vincular a um atendimento ativo existente do cliente (sem criar novo atendimento)
+
+            // Lógica de Atendimento Aberto Comercial (Regras 1 a 6)
+            // 1. Procurar atendimento comercial ABERTO: is_archived != true && stage != 'Venda fechada' && stage != 'Não fechou'
             try {
-              const attList = $app.findRecordsByFilter(
+              const openAttFilter =
+                "client_id = '" +
+                clientId +
+                "' && is_archived != true && stage != 'Venda fechada' && stage != 'Não fechou'"
+
+              const openAttendances = $app.findRecordsByFilter(
                 'attendances',
-                "client_id = '" + clientId + "' && is_archived != true",
+                openAttFilter,
                 '-created',
                 1,
                 0,
               )
-              if (attList && attList.length > 0) {
-                attendanceId = attList[0].id
+
+              if (openAttendances && openAttendances.length > 0) {
+                // 2. SE EXISTIR atendimento aberto:
+                // - NÃO criar outro attendance.
+                // - Vincular a mensagem ao attendance existente.
+                // - Atualizar last_customer_message_at.
+                // - Mover stage para "Precisa responder" (EXCEÇÃO: se já estiver em "Novo contato", permanecer).
+                const targetAtt = openAttendances[0]
+                attendanceId = targetAtt.id
+                const currentStage = String(targetAtt.get('stage') || '')
+
+                targetAtt.set('last_customer_message_at', todayDateStr)
+
+                if (currentStage !== 'Novo contato' && currentStage !== 'Precisa responder') {
+                  targetAtt.set('stage', 'Precisa responder')
+                }
+
+                $app.save(targetAtt)
+                console.log(
+                  '[WHATSAPP WEBHOOK POST] Atendimento aberto existente reutilizado:',
+                  attendanceId,
+                  '| stage anterior:',
+                  currentStage,
+                  '| stage atual:',
+                  targetAtt.get('stage'),
+                )
+              } else {
+                // 3. SE NÃO EXISTIR atendimento aberto:
+                // - Criar exatamente 1 novo attendance para o cliente.
+                // - stage = "Novo contato", is_archived = false.
+                // - Vincular a mensagem recebida ao novo attendance.
+                // - Preencher last_customer_message_at.
+                // - assigned_to: herdar do cliente se existir; não inventar responsável.
+                const attendancesCol = $app.findCollectionByNameOrId('attendances')
+                const newAtt = new Record(attendancesCol)
+                newAtt.set('client_id', clientId)
+                newAtt.set('stage', 'Novo contato')
+                newAtt.set('is_archived', false)
+                newAtt.set('last_customer_message_at', todayDateStr)
+                newAtt.set('source', 'whatsapp')
+
+                const clientAssignedTo = foundClient.get('assigned_to')
+                if (clientAssignedTo) {
+                  newAtt.set('assigned_to', clientAssignedTo)
+                }
+
+                $app.save(newAtt)
+                attendanceId = newAtt.id
+
+                console.log(
+                  '[WHATSAPP WEBHOOK POST] Novo atendimento criado com sucesso:',
+                  attendanceId,
+                  'para o cliente:',
+                  clientId,
+                  '| assigned_to:',
+                  clientAssignedTo || 'nenhum',
+                )
               }
-            } catch (_) {}
+            } catch (attProcErr) {
+              console.error(
+                '[WHATSAPP WEBHOOK POST] Erro ao resolver/criar atendimento para o cliente ' +
+                  clientId +
+                  ':',
+                attProcErr,
+              )
+            }
           } else {
             // Requisito 7: Se NÃO existir cliente, NÃO criar automaticamente.
             console.log(
@@ -414,30 +484,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
           // 8. Se cliente existir, atualizar last_message_*
           if (foundClient) {
             try {
-              const todayDateStr = new Date().toISOString().split('T')[0]
               foundClient.set('last_message_at', todayDateStr)
               foundClient.set('last_message_direction', 'inbound')
               foundClient.set('last_message_text', msgBodyText.substring(0, 100))
               $app.save(foundClient)
             } catch (cErr) {
               console.warn('[WHATSAPP WEBHOOK POST] Aviso ao atualizar client last_message:', cErr)
-            }
-
-            // Atualizar last_customer_message_at no atendimento se houver
-            if (attendanceId) {
-              try {
-                const attRec = $app.findRecordById('attendances', attendanceId)
-                if (attRec) {
-                  const todayDateStr = new Date().toISOString().split('T')[0]
-                  attRec.set('last_customer_message_at', todayDateStr)
-                  $app.save(attRec)
-                }
-              } catch (aErr) {
-                console.warn(
-                  '[WHATSAPP WEBHOOK POST] Aviso ao atualizar attendance last_customer_message:',
-                  aErr,
-                )
-              }
             }
           }
 
