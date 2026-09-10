@@ -471,6 +471,26 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
           if (foundClient) {
             clientId = foundClient.id
 
+            // Reativação automática se o cliente estiver arquivado (soft-delete revertido ao voltar a mandar mensagem)
+            try {
+              const isArchived = foundClient.getBool
+                ? foundClient.getBool('is_archived')
+                : Boolean(foundClient.get('is_archived'))
+              if (isArchived) {
+                foundClient.set('is_archived', false)
+                $app.save(foundClient)
+                console.log(
+                  '[WHATSAPP WEBHOOK POST] Cliente arquivado reativado automaticamente (soft-delete revertido):',
+                  clientId,
+                )
+              }
+            } catch (errReactivate) {
+              console.warn(
+                '[WHATSAPP WEBHOOK POST] Aviso ao reativar cliente arquivado:',
+                errReactivate,
+              )
+            }
+
             // Lógica de Atendimento Aberto Comercial
             // 1. Procurar atendimento comercial ABERTO: is_archived != true && stage != 'Venda fechada' && stage != 'Não fechou'
             try {

@@ -23,7 +23,18 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import pb from '@/lib/pocketbase/client'
 import { clientsService } from '@/services/clients'
 import { settingsService } from '@/services/settings'
@@ -71,6 +82,9 @@ export default function ClientsListPage() {
   const [clientForStartChat, setClientForStartChat] = useState<Client | null>(null)
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const [attendancesByClient, setAttendancesByClient] = useState<
     Record<string, { total: number; active: number }>
@@ -79,7 +93,7 @@ export default function ClientsListPage() {
   const loadClients = async () => {
     try {
       const [cls, cfg, atts] = await Promise.all([
-        clientsService.getAll(undefined, '-last_message_at', { includeArchived: true }),
+        clientsService.getAll(undefined, '-last_message_at', { includeArchived: false }),
         settingsService.getSlaConfig(),
         pb.collection('attendances').getFullList({ requestKey: null }),
       ])
@@ -143,21 +157,35 @@ export default function ClientsListPage() {
       return 0
     })
 
-  const handleDeleteClient = async (id: string, name: string) => {
-    if (!confirm(`Deseja realmente remover o cliente "${name}"?`)) return
+  const handleConfirmDelete = async () => {
+    if (!clientToDelete) return
+    const id = clientToDelete.id
+    const name = clientToDelete.name
+    setDeleting(true)
     try {
-      await clientsService.delete(id)
-      toast({
-        title: 'Cliente excluído',
-        description: `O cadastro de "${name}" foi removido com sucesso.`,
-      })
-      loadClients()
+      // Soft-delete imediato na UI para resposta instantânea
+      setClients((prev) => prev.filter((c) => c.id !== id))
+      const success = await clientsService.delete(id)
+      if (success) {
+        toast({
+          title: 'Cliente excluído com sucesso',
+          description: `O cliente "${name}" foi ocultado da lista. Histórico e atendimentos preservados com segurança.`,
+        })
+        window.dispatchEvent(new CustomEvent('crm-client-updated'))
+      } else {
+        throw new Error('Falha ao marcar cliente como arquivado.')
+      }
     } catch (err) {
       toast({
         title: 'Erro ao excluir',
-        description: 'Não foi possível remover o cliente.',
+        description: 'Não foi possível remover o cliente da lista.',
         variant: 'destructive',
       })
+      loadClients()
+    } finally {
+      setDeleting(false)
+      setDeleteDialogOpen(false)
+      setClientToDelete(null)
     }
   }
 
@@ -489,6 +517,17 @@ export default function ClientsListPage() {
                                   <span>Abrir no WhatsApp Web</span>
                                 </a>
                               </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setClientToDelete(client)
+                                  setDeleteDialogOpen(true)
+                                }}
+                                className="cursor-pointer text-rose-600 dark:text-rose-400 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/40"
+                              >
+                                <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                <span>Excluir cliente</span>
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
@@ -532,6 +571,56 @@ export default function ClientsListPage() {
         client={clientForStartChat}
         onSuccess={() => loadClients()}
       />
+
+      {/* Confirmação Segura de Exclusão (Soft-Delete) */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
+              <Trash2 className="h-5 w-5 text-rose-600" />
+              Excluir cliente
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-600 dark:text-slate-300 space-y-2 pt-1 text-left">
+              <p>
+                Tem certeza de que deseja excluir o cliente{' '}
+                <strong className="text-slate-900 dark:text-white font-semibold">
+                  "{clientToDelete?.name}"
+                </strong>
+                ?
+              </p>
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg text-[11px] text-amber-900 dark:text-amber-200 space-y-1">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <Archive className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                  Preservação Total do Histórico
+                </p>
+                <p>
+                  O cliente será removido imediatamente da lista visível, mas todo o histórico
+                  (mensagens, atendimentos, orçamentos e pedidos) será preservado com segurança.
+                </p>
+                <p className="text-amber-800 dark:text-amber-300">
+                  Se ele voltar a mandar mensagem pelo WhatsApp, o cadastro será reativado
+                  automaticamente pelo mesmo número, sem duplicidades.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel disabled={deleting} onClick={() => setClientToDelete(null)}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmDelete()
+              }}
+              disabled={deleting}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+            >
+              {deleting ? 'Removendo...' : 'Excluir cliente'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

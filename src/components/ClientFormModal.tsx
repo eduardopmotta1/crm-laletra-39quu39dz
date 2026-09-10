@@ -351,10 +351,13 @@ export default function ClientFormModal({
     if (!clientToEdit) return
     setLoading(true)
     try {
-      await clientsService.delete(clientToEdit.id)
+      const success = await clientsService.delete(clientToEdit.id)
+      if (!success) {
+        throw new Error('Falha ao ocultar cliente.')
+      }
       toast({
-        title: 'Cliente excluído',
-        description: `O cliente "${clientToEdit.name}" foi removido do funil.`,
+        title: 'Cliente excluído com sucesso',
+        description: `O cliente "${clientToEdit.name}" foi ocultado da lista. Histórico e atendimentos preservados com segurança.`,
       })
       window.dispatchEvent(new CustomEvent('crm-client-updated'))
       onSaved(clientToEdit)
@@ -362,7 +365,7 @@ export default function ClientFormModal({
     } catch (err: any) {
       toast({
         title: 'Erro ao excluir',
-        description: err?.message || 'Falha ao remover cliente.',
+        description: err?.message || 'Falha ao remover cliente da lista.',
         variant: 'destructive',
       })
     } finally {
@@ -713,42 +716,56 @@ export default function ClientFormModal({
               />
             </div>
 
-            {/* Actions & Delete Confirmation */}
-            <DialogFooter className="pt-3 flex flex-col sm:flex-row sm:justify-between items-center gap-2">
-              {clientToEdit ? (
-                deleteConfirm ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-rose-600 font-medium">Tem certeza?</span>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      onClick={handleDelete}
-                      disabled={loading}
-                    >
-                      Confirmar Exclusão
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDeleteConfirm(false)}
-                    >
-                      Cancelar
-                    </Button>
-                  </div>
-                ) : (
+            {/* Soft-delete confirmation alert inside form */}
+            {clientToEdit && deleteConfirm && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl text-xs space-y-2">
+                <div className="font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                  <Trash2 className="h-4 w-4 text-rose-600 shrink-0" />
+                  <span>Excluir cliente (preservando histórico)</span>
+                </div>
+                <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                  O cliente será removido da lista visível. Todo o histórico de mensagens,
+                  atendimentos e orçamentos permanecerá intacto. Se ele mandar nova mensagem no
+                  WhatsApp, retornará automaticamente pelo mesmo número.
+                </p>
+                <div className="flex items-center gap-2 pt-1">
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="destructive"
                     size="sm"
-                    onClick={() => setDeleteConfirm(true)}
-                    className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
+                    onClick={handleDelete}
+                    disabled={loading}
+                    className="h-8 text-xs font-semibold"
                   >
-                    <Trash2 className="h-4 w-4 mr-1.5" />
-                    Excluir Cliente
+                    {loading ? 'Excluindo...' : 'Confirmar Exclusão Segura'}
                   </Button>
-                )
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDeleteConfirm(false)}
+                    disabled={loading}
+                    className="h-8 text-xs"
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Actions & Delete Confirmation */}
+            <DialogFooter className="pt-3 flex flex-col sm:flex-row sm:justify-between items-center gap-2">
+              {clientToEdit && !deleteConfirm ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDeleteConfirm(true)}
+                  className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
+                >
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  Excluir Cliente
+                </Button>
               ) : (
                 <div />
               )}

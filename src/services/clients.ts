@@ -313,23 +313,27 @@ export const clientsService = {
       source: (data as any).source || 'manual',
     })
 
-    // Atualiza dados opcionais do cliente se fornecidos (sem duplicar registro)
+    // Atualiza dados opcionais do cliente se fornecidos e reativa caso arquivado (sem duplicar registro)
     const updatePayload: Partial<Client> = {}
+    if (client.is_archived) {
+      updatePayload.is_archived = false
+    }
     if (data.name && data.name.trim() && data.name !== client.name) {
       updatePayload.name = data.name.trim()
     }
     if (data.email && data.email.trim() && !client.email) {
       updatePayload.email = data.email.trim()
     }
+    let updatedClient = client
     if (Object.keys(updatePayload).length > 0) {
       try {
-        await pb.collection('clients').update(client.id, updatePayload)
+        updatedClient = await pb.collection('clients').update<Client>(client.id, updatePayload)
       } catch {
         /* non-fatal */
       }
     }
 
-    return { client, attendance }
+    return { client: updatedClient, attendance }
   },
 
   /**
@@ -491,14 +495,30 @@ export const clientsService = {
     return updated
   },
 
+  /**
+   * Exclusão segura por SOFT-DELETE:
+   * Marca `is_archived = true` sem apagar fisicamente o registro.
+   * Oculta o cliente da lista padrão sem apagar mensagens, atendimentos,
+   * orçamentos ou histórico. Se voltar a mandar mensagem pelo mesmo telefone,
+   * o cliente é reativado automaticamente sem duplicar.
+   */
   async delete(id: string): Promise<boolean> {
     try {
-      await pb.collection('clients').delete(id)
+      await pb.collection('clients').update(id, {
+        is_archived: true,
+      })
       return true
     } catch (error) {
-      console.error(`Error deleting client ${id}:`, error)
+      console.error(`Error soft-deleting client ${id}:`, error)
       return false
     }
+  },
+
+  /**
+   * Reativa um cliente arquivado (soft-delete revertido).
+   */
+  async reactivate(id: string): Promise<Client> {
+    return this.update(id, { is_archived: false })
   },
 
   /**
