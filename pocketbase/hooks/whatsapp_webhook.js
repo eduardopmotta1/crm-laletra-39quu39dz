@@ -56,8 +56,18 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
     let processedCount = 0
     let duplicateCount = 0
     let ignoredCount = 0
+    let statusProcessedCount = 0
+    let statusIgnoredCount = 0
 
     const messagesCol = $app.findCollectionByNameOrId('messages')
+
+    // Mapeamento oficial de status Meta -> PocketBase messages.status
+    const VALID_STATUSES = {
+      sent: 'sent',
+      delivered: 'delivered',
+      read: 'read',
+      failed: 'failed',
+    }
 
     for (let i = 0; i < entryList.length; i++) {
       const entry = entryList[i]
@@ -67,14 +77,155 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
         const change = changes[j]
         const value = change.value || {}
 
-        // 3. Tratar apenas eventos 'messages'. Se for 'statuses' ou outro, ignorar e responder 200
+        // 3. Processamento de statuses[] (ETAPA 3C)
+        const statuses = value.statuses || []
+        if (Array.isArray(statuses) && statuses.length > 0) {
+          for (let s = 0; s < statuses.length; s++) {
+            const statusObj = statuses[s]
+            const wamid = String(statusObj.id || '').trim()
+            const rawStatus = String(statusObj.status || '')
+              .toLowerCase()
+              .trim()
+            const statusTimestamp = statusObj.timestamp ? String(statusObj.timestamp) : ''
+            const recipientId = String(statusObj.recipient_id || '').trim()
+            const errorsList = statusObj.errors || []
+
+            if (!wamid) {
+              console.log('[WHATSAPP WEBHOOK POST] Status sem WAMID (id). Ignorado.')
+              statusIgnoredCount++
+              continue
+            }
+
+            const mappedStatus = VALID_STATUSES[rawStatus]
+            if (!mappedStatus) {
+              console.log(
+                '[WHATSAPP WEBHOOK POST] Status desconhecido recebido para WAMID ' +
+                  wamid +
+                  ': "' +
+                  rawStatus +
+                  '". Ignorado.',
+              )
+              statusIgnoredCount++
+              continue
+            }
+
+            // Localizar mensagem correspondente pelo campo whatsapp_message_id
+            let targetMsg = null
+            try {
+              const foundList = $app.findRecordsByFilter(
+                'messages',
+                "whatsapp_message_id = '" + wamid + "'",
+                '-created',
+                1,
+                0,
+              )
+              if (foundList && foundList.length > 0) {
+                targetMsg = foundList[0]
+              }
+            } catch (errFilterMsg) {
+              console.warn(
+                '[WHATSAPP WEBHOOK POST] Aviso ao buscar mensagem pelo WAMID ' + wamid + ':',
+                errFilterMsg,
+              )
+            }
+
+            // Se não encontrar mensagem pelo WAMID: NÃO criar registro novo; apenas logar
+            if (!targetMsg) {
+              console.log(
+                '[WHATSAPP WEBHOOK POST] [STATUS SEM MENSAGEM] WAMID não localizado no banco: ' +
+                  wamid +
+                  ' | status: ' +
+                  mappedStatus +
+                  ' | recipient: ' +
+                  recipientId,
+              )
+              statusIgnoredCount++
+              continue
+            }
+
+            // Se status = failed, extrair detalhes com segurança (sem tokens/secrets)
+            let errorDetails = null
+            if (mappedStatus === 'failed') {
+              let firstErr = {}
+              if (Array.isArray(errorsList) && errorsList.length > 0) {
+                firstErr = errorsList[0] || {}
+              }
+              const errCode = firstErr.code || statusObj.code || ''
+              const errTitle = firstErr.title || firstErr.message || statusObj.title || ''
+              const errMsg =
+                firstErr.error_data && firstErr.error_data.details
+                  ? firstErr.error_data.details
+                  : firstErr.message || ''
+              const errSubcode = firstErr.error_subcode || ''
+
+              errorDetails = {
+                code: errCode,
+                title: errTitle,
+                message: errMsg,
+                error_subcode: errSubcode,
+              }
+
+              console.error(
+                '[WHATSAPP WEBHOOK POST] [STATUS FAILED] WAMID: ' +
+                  wamid +
+                  ' | RecordId: ' +
+                  targetMsg.id +
+                  ' | Code: ' +
+                  errCode +
+                  ' | Subcode: ' +
+                  errSubcode +
+                  ' | Title: ' +
+                  errTitle +
+                  ' | Message: ' +
+                  errMsg,
+              )
+            }
+
+            // Idempotência: se a mensagem já possui exatamente esse status, não faz nada
+            const currentStatus = String(targetMsg.get('status') || '')
+            if (currentStatus === mappedStatus) {
+              console.log(
+                '[WHATSAPP WEBHOOK POST] Status já registrado para WAMID ' +
+                  wamid +
+                  ' (' +
+                  mappedStatus +
+                  '). Ignorando reenvio (idempotente).',
+              )
+              statusProcessedCount++
+              continue
+            }
+
+            // Atualizar status da mensagem correspondente
+            try {
+              targetMsg.set('status', mappedStatus)
+              $app.save(targetMsg)
+              statusProcessedCount++
+
+              console.log('[WHATSAPP WEBHOOK POST] Status da mensagem atualizado com sucesso:', {
+                recordId: targetMsg.id,
+                wamid: wamid,
+                oldStatus: currentStatus,
+                newStatus: mappedStatus,
+                recipientId: recipientId,
+                timestamp: statusTimestamp,
+                errorDetails: errorDetails,
+              })
+            } catch (saveErr) {
+              console.error(
+                '[WHATSAPP WEBHOOK POST] Erro ao salvar status para mensagem ' +
+                  targetMsg.id +
+                  ' (WAMID ' +
+                  wamid +
+                  '):',
+                saveErr,
+              )
+            }
+          }
+        }
+
+        // 4. Processamento de mensagens inbound (messages[])
         const messages = value.messages || []
         if (!Array.isArray(messages) || messages.length === 0) {
-          if (value.statuses && Array.isArray(value.statuses)) {
-            // Eventos statuses (delivered/read/sent) — ignorar conforme requisitos
-            ignoredCount++
-            continue
-          }
           ignoredCount++
           continue
         }
@@ -310,6 +461,8 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
       processed: processedCount,
       duplicates: duplicateCount,
       ignored: ignoredCount,
+      statuses_processed: statusProcessedCount,
+      statuses_ignored: statusIgnoredCount,
     })
   } catch (err) {
     // Nunca retornar 500 para evitar que a Meta entre em loop de reenvio
