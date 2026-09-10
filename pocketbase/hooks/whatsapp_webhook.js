@@ -1,4 +1,5 @@
 // WhatsApp Webhook — validação GET e recebimento POST da Meta Cloud API
+// ETAPA 3C: Processamento de statuses[] e recebimento de mensagens Meta Cloud API
 // Endpoint público: /backend/v1/crm/whatsapp-webhook
 
 routerAdd('GET', '/backend/v1/crm/whatsapp-webhook', (e) => {
