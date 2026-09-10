@@ -73,6 +73,8 @@ import ProductionOrderModal from './ProductionOrderModal'
 import CreateProductionOrderFromQuoteModal from './CreateProductionOrderFromQuoteModal'
 import {
   calculateSlaInfo,
+  calculateWaitingSlaInfo,
+  resolveFirstUnansweredInboundFromMessages,
   formatCurrency,
   formatDateTime,
   formatQuoteWhatsAppMessage,
@@ -834,12 +836,23 @@ export default function WhatsAppChatDrawer({
       lastCustomerMessageAt: activeAttendance?.last_customer_message_at,
     },
   )
-  const sla = calculateSlaInfo(
-    displayClient.last_message_at,
-    displayClient.last_message_direction,
-    displayClient.stage,
-    slaConfig,
+
+  // Calcular o SLA de espera do cliente usando a primeira inbound não respondida das mensagens
+  const firstUnansweredInboundFromChat = resolveFirstUnansweredInboundFromMessages(
+    messages,
+    activeAttendance?.id,
+    displayClient.id,
+    activeAttendance?.last_company_message_at,
   )
+
+  const sla = calculateWaitingSlaInfo({
+    firstUnansweredInboundAt: firstUnansweredInboundFromChat,
+    lastCompanyMessageAt: activeAttendance?.last_company_message_at || null,
+    lastCustomerMessageAt:
+      activeAttendance?.last_customer_message_at || displayClient.last_message_at || null,
+    stage: activeAttendance?.stage || displayClient.stage,
+    config: slaConfig,
+  })
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()

@@ -6,8 +6,9 @@ import { columnsService } from '@/services/columns'
 import { quotesService } from '@/services/quotes'
 import { settingsService } from '@/services/settings'
 import { useRealtime } from '@/hooks/use-realtime'
-import { calculateSlaInfo, formatCurrency } from '@/lib/sla'
+import { calculateWaitingSlaInfo, fetchFirstUnansweredInbound, formatCurrency } from '@/lib/sla'
 import type { Quote } from '@/types/quotes'
+import type { Message } from '@/types/crm'
 import KanbanCard from '@/components/KanbanCard'
 import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 import ClientFormModal from '@/components/ClientFormModal'
@@ -38,6 +39,11 @@ export default function KanbanPage() {
   const [attendanceQuotesMap, setAttendanceQuotesMap] = useState<
     Record<string, { latestQuote: Quote; count: number }>
   >({})
+  // Cache de firstUnansweredInbound por attendance_id (ou client_id)
+  // Valor: string (timestamp ISO) se houver espera ativa, null se não houver
+  const [unansweredInboundMap, setUnansweredInboundMap] = useState<Record<string, string | null>>(
+    {},
+  )
   const [slaConfig, setSlaConfig] = useState<SlaConfig>({
     urgentMinutes: 1440,
     warningMinutes: 720,
@@ -89,6 +95,30 @@ export default function KanbanPage() {
   // Ref to track attendances for lookup without triggering stale closures
   const attendancesRef = useRef<Attendance[]>([])
   attendancesRef.current = attendances
+
+  // Ref to track unansweredInboundMap for lookup in realtime callbacks
+  const unansweredInboundRef = useRef<Record<string, string | null>>({})
+  unansweredInboundRef.current = unansweredInboundMap
+
+  // Helper para buscar firstUnansweredInbound de um atendimento de forma otimizada
+  const refreshAttendanceSlaStart = useCallback(
+    async (attendanceId: string, lastCompanyMessageAt?: string | null, clientId?: string) => {
+      try {
+        const firstInbound = await fetchFirstUnansweredInbound(
+          attendanceId,
+          lastCompanyMessageAt,
+          clientId,
+        )
+        setUnansweredInboundMap((prev) => ({
+          ...prev,
+          [attendanceId]: firstInbound,
+        }))
+      } catch {
+        // Non-fatal
+      }
+    },
+    [],
+  )
 
   // Real-time enrichment cache for quotes per attendance
   const updateAttendanceQuote = useCallback(async (attendanceId: string) => {
@@ -232,7 +262,27 @@ export default function KanbanPage() {
               delete copy[rawRec.id]
               return copy
             })
+            setUnansweredInboundMap((prev) => {
+              if (!prev[rawRec.id]) return prev
+              const copy = { ...prev }
+              delete copy[rawRec.id]
+              return copy
+            })
             return
+          }
+
+          // Se last_company_message_at ou last_customer_message_at mudou no update do attendance
+          const existingAtt = attendancesRef.current.find((a) => a.id === rawRec.id)
+          if (
+            existingAtt &&
+            (existingAtt.last_company_message_at !== rawRec.last_company_message_at ||
+              existingAtt.last_customer_message_at !== rawRec.last_customer_message_at)
+          ) {
+            refreshAttendanceSlaStart(
+              rawRec.id,
+              rawRec.last_company_message_at,
+              rawRec.client_id || existingAtt.client_id,
+            )
           }
 
           setAttendances((prev) => {
@@ -297,10 +347,78 @@ export default function KanbanPage() {
             delete copy[rawRec.id]
             return copy
           })
+          setUnansweredInboundMap((prev) => {
+            if (!prev[rawRec.id]) return prev
+            const copy = { ...prev }
+            delete copy[rawRec.id]
+            return copy
+          })
         }
       },
-      [enrichAttendanceRecord, updateAttendanceQuote],
+      [enrichAttendanceRecord, updateAttendanceQuote, refreshAttendanceSlaStart],
     ),
+    true,
+  )
+
+  // Real-time subscription to 'messages' collection:
+  // - Inbound: se já existe SLA ativo (unansweredInboundMap[attId]), NÃO reiniciar.
+  //            se NÃO existe SLA ativo, iniciar novo ciclo naquele horário (created da mensagem).
+  // - Outbound: encerrar imediatamente o SLA ativo na UI (unansweredInboundMap[attId] = null).
+  useRealtime(
+    'messages',
+    useCallback((data) => {
+      const msg = data.record as unknown as Partial<Message>
+      if (!msg || !msg.id) return
+
+      const attId =
+        msg.attendance_id || attendancesRef.current.find((a) => a.client_id === msg.client_id)?.id
+      if (!attId) return
+
+      if (data.action === 'create' || data.action === 'update') {
+        if (msg.direction === 'outbound') {
+          // Equipe respondeu: encerra imediatamente o SLA ativo
+          setUnansweredInboundMap((prev) => ({
+            ...prev,
+            [attId]: null,
+          }))
+          // Atualizar last_company_message_at localmente no atendimento para consistência imediata
+          setAttendances((prev) =>
+            prev.map((a) =>
+              a.id === attId
+                ? {
+                    ...a,
+                    last_company_message_at: msg.created || new Date().toISOString(),
+                  }
+                : a,
+            ),
+          )
+        } else if (msg.direction === 'inbound') {
+          const currentSlaStart = unansweredInboundRef.current[attId]
+          if (currentSlaStart) {
+            // Já existe SLA ativo! REGRA: segunda/terceira inbound NÃO reinicia o SLA
+            // Mantém o currentSlaStart intacto!
+          } else {
+            // Não existe SLA ativo: inicia novo ciclo no horário desta inbound
+            const newSlaStart = msg.created || new Date().toISOString()
+            setUnansweredInboundMap((prev) => ({
+              ...prev,
+              [attId]: newSlaStart,
+            }))
+          }
+          // Atualizar last_customer_message_at localmente no atendimento
+          setAttendances((prev) =>
+            prev.map((a) =>
+              a.id === attId
+                ? {
+                    ...a,
+                    last_customer_message_at: msg.created || new Date().toISOString(),
+                  }
+                : a,
+            ),
+          )
+        }
+      }
+    }, []),
     true,
   )
 
@@ -317,6 +435,41 @@ export default function KanbanPage() {
       setColumns(cols)
       setAttendances(atts)
       setSlaConfig(cfg)
+
+      // Carregar os pontos de início de SLA (primeira inbound não respondida) em lote
+      // Para cada atendimento ativo:
+      // Se last_company_message_at >= last_customer_message_at, já sabemos que não há espera ativa -> null
+      // Caso contrário, busca a primeira inbound posterior a last_company_message_at
+      const slaMap: Record<string, string | null> = {}
+      const slaPromises = atts.map(async (att) => {
+        const compTime = att.last_company_message_at
+          ? new Date(att.last_company_message_at).getTime()
+          : 0
+        const custTime = att.last_customer_message_at
+          ? new Date(att.last_customer_message_at).getTime()
+          : 0
+
+        if (compTime > 0 && compTime >= custTime) {
+          // Equipe respondeu por último -> sem SLA ativo
+          slaMap[att.id] = null
+          return
+        }
+
+        // Cliente tem mensagem mais recente ou nunca houve outbound
+        try {
+          const firstInbound = await fetchFirstUnansweredInbound(
+            att.id,
+            att.last_company_message_at,
+            att.client_id,
+          )
+          slaMap[att.id] = firstInbound
+        } catch {
+          slaMap[att.id] = att.last_customer_message_at || null
+        }
+      })
+
+      await Promise.all(slaPromises)
+      setUnansweredInboundMap(slaMap)
 
       // BLOCO 41A: Mapear quotes em aberto por attendance_id
       // Considerar apenas status NÃO 'recusado' e NÃO 'expirado'
@@ -456,11 +609,15 @@ export default function KanbanPage() {
 
     if (slaFilterOnly) {
       if (att.stage === 'Venda fechada' || att.stage === 'Não fechou') return false
-      const lastMsgAt = att.last_customer_message_at || client?.last_message_at || att.created
-      const lastDir = att.last_customer_message_at
-        ? 'inbound'
-        : client?.last_message_direction || 'inbound'
-      const sla = calculateSlaInfo(lastMsgAt, lastDir, att.stage, slaConfig, now)
+      const firstInbound = unansweredInboundMap[att.id]
+      const sla = calculateWaitingSlaInfo({
+        firstUnansweredInboundAt: firstInbound,
+        lastCompanyMessageAt: att.last_company_message_at || null,
+        lastCustomerMessageAt: att.last_customer_message_at || client?.last_message_at || null,
+        stage: att.stage,
+        config: slaConfig,
+        nowTimestamp: now,
+      })
       return sla.status === 'urgent' || sla.status === 'warning'
     }
 
@@ -689,11 +846,16 @@ export default function KanbanPage() {
             const urgentInStage = stageItems.filter((a) => {
               if (isFinalStage) return false
               const client = a.expand?.client_id
-              const lastMsgAt = a.last_customer_message_at || client?.last_message_at || a.created
-              const lastDir = a.last_customer_message_at
-                ? 'inbound'
-                : client?.last_message_direction || 'inbound'
-              const sla = calculateSlaInfo(lastMsgAt, lastDir, a.stage, slaConfig, now)
+              const firstInbound = unansweredInboundMap[a.id]
+              const sla = calculateWaitingSlaInfo({
+                firstUnansweredInboundAt: firstInbound,
+                lastCompanyMessageAt: a.last_company_message_at || null,
+                lastCustomerMessageAt:
+                  a.last_customer_message_at || client?.last_message_at || null,
+                stage: a.stage,
+                config: slaConfig,
+                nowTimestamp: now,
+              })
               return sla.status === 'urgent'
             }).length
 
@@ -784,6 +946,7 @@ export default function KanbanPage() {
                           key={att.id}
                           client={clientObj}
                           attendance={att}
+                          firstUnansweredInboundAt={unansweredInboundMap[att.id]}
                           column={column}
                           realQuote={quoteInfo?.latestQuote || null}
                           openQuotesCount={quoteInfo?.count || 0}

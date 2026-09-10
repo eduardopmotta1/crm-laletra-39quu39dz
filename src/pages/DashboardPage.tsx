@@ -20,7 +20,7 @@ import { attendancesService } from '@/services/attendances'
 import { tasksService } from '@/services/tasks'
 import { settingsService } from '@/services/settings'
 import { evaluationsService } from '@/services/evaluations'
-import { calculateSlaInfo, formatCurrency, formatDateTime } from '@/lib/sla'
+import { calculateWaitingSlaInfo, formatCurrency, formatDateTime } from '@/lib/sla'
 import type { Client, Attendance, Task, SlaConfig, Evaluation } from '@/types/crm'
 import { ShieldAlert } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -131,26 +131,33 @@ export default function DashboardPage() {
   // Metrics computation from attendances
   const waitingAttendances = activeAttendances.filter((a) => {
     if (a.stage === 'Venda fechada' || a.stage === 'Não fechou') return false
-    const client = a.expand?.client_id
-    const dir = client?.last_message_direction || 'inbound'
-    return dir === 'inbound'
+    const compTime = a.last_company_message_at ? new Date(a.last_company_message_at).getTime() : 0
+    const custTime = a.last_customer_message_at ? new Date(a.last_customer_message_at).getTime() : 0
+    if (compTime > 0 && compTime >= custTime) return false
+    return custTime > 0 || a.stage === 'Precisa responder' || a.stage === 'Novo contato'
   })
 
   const urgentAttendances = activeAttendances.filter((a) => {
     if (a.stage === 'Venda fechada' || a.stage === 'Não fechou') return false
     const client = a.expand?.client_id
-    const lastMsgAt = client?.last_message_at || a.last_customer_message_at || a.created
-    const lastDir = client?.last_message_direction || 'inbound'
-    const sla = calculateSlaInfo(lastMsgAt, lastDir, a.stage, slaConfig)
+    const sla = calculateWaitingSlaInfo({
+      lastCompanyMessageAt: a.last_company_message_at || null,
+      lastCustomerMessageAt: a.last_customer_message_at || client?.last_message_at || null,
+      stage: a.stage,
+      config: slaConfig,
+    })
     return sla.status === 'urgent'
   })
 
   const warningAttendances = activeAttendances.filter((a) => {
     if (a.stage === 'Venda fechada' || a.stage === 'Não fechou') return false
     const client = a.expand?.client_id
-    const lastMsgAt = client?.last_message_at || a.last_customer_message_at || a.created
-    const lastDir = client?.last_message_direction || 'inbound'
-    const sla = calculateSlaInfo(lastMsgAt, lastDir, a.stage, slaConfig)
+    const sla = calculateWaitingSlaInfo({
+      lastCompanyMessageAt: a.last_company_message_at || null,
+      lastCustomerMessageAt: a.last_customer_message_at || client?.last_message_at || null,
+      stage: a.stage,
+      config: slaConfig,
+    })
     return sla.status === 'warning'
   })
 
@@ -473,10 +480,13 @@ export default function DashboardPage() {
               waitingAttendances.slice(0, 6).map((att) => {
                 const client = att.expand?.client_id || clients.find((c) => c.id === att.client_id)
                 const clientName = client?.name || 'Cliente'
-                const lastMsgAt =
-                  client?.last_message_at || att.last_customer_message_at || att.created
-                const lastDir = client?.last_message_direction || 'inbound'
-                const sla = calculateSlaInfo(lastMsgAt, lastDir, att.stage, slaConfig)
+                const sla = calculateWaitingSlaInfo({
+                  lastCompanyMessageAt: att.last_company_message_at || null,
+                  lastCustomerMessageAt:
+                    att.last_customer_message_at || client?.last_message_at || null,
+                  stage: att.stage,
+                  config: slaConfig,
+                })
                 return (
                   <div
                     key={att.id}

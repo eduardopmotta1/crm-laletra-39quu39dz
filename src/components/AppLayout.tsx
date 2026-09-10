@@ -33,7 +33,7 @@ import { attendancesService } from '@/services/attendances'
 import { settingsService } from '@/services/settings'
 import { evaluationsService } from '@/services/evaluations'
 import { pendingService } from '@/services/pending'
-import { calculateSlaInfo } from '@/lib/sla'
+import { calculateSlaInfo, calculateWaitingSlaInfo } from '@/lib/sla'
 import type { Client, Attendance, SlaConfig } from '@/types/crm'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -112,9 +112,12 @@ export default function AppLayout() {
       for (const att of attendances) {
         if (att.stage === 'Venda fechada' || att.stage === 'Não fechou') continue
         const client = att.expand?.client_id
-        const lastMsgAt = client?.last_message_at || att.last_customer_message_at || att.created
-        const lastDir = client?.last_message_direction || 'inbound'
-        const sla = calculateSlaInfo(lastMsgAt, lastDir, att.stage, cfg)
+        const sla = calculateWaitingSlaInfo({
+          lastCompanyMessageAt: att.last_company_message_at || null,
+          lastCustomerMessageAt: att.last_customer_message_at || client?.last_message_at || null,
+          stage: att.stage,
+          config: cfg,
+        })
         if (sla.status === 'urgent') urgent++
         else if (sla.status === 'warning') warning++
       }

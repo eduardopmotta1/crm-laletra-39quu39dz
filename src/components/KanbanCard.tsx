@@ -20,13 +20,14 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { Client, Attendance, Priority, KanbanColumn, SlaConfig } from '@/types/crm'
 import type { Quote } from '@/types/quotes'
-import { calculateSlaInfo, formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
+import { calculateWaitingSlaInfo, formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
 
 interface KanbanCardProps {
   client: Client
   attendance?: Attendance
+  firstUnansweredInboundAt?: string | null
   slaConfig: SlaConfig
   column?: KanbanColumn
   realQuote?: Quote | null
@@ -41,6 +42,7 @@ interface KanbanCardProps {
 export default function KanbanCard({
   client,
   attendance,
+  firstUnansweredInboundAt,
   slaConfig,
   column,
   realQuote,
@@ -66,16 +68,19 @@ export default function KanbanCard({
       ? Number(realQuote.final_total || realQuote.total_sale)
       : null
 
-  // SLA do card: usar attendance.last_customer_message_at como referência PRINCIPAL.
-  // Se attendance.last_customer_message_at estiver preenchido, a direção para cálculo de tempo
-  // de espera do cliente é 'inbound' (mensagem recebida do cliente aguardando resposta).
-  // Fallback: manter client.last_message_at e client.last_message_direction se last_customer_message_at não existir.
-  const slaReferenceTime = attendance?.last_customer_message_at || client.last_message_at
-  const slaDirection = attendance?.last_customer_message_at
-    ? 'inbound'
-    : client.last_message_direction
-
-  const slaInfo = calculateSlaInfo(slaReferenceTime, slaDirection, currentStage, slaConfig, now)
+  // CORREÇÃO 2: SLA / TEMPO DE ESPERA DO CLIENTE.
+  // 1. NÃO usar simplesmente attendance.last_customer_message_at como início do SLA.
+  // 2. Usar attendance.last_company_message_at como limite da última resposta da equipe.
+  // 3. O início da espera atual é a PRIMEIRA mensagem inbound da sequência não respondida.
+  // 4. Se houver outbound posterior: cliente respondido (SLA não continua contando).
+  const slaInfo = calculateWaitingSlaInfo({
+    firstUnansweredInboundAt,
+    lastCompanyMessageAt: attendance?.last_company_message_at || null,
+    lastCustomerMessageAt: attendance?.last_customer_message_at || client.last_message_at || null,
+    stage: currentStage,
+    config: slaConfig,
+    nowTimestamp: now,
+  })
 
   const priorityColors: Record<Priority, string> = {
     urgente: 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300',
