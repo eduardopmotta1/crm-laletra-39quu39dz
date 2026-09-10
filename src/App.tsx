@@ -9,6 +9,7 @@ import AppLayout from '@/components/AppLayout'
 // Pages
 import LoginPage from '@/pages/LoginPage'
 import RegisterPage from '@/pages/RegisterPage'
+import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import DashboardPage from '@/pages/DashboardPage'
 import PendingHubPage from '@/pages/PendingHubPage'
 import KanbanPage from '@/pages/KanbanPage'
@@ -39,6 +40,7 @@ const App = () => (
           {/* Public Auth Routes */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/registro" element={<RegisterPage />} />
+          <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
 
           {/* Public Customer Evaluation Route (No Auth Required) */}
           <Route path="/avaliacao/:token" element={<PublicEvaluationPage />} />
