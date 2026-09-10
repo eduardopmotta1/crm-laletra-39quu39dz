@@ -21,49 +21,115 @@ routerAdd('GET', '/api/public/quotes/{token}', (c) => {
 
     const q = quotes[0]
 
-    // 1. Ler o campo items já salvo no registro do quote
+    // 1. Obter o valor bruto de items do registro e normalizar
     let rawItems = []
-    try {
-      const it = q.get('items')
-      if (typeof it === 'string') {
-        try {
-          rawItems = JSON.parse(it)
-        } catch (_) {
-          rawItems = []
-        }
-      } else if (Array.isArray(it)) {
-        rawItems = it
-      } else if (it !== null && typeof it === 'object') {
-        try {
-          const str = JSON.stringify(it)
-          const parsed = JSON.parse(str)
-          if (Array.isArray(parsed)) {
-            rawItems = parsed
-          } else if (parsed && typeof parsed === 'object') {
-            rawItems = [parsed]
-          }
-        } catch (_) {
-          rawItems = []
-        }
-      }
 
-      if ((!rawItems || rawItems.length === 0) && q.getString) {
-        const str = q.getString('items')
-        if (str) {
+    // Estratégia A: Em PocketBase / Goja v0.36+, campos JSON retornam types.JsonArray (slice de bytes em Go / objeto com índices no Goja).
+    // q.getString('items') retorna a string JSON crua do banco SQLite.
+    try {
+      if (q.getString) {
+        const jsonStr = q.getString('items')
+        if (jsonStr && typeof jsonStr === 'string' && jsonStr.trim()) {
           try {
-            const parsed = JSON.parse(str)
-            if (Array.isArray(parsed)) rawItems = parsed
+            const parsed = JSON.parse(jsonStr)
+            if (Array.isArray(parsed)) {
+              rawItems = parsed
+            }
           } catch (_) {}
         }
       }
-    } catch (_) {
-      rawItems = []
+    } catch (_) {}
+
+    // Estratégia B: Se q.getString não retornou array, ler via q.get('items')
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+      try {
+        const it = q.get('items')
+        if (it === null || it === undefined) {
+          rawItems = []
+        } else if (typeof it === 'string') {
+          // Se for string -> tentar JSON.parse
+          try {
+            const parsed = JSON.parse(it)
+            if (Array.isArray(parsed)) {
+              rawItems = parsed
+            } else if (parsed && typeof parsed === 'object') {
+              rawItems = [parsed]
+            }
+          } catch (_) {
+            rawItems = []
+          }
+        } else if (Array.isArray(it)) {
+          // Se já for Array -> verificar se não é array de byte-codes Go
+          const isByteArray =
+            it.length > 0 &&
+            it.every((x) => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x <= 255)
+          if (isByteArray) {
+            try {
+              let reconstructed = ''
+              for (let i = 0; i < it.length; i++) {
+                reconstructed += String.fromCharCode(it[i])
+              }
+              const parsed = JSON.parse(reconstructed)
+              if (Array.isArray(parsed)) {
+                rawItems = parsed
+              }
+            } catch (_) {}
+          } else {
+            rawItems = it
+          }
+        } else if (typeof it === 'object') {
+          // Se for objeto compatível com array/estrutura JSON (ex: types.JSONArray no Goja)
+          try {
+            // Tentar extrair valores se possui índices numéricos
+            const keys = Object.keys(it)
+            const isNumericKeys = keys.length > 0 && keys.every((k) => !isNaN(Number(k)))
+            if (isNumericKeys) {
+              const arr = []
+              for (let i = 0; i < keys.length; i++) {
+                if (it[i] !== undefined) {
+                  arr.push(it[i])
+                } else if (it[keys[i]] !== undefined) {
+                  arr.push(it[keys[i]])
+                }
+              }
+              // Se os itens do array forem byte-codes, reconstituir
+              const isByteArr =
+                arr.length > 0 &&
+                arr.every((x) => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x <= 255)
+              if (isByteArr) {
+                try {
+                  let str = ''
+                  for (let i = 0; i < arr.length; i++) {
+                    str += String.fromCharCode(arr[i])
+                  }
+                  const parsed = JSON.parse(str)
+                  if (Array.isArray(parsed)) {
+                    rawItems = parsed
+                  }
+                } catch (_) {}
+              } else {
+                rawItems = arr
+              }
+            } else {
+              // Tentar JSON.stringify / JSON.parse
+              const str = JSON.stringify(it)
+              const parsed = JSON.parse(str)
+              if (Array.isArray(parsed)) {
+                rawItems = parsed
+              } else if (parsed && typeof parsed === 'object') {
+                rawItems = [parsed]
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
     }
 
     if (!Array.isArray(rawItems)) {
       rawItems = []
     }
-    // Converter elementos do Goja para plain JavaScript objects se necessário
+
+    // Normalizar elementos que possam ter vindo como string JSON
     const normalizedRawItems = rawItems.map((it) => {
       if (typeof it === 'string') {
         try {
