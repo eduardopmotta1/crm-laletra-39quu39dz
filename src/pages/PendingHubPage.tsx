@@ -37,9 +37,11 @@ import {
 } from 'lucide-react'
 import { pendingService, PENDING_CATEGORY_CONFIG } from '@/services/pending'
 import { clientsService } from '@/services/clients'
+import { attendancesService } from '@/services/attendances'
 import { settingsService } from '@/services/settings'
 import { whatsappService } from '@/services/whatsapp'
 import { tasksService } from '@/services/tasks'
+import type { Attendance } from '@/types/crm'
 import { productionService } from '@/services/production'
 import { evaluationsService } from '@/services/evaluations'
 import { postSalesService } from '@/services/postSales'
@@ -110,6 +112,9 @@ export default function PendingHubPage() {
   // Modals & Action states
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
   const [selectedClientForChat, setSelectedClientForChat] = useState<Client | null>(null)
+  const [selectedAttendanceForChat, setSelectedAttendanceForChat] = useState<Attendance | null>(
+    null,
+  )
   const [orderModalOpen, setOrderModalOpen] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
 
@@ -234,9 +239,33 @@ export default function PendingHubPage() {
     }
 
     try {
-      const cl = await clientsService.getById(item.clientId)
+      const [cl, att] = await Promise.all([
+        clientsService.getById(item.clientId),
+        item.attendanceId
+          ? attendancesService.getById(item.attendanceId).catch((err) => {
+              console.warn('[PendingHubPage] Erro ao carregar attendance por id:', err)
+              return null
+            })
+          : Promise.resolve(null),
+      ])
+
+      // Fallback seguro se o attendanceId referenciado não existir mais ou não for fornecido
+      let activeAtt = att
+      if (!activeAtt && item.clientId) {
+        try {
+          const clientAtts = await attendancesService.getByClientId(item.clientId)
+          activeAtt = clientAtts.find((a) => !a.is_archived) || clientAtts[0] || null
+        } catch (attFallbackErr) {
+          console.warn(
+            '[PendingHubPage] Falha ao buscar attendance fallback para cliente:',
+            attFallbackErr,
+          )
+        }
+      }
+
       if (cl) {
         setSelectedClientForChat(cl)
+        setSelectedAttendanceForChat(activeAtt)
         setChatDrawerOpen(true)
       }
     } catch {
@@ -1343,8 +1372,12 @@ export default function PendingHubPage() {
       {/* WhatsApp Chat Drawer */}
       <WhatsAppChatDrawer
         isOpen={chatDrawerOpen}
-        onClose={() => setChatDrawerOpen(false)}
+        onClose={() => {
+          setChatDrawerOpen(false)
+          setSelectedAttendanceForChat(null)
+        }}
         client={selectedClientForChat}
+        activeAttendance={selectedAttendanceForChat}
         slaConfig={slaConfig}
         onClientUpdated={() => loadAllData(false)}
       />

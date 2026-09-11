@@ -64,6 +64,7 @@ import { whatsappService, usersService } from '@/services/whatsapp'
 import { rolesService } from '@/services/rolesPermissions'
 import { tasksService } from '@/services/tasks'
 import { clientsService } from '@/services/clients'
+import { attendancesService } from '@/services/attendances'
 import { dealsService } from '@/services/deals'
 import { evaluationsService } from '@/services/evaluations'
 import { postSalesService } from '@/services/postSales'
@@ -152,6 +153,9 @@ export default function WhatsAppChatDrawer({
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null)
   const [attachmentNote, setAttachmentNote] = useState('')
   const [currentClient, setCurrentClient] = useState<Client | null>(client)
+  const [currentAttendance, setCurrentAttendance] = useState<Attendance | null>(
+    activeAttendance || null,
+  )
   const [apiStatus, setApiStatus] = useState<{
     configured: boolean
     hasToken: boolean
@@ -242,9 +246,10 @@ export default function WhatsAppChatDrawer({
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Effective client to reference
+  // Effective client & attendance to reference
   const displayClient = currentClient || client
   const activeClientId = displayClient?.id
+  const displayAttendance = currentAttendance || activeAttendance
 
   // Track scroll state and navigation triggers
   const isNearBottomRef = useRef<boolean>(true)
@@ -403,12 +408,15 @@ export default function WhatsAppChatDrawer({
     onClose,
   ])
 
-  // Carrega e sincroniza dados do cliente ao abrir ou alternar contexto por ID estável
+  // Carrega e sincroniza dados do cliente e atendimento ao abrir ou alternar contexto por ID estável
   useEffect(() => {
     if (!isOpen || !activeClientId) return
 
     if (client && client.id === activeClientId) {
       setCurrentClient(client)
+    }
+    if (activeAttendance) {
+      setCurrentAttendance(activeAttendance)
     }
 
     loadClientData(activeClientId, activeAttendance?.id)
@@ -660,7 +668,31 @@ export default function WhatsAppChatDrawer({
       setLoading(true)
     }
     try {
-      const targetAttId = attendanceId || activeAttendance?.id
+      const targetAttId = attendanceId || displayAttendance?.id || activeAttendance?.id
+
+      // Sincronizar attendance atual e quotes com fallback seguro
+      const attendancePromise = (async (): Promise<Attendance | null> => {
+        if (targetAttId) {
+          try {
+            const att = await attendancesService.getById(targetAttId)
+            if (att) return att
+          } catch (err) {
+            console.warn('[WhatsAppChatDrawer] Erro ao buscar attendance especificado:', err)
+          }
+        }
+        // Fallback seguro se não houver attendanceId ou se o atendimento foi arquivado/apagado
+        try {
+          const clientAtts = await attendancesService.getByClientId(clientId)
+          const fallback = clientAtts.find((a) => !a.is_archived) || clientAtts[0] || null
+          return fallback
+        } catch (err) {
+          console.warn(
+            '[WhatsAppChatDrawer] Erro ao buscar fallback de attendance do cliente:',
+            err,
+          )
+          return null
+        }
+      })()
 
       const messagesPromise = options?.skipMessages
         ? Promise.resolve(null)
@@ -672,29 +704,66 @@ export default function WhatsAppChatDrawer({
         msgList,
         taskList,
         freshClient,
+        freshAttendance,
         pastDeals,
         transitions,
         evals,
         psList,
         ordersList,
         status,
-        quotesList,
         allUsers,
         allRoles,
       ] = await Promise.all([
         messagesPromise,
         tasksService.getByClientId(clientId),
         clientsService.getById(clientId),
+        attendancePromise,
         dealsService.getByClientId(clientId),
         dealsService.getStageTransitions(clientId),
         evaluationsService.getByClientId(clientId),
         postSalesService.getByClientId(clientId),
         productionService.getByClientId(clientId),
         whatsappService.getApiStatus(),
-        targetAttId ? quotesService.getByAttendanceId(targetAttId) : Promise.resolve([]),
         usersService.getAll(),
         rolesService.getAll(),
       ])
+
+      // Atualiza o attendance sincronizado
+      if (freshAttendance) {
+        setCurrentAttendance(freshAttendance)
+      }
+
+      // Buscar quotes do attendance resolvido
+      const effectiveAttId = freshAttendance?.id || targetAttId
+      let quotesList: Quote[] = []
+      if (effectiveAttId) {
+        try {
+          quotesList = await quotesService.getByAttendanceId(effectiveAttId)
+        } catch (quoteErr) {
+          console.warn('[WhatsAppChatDrawer] Erro ao buscar orçamentos do atendimento:', quoteErr)
+        }
+      }
+
+      // Se a busca por attendance_id vier vazia ou não houver quotes vinculadas a ele,
+      // buscar por client_id para garantir que orçamentos criados no cliente não sumam
+      if (quotesList.length === 0 && clientId) {
+        try {
+          const clientQuotes = await pb.collection('quotes').getFullList<Quote>({
+            filter: `client_id = "${clientId}"`,
+            sort: '-created',
+            expand: 'client_id,attendance_id,user_id',
+            requestKey: null,
+          })
+          if (clientQuotes.length > 0) {
+            quotesList = clientQuotes
+          }
+        } catch (cQuoteErr) {
+          console.warn(
+            '[WhatsAppChatDrawer] Erro ao buscar fallback de orçamentos por client_id:',
+            cQuoteErr,
+          )
+        }
+      }
       if (msgList !== null) {
         setMessages((prev) => mergeMessages(prev, msgList))
       }
@@ -731,6 +800,9 @@ export default function WhatsAppChatDrawer({
       }
     }
   }
+
+  // Usar displayAttendance quando activeAttendance for consultado no Drawer
+  const effectiveAttendance = displayAttendance || activeAttendance
 
   // Helper to format role/sector name nicely
   const getRoleDisplayName = (userObj?: User | null) => {
@@ -833,24 +905,31 @@ export default function WhatsAppChatDrawer({
     displayClient.last_message_at,
     displayClient.last_message_direction,
     {
-      lastCustomerMessageAt: activeAttendance?.last_customer_message_at,
+      lastCustomerMessageAt:
+        displayAttendance?.last_customer_message_at || activeAttendance?.last_customer_message_at,
     },
   )
 
   // Calcular o SLA de espera do cliente usando a primeira inbound não respondida das mensagens
   const firstUnansweredInboundFromChat = resolveFirstUnansweredInboundFromMessages(
     messages,
-    activeAttendance?.id,
+    displayAttendance?.id || activeAttendance?.id,
     displayClient.id,
-    activeAttendance?.last_company_message_at,
+    displayAttendance?.last_company_message_at || activeAttendance?.last_company_message_at,
   )
 
   const sla = calculateWaitingSlaInfo({
     firstUnansweredInboundAt: firstUnansweredInboundFromChat,
-    lastCompanyMessageAt: activeAttendance?.last_company_message_at || null,
+    lastCompanyMessageAt:
+      displayAttendance?.last_company_message_at ||
+      activeAttendance?.last_company_message_at ||
+      null,
     lastCustomerMessageAt:
-      activeAttendance?.last_customer_message_at || displayClient.last_message_at || null,
-    stage: activeAttendance?.stage || displayClient.stage,
+      displayAttendance?.last_customer_message_at ||
+      activeAttendance?.last_customer_message_at ||
+      displayClient.last_message_at ||
+      null,
+    stage: displayAttendance?.stage || activeAttendance?.stage || displayClient.stage,
     config: slaConfig,
   })
 
@@ -863,7 +942,7 @@ export default function WhatsAppChatDrawer({
     try {
       const res = await whatsappService.sendMessage({
         clientId: displayClient.id,
-        attendanceId: activeAttendance?.id,
+        attendanceId: effectiveAttendance?.id || activeAttendance?.id,
         messageText: textToSend,
         file: selectedAttachment,
       })
@@ -887,9 +966,10 @@ export default function WhatsAppChatDrawer({
       setCurrentClient((prevClient) => {
         const baseClient = res.client || prevClient || displayClient
         // Outbound NÃO altera last_message_direction para 'outbound' se houver attendance ativo ou direção inbound preservada
-        const preservedDirection = activeAttendance?.last_customer_message_at
-          ? 'inbound'
-          : baseClient.last_message_direction || 'inbound'
+        const preservedDirection =
+          displayAttendance?.last_customer_message_at || activeAttendance?.last_customer_message_at
+            ? 'inbound'
+            : baseClient.last_message_direction || 'inbound'
         return {
           ...baseClient,
           last_message_at: nowIso,
@@ -976,7 +1056,8 @@ export default function WhatsAppChatDrawer({
     e.preventDefault()
     if (!newTaskTitle.trim()) return
 
-    if (!activeAttendance) {
+    const targetAtt = effectiveAttendance || activeAttendance
+    if (!targetAtt) {
       toast({
         title: 'Atendimento não encontrado',
         description: 'Não há atendimento ativo vinculado para associar esta tarefa comercial.',
@@ -989,7 +1070,7 @@ export default function WhatsAppChatDrawer({
       await tasksService.create({
         title: newTaskTitle.trim(),
         client_id: displayClient.id,
-        attendance_id: activeAttendance.id,
+        attendance_id: targetAtt.id,
         assigned_to: user?.id,
         due_date: newTaskDueDate || new Date().toISOString().split('T')[0],
         status: 'pendente',
@@ -1197,7 +1278,11 @@ export default function WhatsAppChatDrawer({
       // Send the WhatsApp message using existing mechanism
       const res = await whatsappService.sendMessage({
         clientId: displayClient.id,
-        attendanceId: activeAttendance?.id || selectedQuoteToSend.attendance_id || undefined,
+        attendanceId:
+          effectiveAttendance?.id ||
+          activeAttendance?.id ||
+          selectedQuoteToSend.attendance_id ||
+          undefined,
         messageText: formattedText,
       })
 
@@ -1371,7 +1456,7 @@ export default function WhatsAppChatDrawer({
                     {displayClient.name}
                   </h3>
                   <Badge variant="outline" className="text-xs shrink-0">
-                    {activeAttendance?.stage || displayClient.stage}
+                    {effectiveAttendance?.stage || displayClient.stage}
                   </Badge>
                   {(displayClient.total_purchases !== undefined &&
                     displayClient.total_purchases > 0) ||
@@ -1413,13 +1498,13 @@ export default function WhatsAppChatDrawer({
 
             {/* Action buttons */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              {activeAttendance?.id && (
+              {effectiveAttendance?.id && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
                     const clientId = displayClient.id
-                    const attId = activeAttendance.id
+                    const attId = effectiveAttendance?.id || activeAttendance?.id || ''
                     navigate(
                       `/orcamentos/novo?attendance_id=${encodeURIComponent(attId)}&client_id=${encodeURIComponent(clientId)}`,
                     )
@@ -2382,8 +2467,8 @@ export default function WhatsAppChatDrawer({
                       <div>
                         <span className="text-slate-400 block text-[10px]">Produto / Demanda</span>
                         <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          {activeAttendance?.product_interest !== undefined
-                            ? activeAttendance.product_interest || 'Não informado'
+                          {effectiveAttendance?.product_interest !== undefined
+                            ? effectiveAttendance.product_interest || 'Não informado'
                             : displayClient.product_interest || 'Não informado'}
                         </span>
                       </div>
@@ -2391,13 +2476,13 @@ export default function WhatsAppChatDrawer({
                         <span className="text-slate-400 block text-[10px]">Valor do Orçamento</span>
                         <span className="font-bold text-emerald-600 dark:text-emerald-400">
                           {(
-                            activeAttendance?.quote_value !== undefined
-                              ? activeAttendance.quote_value
+                            effectiveAttendance?.quote_value !== undefined
+                              ? effectiveAttendance.quote_value
                               : displayClient.quote_value
                           )
                             ? formatCurrency(
-                                (activeAttendance?.quote_value !== undefined
-                                  ? activeAttendance.quote_value
+                                (effectiveAttendance?.quote_value !== undefined
+                                  ? effectiveAttendance.quote_value
                                   : displayClient.quote_value) || 0,
                               )
                             : 'Não cotado'}
