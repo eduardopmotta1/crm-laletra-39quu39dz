@@ -155,13 +155,14 @@ routerAdd('POST', '/api/public/quotes/{token}/approve', (c) => {
  * Requer campo 'customer_notes' com a explicação da alteração desejada.
  */
 routerAdd('POST', '/api/public/quotes/{token}/request-change', (c) => {
+  let token = ''
   try {
-    const token = c.request.pathValue('token')
+    token = c.request.pathValue('token')
     if (!token || token.trim() === '') {
       return c.json(400, { error: 'Token inválido' })
     }
 
-    const body = $apis.requestInfo(c).data || {}
+    const body = c.requestInfo().body || {}
     const notes = typeof body.customer_notes === 'string' ? body.customer_notes.trim() : ''
 
     if (!notes) {
@@ -201,6 +202,10 @@ routerAdd('POST', '/api/public/quotes/{token}/request-change', (c) => {
       code: q.getString('code'),
     })
   } catch (err) {
+    const maskedToken = token ? token.substring(0, 4) + '...' + token.slice(-4) : 'nenhum'
+    console.error(
+      `[PublicQuoteActions] Ação: request-change | Token: ${maskedToken} | Erro: ${err && err.message ? err.message : String(err)}`,
+    )
     return c.json(500, { error: 'Erro ao solicitar alteração: ' + err.message })
   }
 })
@@ -212,13 +217,14 @@ routerAdd('POST', '/api/public/quotes/{token}/request-change', (c) => {
  * e move EXCLUSIVAMENTE o attendance vinculado (quote.attendance_id) para 'Não fechou'.
  */
 routerAdd('POST', '/api/public/quotes/{token}/reject', (c) => {
+  let token = ''
   try {
-    const token = c.request.pathValue('token')
+    token = c.request.pathValue('token')
     if (!token || token.trim() === '') {
       return c.json(400, { error: 'Token inválido' })
     }
 
-    const body = $apis.requestInfo(c).data || {}
+    const body = c.requestInfo().body || {}
     const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
     const notes = typeof body.notes === 'string' ? body.notes.trim() : ''
 
@@ -344,6 +350,10 @@ routerAdd('POST', '/api/public/quotes/{token}/reject', (c) => {
       code: quoteCode,
     })
   } catch (err) {
+    const maskedToken = token ? token.substring(0, 4) + '...' + token.slice(-4) : 'nenhum'
+    console.error(
+      `[PublicQuoteActions] Ação: reject | Token: ${maskedToken} | Erro: ${err && err.message ? err.message : String(err)}`,
+    )
     return c.json(500, { error: 'Erro ao recusar orçamento: ' + err.message })
   }
 })
