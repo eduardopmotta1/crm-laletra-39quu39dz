@@ -599,7 +599,7 @@ export default function QuotesListPage() {
                     </div>
                   )}
 
-                  {q.status === 'rascunho' && (
+                  {q.status !== 'aprovado' && q.status !== 'recusado' && (
                     <Button
                       type="button"
                       size="sm"
@@ -614,11 +614,13 @@ export default function QuotesListPage() {
                         navigate(params ? `/kanban?${params}` : '/kanban')
                       }}
                       className="gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold h-8 px-2.5"
-                      title={`Enviar orçamento ${q.code}`}
+                      title={
+                        q.status === 'rascunho'
+                          ? `Enviar orçamento ${q.code}`
+                          : `Reenviar orçamento ${q.code}`
+                      }
                     >
-                      {q.approved_at || q.rejected_at || q.customer_notes
-                        ? 'Enviar novamente'
-                        : 'Enviar orçamento'}
+                      {q.status === 'rascunho' ? 'Enviar orçamento' : 'Reenviar orçamento'}
                     </Button>
                   )}
 
@@ -900,7 +902,7 @@ export default function QuotesListPage() {
                     </>
                   )}
 
-                  {selectedQuote.status === 'rascunho' && (
+                  {selectedQuote.status !== 'aprovado' && selectedQuote.status !== 'recusado' && (
                     <Button
                       type="button"
                       size="sm"
@@ -917,11 +919,9 @@ export default function QuotesListPage() {
                       }}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold"
                     >
-                      {selectedQuote.approved_at ||
-                      selectedQuote.rejected_at ||
-                      selectedQuote.customer_notes
-                        ? 'Enviar novamente'
-                        : 'Enviar orçamento'}
+                      {selectedQuote.status === 'rascunho'
+                        ? 'Enviar orçamento'
+                        : 'Reenviar orçamento'}
                     </Button>
                   )}
 

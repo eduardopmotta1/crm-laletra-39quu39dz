@@ -245,8 +245,9 @@ export default function StartWhatsAppConversationModal({
       })
 
       if (res.success) {
-        // Se foi o envio de um orçamento específico, atualizar status do quote para 'enviado' SOMENTE após confirmação de sucesso
-        if (initialQuote && initialQuote.id) {
+        // Se foi o envio de um orçamento específico em rascunho, atualizar status do quote para 'enviado' SOMENTE após confirmação de sucesso.
+        // Se já foi enviado ou está em alteração solicitada, não alterar status só por reenviar.
+        if (initialQuote && initialQuote.id && initialQuote.status === 'rascunho') {
           try {
             await quotesService.updateStatus(initialQuote.id, 'enviado')
           } catch (qErr) {

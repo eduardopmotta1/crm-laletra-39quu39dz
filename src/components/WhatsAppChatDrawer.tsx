@@ -1241,16 +1241,34 @@ export default function WhatsAppChatDrawer({
     }
   }
 
-  const handleOpenSendQuote = (quote: Quote) => {
-    setSelectedQuoteToSend(quote)
+  const handleOpenSendQuote = async (quote: Quote) => {
+    // Buscar dados mais recentes do orçamento caso tenha sido editado após o primeiro envio
+    try {
+      const freshQuote = await quotesService.getById(quote.id)
+      setSelectedQuoteToSend(freshQuote)
+    } catch {
+      setSelectedQuoteToSend(quote)
+    }
     setSendQuoteModalOpen(true)
   }
 
   const handleConfirmSendQuote = async () => {
     if (!selectedQuoteToSend || isSendingQuote || !displayClient) return
 
+    // Obter os dados mais recentes do orçamento para garantir envio com valores e itens atuais
+    let currentQuote = selectedQuoteToSend
+    try {
+      const fresh = await quotesService.getById(selectedQuoteToSend.id)
+      if (fresh) {
+        currentQuote = fresh
+        setSelectedQuoteToSend(fresh)
+      }
+    } catch {
+      // Prossegue com o quote selecionado se busca falhar
+    }
+
     // Validate public token before sending
-    const publicToken = selectedQuoteToSend.public_token
+    const publicToken = currentQuote.public_token
     if (!publicToken || typeof publicToken !== 'string' || publicToken.trim() === '') {
       toast({
         title: 'Token do orçamento não encontrado',
@@ -1271,9 +1289,14 @@ export default function WhatsAppChatDrawer({
       return
     }
 
+    const isAlreadySent =
+      currentQuote.status === 'enviado' ||
+      currentQuote.status === 'alteracao_solicitada' ||
+      Boolean(currentQuote.approved_at || currentQuote.rejected_at || currentQuote.customer_notes)
+
     setIsSendingQuote(true)
     try {
-      const formattedText = formatQuoteWhatsAppMessage(selectedQuoteToSend, displayClient.name)
+      const formattedText = formatQuoteWhatsAppMessage(currentQuote, displayClient.name)
 
       // Send the WhatsApp message using existing mechanism
       const res = await whatsappService.sendMessage({
@@ -1281,7 +1304,7 @@ export default function WhatsAppChatDrawer({
         attendanceId:
           effectiveAttendance?.id ||
           activeAttendance?.id ||
-          selectedQuoteToSend.attendance_id ||
+          currentQuote.attendance_id ||
           undefined,
         messageText: formattedText,
       })
@@ -1290,20 +1313,23 @@ export default function WhatsAppChatDrawer({
         throw new Error(res.error || 'Falha ao enviar mensagem de orçamento pelo WhatsApp.')
       }
 
-      // Update quote status to "enviado" ONLY after confirmed dispatch success on EXACT quote.id
-      const updatedQuote = await quotesService.updateStatus(selectedQuoteToSend.id, 'enviado')
+      // Regra de status:
+      // Se rascunho: atualizar status para 'enviado'.
+      // Se já estava 'enviado', 'alteracao_solicitada', etc., preservar status original sem alterar só por reenviar.
+      let updatedQuote = currentQuote
+      if (currentQuote.status === 'rascunho') {
+        updatedQuote = await quotesService.updateStatus(currentQuote.id, 'enviado')
+      }
 
       // Update attendance quote list state
-      setAttendanceQuotes((prev) =>
-        prev.map((q) => (q.id === selectedQuoteToSend.id ? updatedQuote : q)),
-      )
-      if (selectedQuoteToView?.id === selectedQuoteToSend.id) {
+      setAttendanceQuotes((prev) => prev.map((q) => (q.id === currentQuote.id ? updatedQuote : q)))
+      if (selectedQuoteToView?.id === currentQuote.id) {
         setSelectedQuoteToView(updatedQuote)
       }
 
       toast({
-        title: 'Orçamento enviado!',
-        description: `Orçamento ${selectedQuoteToSend.code} enviado para ${displayClient.name} via WhatsApp.`,
+        title: isAlreadySent ? 'Orçamento reenviado!' : 'Orçamento enviado!',
+        description: `Orçamento ${currentQuote.code} ${isAlreadySent ? 'reenviado' : 'enviado'} para ${displayClient.name} via WhatsApp.`,
       })
 
       setSendQuoteModalOpen(false)
@@ -1724,7 +1750,30 @@ export default function WhatsAppChatDrawer({
                               <span>Alterar</span>
                             </Button>
 
-                            {quote.status === 'enviado' ? (
+                            {/* Botão de Enviar / Reenviar Orçamento (disponível para rascunho, enviado, alteracao_solicitada) */}
+                            {quote.status !== 'aprovado' && quote.status !== 'recusado' && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenSendQuote(quote)}
+                                className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
+                                title={
+                                  quote.status === 'rascunho'
+                                    ? `Enviar orçamento ${quote.code} por WhatsApp`
+                                    : `Reenviar orçamento ${quote.code} por WhatsApp`
+                                }
+                              >
+                                <Send className="h-3 w-3" />
+                                <span>
+                                  {quote.status === 'rascunho'
+                                    ? 'Enviar orçamento'
+                                    : 'Reenviar orçamento'}
+                                </span>
+                              </Button>
+                            )}
+
+                            {quote.status === 'enviado' && (
                               <>
                                 <Button
                                   type="button"
@@ -1749,23 +1798,7 @@ export default function WhatsAppChatDrawer({
                                   <span>Recusar</span>
                                 </Button>
                               </>
-                            ) : quote.status === 'rascunho' ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleOpenSendQuote(quote)}
-                                className="h-6 px-2 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1"
-                                title={`Enviar orçamento ${quote.code} por WhatsApp`}
-                              >
-                                <Send className="h-3 w-3" />
-                                <span>
-                                  {quote.approved_at || quote.rejected_at || quote.customer_notes
-                                    ? 'Enviar novamente'
-                                    : 'Enviar'}
-                                </span>
-                              </Button>
-                            ) : null}
+                            )}
 
                             {isAdmin && (
                               <Button
@@ -3207,11 +3240,9 @@ export default function WhatsAppChatDrawer({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
               <Send className="h-5 w-5 text-emerald-600" />
-              {selectedQuoteToSend?.customer_notes ||
-              selectedQuoteToSend?.approved_at ||
-              selectedQuoteToSend?.rejected_at
-                ? 'Enviar novamente orçamento'
-                : 'Enviar orçamento'}
+              {selectedQuoteToSend?.status === 'rascunho'
+                ? 'Enviar orçamento'
+                : 'Reenviar orçamento'}
             </DialogTitle>
             <DialogDescription>
               Confirme a mensagem que será enviada para o cliente pelo WhatsApp.
@@ -3310,11 +3341,9 @@ export default function WhatsAppChatDrawer({
                       <>
                         <Send className="h-3.5 w-3.5" />
                         <span>
-                          {selectedQuoteToSend?.customer_notes ||
-                          selectedQuoteToSend?.approved_at ||
-                          selectedQuoteToSend?.rejected_at
-                            ? 'Enviar novamente'
-                            : 'Enviar orçamento'}
+                          {selectedQuoteToSend?.status === 'rascunho'
+                            ? 'Enviar orçamento'
+                            : 'Reenviar orçamento'}
                         </span>
                       </>
                     )}
@@ -3607,25 +3636,26 @@ export default function WhatsAppChatDrawer({
                     </>
                   )}
 
-                  {selectedQuoteToView.status === 'rascunho' && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => {
-                        const q = selectedQuoteToView
-                        setQuoteDetailsOpen(false)
-                        handleOpenSendQuote(q)
-                      }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold"
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      {selectedQuoteToView.approved_at ||
-                      selectedQuoteToView.rejected_at ||
-                      selectedQuoteToView.customer_notes
-                        ? 'Enviar novamente'
-                        : 'Enviar orçamento'}
-                    </Button>
-                  )}
+                  {selectedQuoteToView.status !== 'aprovado' &&
+                    selectedQuoteToView.status !== 'recusado' && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          const q = selectedQuoteToView
+                          setQuoteDetailsOpen(false)
+                          handleOpenSendQuote(q)
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold"
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        <span>
+                          {selectedQuoteToView.status === 'rascunho'
+                            ? 'Enviar orçamento'
+                            : 'Reenviar orçamento'}
+                        </span>
+                      </Button>
+                    )}
 
                   <Button
                     type="button"
