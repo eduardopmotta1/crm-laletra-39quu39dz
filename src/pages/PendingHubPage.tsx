@@ -239,30 +239,25 @@ export default function PendingHubPage() {
     }
 
     try {
-      const [cl, att] = await Promise.all([
-        clientsService.getById(item.clientId),
-        item.attendanceId
-          ? attendancesService.getById(item.attendanceId).catch((err) => {
-              console.warn('[PendingHubPage] Erro ao carregar attendance por id:', err)
-              return null
-            })
-          : Promise.resolve(null),
-      ])
+      let activeAtt: Attendance | null = null
 
-      // Fallback seguro se o attendanceId referenciado não existir mais ou não for fornecido
-      let activeAtt = att
-      if (!activeAtt && item.clientId) {
+      if (item.attendanceId) {
         try {
-          const clientAtts = await attendancesService.getByClientId(item.clientId)
-          activeAtt = clientAtts.find((a) => !a.is_archived) || clientAtts[0] || null
-        } catch (attFallbackErr) {
+          activeAtt = await attendancesService.getById(item.attendanceId)
+          if (!activeAtt) {
+            console.warn(
+              `[PendingHubPage] Atendimento com ID "${item.attendanceId}" não resolveu (registro apagado ou não encontrado). Abrindo drawer só com o cliente.`,
+            )
+          }
+        } catch (attErr) {
           console.warn(
-            '[PendingHubPage] Falha ao buscar attendance fallback para cliente:',
-            attFallbackErr,
+            `[PendingHubPage] Erro ao buscar atendimento "${item.attendanceId}":`,
+            attErr,
           )
         }
       }
 
+      const cl = await clientsService.getById(item.clientId)
       if (cl) {
         setSelectedClientForChat(cl)
         setSelectedAttendanceForChat(activeAtt)
