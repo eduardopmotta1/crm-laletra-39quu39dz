@@ -213,15 +213,18 @@ export default function WhatsAppTemplatesPage() {
       if (res.synced) {
         toast({
           title: 'Sincronização Concluída!',
-          description: res.message || `${res.count} templates sincronizados com a Meta.`,
+          description:
+            res.message ||
+            `${res.meta_count ?? res.count ?? 0} templates sincronizados com a Meta.`,
           variant: 'default',
         })
         loadTemplates()
       } else {
         toast({
-          title: 'Sincronização Meta Cloud',
+          title: 'Aviso da Sincronização Meta',
           description:
-            res.message || res.error || 'Credenciais de demonstração. Exibindo templates locais.',
+            res.error || res.message || 'Não foi possível sincronizar templates com a conta Meta.',
+          variant: 'destructive',
         })
       }
     } catch (err: any) {
@@ -247,31 +250,47 @@ export default function WhatsAppTemplatesPage() {
     return matchesSearch && matchesCategory && matchesStatus
   })
 
-  const statusBadge = (status: string) => {
-    switch (status) {
-      case 'APPROVED':
-        return (
-          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 flex items-center gap-1 font-semibold text-[10px]">
-            <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-            Aprovado (Meta)
-          </Badge>
-        )
+  const statusBadge = (tpl: WhatsAppTemplate) => {
+    const isSyncedWithMeta = Boolean(tpl.meta_template_id && tpl.meta_template_id.trim() !== '')
+
+    if (tpl.status === 'APPROVED' && isSyncedWithMeta) {
+      return (
+        <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 flex items-center gap-1 font-semibold text-[10px]">
+          <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+          Aprovado (Meta)
+        </Badge>
+      )
+    }
+
+    if (tpl.status === 'APPROVED' && !isSyncedWithMeta) {
+      return (
+        <Badge
+          className="bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-200 flex items-center gap-1 font-semibold text-[10px]"
+          title="Criado localmente sem confirmação da Meta"
+        >
+          <Clock className="h-3 w-3 text-amber-600" />
+          Não Sincronizado
+        </Badge>
+      )
+    }
+
+    switch (tpl.status) {
       case 'PENDING':
         return (
           <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 flex items-center gap-1 font-semibold text-[10px]">
             <Clock className="h-3 w-3 text-amber-600" />
-            Em Análise
+            {isSyncedWithMeta ? 'Em Análise (Meta)' : 'Pendente / Não Sincronizado'}
           </Badge>
         )
       case 'REJECTED':
         return (
           <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300 flex items-center gap-1 font-semibold text-[10px]">
             <XCircle className="h-3 w-3 text-rose-600" />
-            Rejeitado
+            {isSyncedWithMeta ? 'Rejeitado pela Meta' : 'Rejeitado'}
           </Badge>
         )
       default:
-        return <Badge variant="outline">{status}</Badge>
+        return <Badge variant="outline">{tpl.status}</Badge>
     }
   }
 
@@ -430,7 +449,7 @@ export default function WhatsAppTemplatesPage() {
                         </span>
                       </div>
                     </div>
-                    {statusBadge(tpl.status)}
+                    {statusBadge(tpl)}
                   </div>
                 </CardHeader>
 
@@ -465,8 +484,8 @@ export default function WhatsAppTemplatesPage() {
                 <CardFooter className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
                   <span className="text-[10px] text-slate-400">
                     {tpl.meta_template_id
-                      ? 'Meta ID: ' + tpl.meta_template_id.slice(0, 10) + '...'
-                      : 'Template Manual'}
+                      ? 'Meta ID: ' + tpl.meta_template_id
+                      : 'Não sincronizado com Meta'}
                   </span>
                   <div className="flex items-center gap-1">
                     <Button

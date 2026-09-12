@@ -75,14 +75,24 @@ export const whatsappTemplatesService = {
    * Sincroniza templates diretamente com a API Oficial da Meta WABA
    */
   async syncMetaTemplates(): Promise<{
+    success?: boolean
     synced: boolean
+    meta_count?: number
+    updated_count?: number
+    created_count?: number
+    unmarked_count?: number
     count?: number
     message?: string
     error?: string
   }> {
     try {
       const response = await pb.send<{
+        success?: boolean
         synced: boolean
+        meta_count?: number
+        updated_count?: number
+        created_count?: number
+        unmarked_count?: number
         count?: number
         message?: string
         error?: string
@@ -92,9 +102,14 @@ export const whatsappTemplatesService = {
       return response
     } catch (error: any) {
       console.error('Error syncing Meta templates:', error)
+      const respError =
+        error?.data?.error ||
+        error?.data?.message ||
+        error?.message ||
+        'Falha ao sincronizar templates com a Meta'
       return {
         synced: false,
-        error: error?.message || 'Falha ao sincronizar templates com a Meta',
+        error: respError,
       }
     }
   },
