@@ -46,6 +46,7 @@ import {
 import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
 import ClientPurchaseHistoryModal from './ClientPurchaseHistoryModal'
 import ClientQuotesModal from './ClientQuotesModal'
+import ClientEvaluationsModal from './ClientEvaluationsModal'
 
 interface ClientFormModalProps {
   isOpen: boolean
@@ -122,6 +123,7 @@ export default function ClientFormModal({
   const [startChatModalOpen, setStartChatModalOpen] = useState(false)
   const [purchaseHistoryModalOpen, setPurchaseHistoryModalOpen] = useState(false)
   const [quotesModalOpen, setQuotesModalOpen] = useState(false)
+  const [evaluationsModalOpen, setEvaluationsModalOpen] = useState(false)
   const [searchingCep, setSearchingCep] = useState(false)
 
   // Phone lookup detection state (para evitar duplicidade em novos cadastros)
@@ -476,11 +478,20 @@ export default function ClientFormModal({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled
-                  title="Em breve nesta ficha: Avaliações"
-                  className="h-8 text-xs bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed"
+                  disabled={!clientToEdit && !existingClient}
+                  title={
+                    clientToEdit || existingClient
+                      ? 'Ver todas as avaliações deste cliente'
+                      : 'Salve o cadastro do cliente para visualizar as avaliações'
+                  }
+                  onClick={() => setEvaluationsModalOpen(true)}
+                  className={`h-8 text-xs font-semibold ${
+                    clientToEdit || existingClient
+                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100 hover:text-amber-800 dark:hover:bg-amber-900/60 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed'
+                  }`}
                 >
-                  <Star className="h-3.5 w-3.5 mr-1.5 opacity-70" />
+                  <Star className="h-3.5 w-3.5 mr-1.5 text-amber-500 fill-amber-400" />
                   Avaliações
                 </Button>
               </div>
@@ -1035,6 +1046,14 @@ export default function ClientFormModal({
       <ClientQuotesModal
         isOpen={quotesModalOpen}
         onClose={() => setQuotesModalOpen(false)}
+        client={clientToEdit || existingClient || null}
+        zIndexClass="z-[70]"
+      />
+
+      {/* Avaliações de Satisfação do Cliente */}
+      <ClientEvaluationsModal
+        isOpen={evaluationsModalOpen}
+        onClose={() => setEvaluationsModalOpen(false)}
         client={clientToEdit || existingClient || null}
         zIndexClass="z-[70]"
       />
