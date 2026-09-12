@@ -126,6 +126,10 @@ export default function ClientFormModal({
   const [evaluationsModalOpen, setEvaluationsModalOpen] = useState(false)
   const [searchingCep, setSearchingCep] = useState(false)
 
+  // Guarda síncrona para modais filhos — previne race condition no ciclo de fechamento Radix UI
+  const openChildModalRef = useRef<'evaluations' | 'history' | 'quotes' | 'chat' | null>(null)
+  const closingTimeoutRef = useRef<any>(null)
+
   // Phone lookup detection state (para evitar duplicidade em novos cadastros)
   const [checkingPhone, setCheckingPhone] = useState(false)
   const [phoneMatch, setPhoneMatch] = useState<FindClientByPhoneResult | null>(null)
@@ -399,13 +403,52 @@ export default function ClientFormModal({
     }
   }
 
-  const isAnyChildModalOpen =
-    startChatModalOpen || purchaseHistoryModalOpen || quotesModalOpen || evaluationsModalOpen
+  // Helpers síncronos de abertura/fechamento dos modais filhos
+  const openChild = (modal: 'evaluations' | 'history' | 'quotes' | 'chat') => {
+    if (closingTimeoutRef.current) {
+      clearTimeout(closingTimeoutRef.current)
+      closingTimeoutRef.current = null
+    }
+    openChildModalRef.current = modal
+    if (modal === 'evaluations') setEvaluationsModalOpen(true)
+    else if (modal === 'history') setPurchaseHistoryModalOpen(true)
+    else if (modal === 'quotes') setQuotesModalOpen(true)
+    else if (modal === 'chat') setStartChatModalOpen(true)
+  }
+
+  const closeChild = (modal: 'evaluations' | 'history' | 'quotes' | 'chat') => {
+    // Imediatamente atualiza o estado React do filho
+    if (modal === 'evaluations') setEvaluationsModalOpen(false)
+    else if (modal === 'history') setPurchaseHistoryModalOpen(false)
+    else if (modal === 'quotes') setQuotesModalOpen(false)
+    else if (modal === 'chat') setStartChatModalOpen(false)
+
+    // Mantém a ref síncrona ativa durante o tick de eventos Radix UI (pointerDownOutside / interactOutside / focus restoration)
+    if (closingTimeoutRef.current) {
+      clearTimeout(closingTimeoutRef.current)
+    }
+    closingTimeoutRef.current = setTimeout(() => {
+      if (openChildModalRef.current === modal) {
+        openChildModalRef.current = null
+      }
+      closingTimeoutRef.current = null
+    }, 150)
+  }
+
+  const isChildOpenSync = () => {
+    return Boolean(
+      openChildModalRef.current ||
+      evaluationsModalOpen ||
+      purchaseHistoryModalOpen ||
+      quotesModalOpen ||
+      startChatModalOpen,
+    )
+  }
 
   const handleParentOpenChange = (open: boolean) => {
     if (!open) {
-      // Se qualquer modal filho estiver aberto, NÃO fecha a ficha do cliente
-      if (isAnyChildModalOpen) {
+      // Se qualquer modal filho estiver aberto ou acabou de fechar no mesmo ciclo de eventos, NÃO fecha a ficha
+      if (isChildOpenSync()) {
         return
       }
       onClose()
@@ -419,13 +462,19 @@ export default function ClientFormModal({
           className="max-w-3xl max-h-[92vh] overflow-y-auto p-0"
           onEscapeKeyDown={(e) => {
             // Se qualquer modal filho estiver aberto, impede que ESC feche a ficha do cliente
-            if (isAnyChildModalOpen) {
+            if (isChildOpenSync()) {
               e.preventDefault()
             }
           }}
           onInteractOutside={(e) => {
-            // Se algum modal filho estiver aberto, impede interação externa fechar a ficha do cliente
-            if (isAnyChildModalOpen) {
+            // Se algum modal filho estiver aberto ou fechando, impede interação externa fechar a ficha do cliente
+            if (isChildOpenSync()) {
+              e.preventDefault()
+            }
+          }}
+          onPointerDownOutside={(e) => {
+            // Impede pointer down fora quando filho estiver ativo ou fechando
+            if (isChildOpenSync()) {
               e.preventDefault()
             }
           }}
@@ -471,7 +520,7 @@ export default function ClientFormModal({
                       ? 'Ver histórico completo de compras e pedidos deste cliente'
                       : 'Salve o cadastro do cliente para visualizar o histórico de compras'
                   }
-                  onClick={() => setPurchaseHistoryModalOpen(true)}
+                  onClick={() => openChild('history')}
                   className={`h-8 text-xs font-semibold ${
                     clientToEdit || existingClient
                       ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900/60 shadow-xs'
@@ -491,7 +540,7 @@ export default function ClientFormModal({
                       ? 'Ver todos os orçamentos deste cliente'
                       : 'Salve o cadastro do cliente para visualizar os orçamentos'
                   }
-                  onClick={() => setQuotesModalOpen(true)}
+                  onClick={() => openChild('quotes')}
                   className={`h-8 text-xs font-semibold ${
                     clientToEdit || existingClient
                       ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900/60 shadow-xs'
@@ -511,7 +560,7 @@ export default function ClientFormModal({
                       ? 'Ver todas as avaliações deste cliente'
                       : 'Salve o cadastro do cliente para visualizar as avaliações'
                   }
-                  onClick={() => setEvaluationsModalOpen(true)}
+                  onClick={() => openChild('evaluations')}
                   className={`h-8 text-xs font-semibold ${
                     clientToEdit || existingClient
                       ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100 hover:text-amber-800 dark:hover:bg-amber-900/60 shadow-xs'
@@ -588,7 +637,7 @@ export default function ClientFormModal({
                 </div>
                 <Button
                   type="button"
-                  onClick={() => setStartChatModalOpen(true)}
+                  onClick={() => openChild('chat')}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 shadow-xs shrink-0 font-semibold"
                 >
                   <Sparkles className="h-3.5 w-3.5 mr-1" />
@@ -1053,7 +1102,7 @@ export default function ClientFormModal({
       {/* Start WhatsApp Conversation Modal */}
       <StartWhatsAppConversationModal
         isOpen={startChatModalOpen}
-        onClose={() => setStartChatModalOpen(false)}
+        onClose={() => closeChild('chat')}
         client={clientToEdit || null}
         onSuccess={(updated) => {
           onSaved(updated)
@@ -1064,7 +1113,7 @@ export default function ClientFormModal({
       {/* Histórico de Compras do Cliente (Pedidos de Produção) */}
       <ClientPurchaseHistoryModal
         isOpen={purchaseHistoryModalOpen}
-        onClose={() => setPurchaseHistoryModalOpen(false)}
+        onClose={() => closeChild('history')}
         client={clientToEdit || existingClient || null}
         zIndexClass="z-[70]"
       />
@@ -1072,7 +1121,7 @@ export default function ClientFormModal({
       {/* Orçamentos do Cliente */}
       <ClientQuotesModal
         isOpen={quotesModalOpen}
-        onClose={() => setQuotesModalOpen(false)}
+        onClose={() => closeChild('quotes')}
         client={clientToEdit || existingClient || null}
         zIndexClass="z-[70]"
       />
@@ -1080,7 +1129,7 @@ export default function ClientFormModal({
       {/* Avaliações de Satisfação do Cliente */}
       <ClientEvaluationsModal
         isOpen={evaluationsModalOpen}
-        onClose={() => setEvaluationsModalOpen(false)}
+        onClose={() => closeChild('evaluations')}
         client={clientToEdit || existingClient || null}
         zIndexClass="z-[70]"
       />
