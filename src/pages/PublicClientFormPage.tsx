@@ -76,7 +76,7 @@ export default function PublicClientFormPage() {
           trade_name: data.trade_name || '',
           client_type: data.client_type || 'pessoa_fisica',
           cpf_cnpj: data.cpf_cnpj || '',
-          birth_date: data.birth_date ? data.birth_date.split('T')[0] : '',
+          birth_date: data.birth_date ? data.birth_date.replace('T', ' ').split(' ')[0].trim() : '',
           phone: data.phone || '',
           secondary_phone: data.secondary_phone || '',
           email: data.email || '',
@@ -201,7 +201,9 @@ export default function PublicClientFormPage() {
           trade_name: res.data.trade_name || '',
           client_type: res.data.client_type || 'pessoa_fisica',
           cpf_cnpj: res.data.cpf_cnpj || '',
-          birth_date: res.data.birth_date ? res.data.birth_date.split('T')[0] : '',
+          birth_date: res.data.birth_date
+            ? res.data.birth_date.replace('T', ' ').split(' ')[0].trim()
+            : '',
           phone: res.data.phone || '',
           secondary_phone: res.data.secondary_phone || '',
           email: res.data.email || '',

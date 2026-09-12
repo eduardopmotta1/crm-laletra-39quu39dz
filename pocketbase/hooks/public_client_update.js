@@ -77,10 +77,24 @@ routerAdd('POST', '/backend/v1/public/clients/{token}', (c) => {
 
     if (body.birth_date !== undefined) {
       let bDate = typeof body.birth_date === 'string' ? body.birth_date.trim() : ''
-      if (bDate && bDate.includes('T')) {
-        bDate = bDate.split('T')[0]
+      if (bDate) {
+        // Se vier com 'T' ou espaço, extrai apenas a parte da data YYYY-MM-DD
+        if (bDate.includes('T')) {
+          bDate = bDate.split('T')[0].trim()
+        } else if (bDate.includes(' ')) {
+          bDate = bDate.split(' ')[0].trim()
+        }
+        // Valida formato YYYY-MM-DD
+        const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(bDate)
+        if (dateMatch) {
+          // Formata para o layout canônico de DateField do PocketBase (UTC midnight sem conversão de timezone)
+          client.set('birth_date', `${bDate} 00:00:00.000Z`)
+        } else {
+          client.set('birth_date', '')
+        }
+      } else {
+        client.set('birth_date', '')
       }
-      client.set('birth_date', bDate || '')
     }
 
     if (body.secondary_phone !== undefined) {
@@ -175,8 +189,11 @@ routerAdd('POST', '/backend/v1/public/clients/{token}', (c) => {
     // Retorna os dados atualizados somente da whitelist
     let birthDateResp = ''
     try {
-      const bStr = client.getString('birth_date')
-      if (bStr) birthDateResp = bStr.split('T')[0]
+      const bStr = client.getString('birth_date') || ''
+      if (bStr) {
+        // Suporta tanto YYYY-MM-DD como YYYY-MM-DD 00:00:00.000Z ou ISO com T
+        birthDateResp = bStr.replace('T', ' ').split(' ')[0].trim()
+      }
     } catch (_) {}
 
     return c.json(200, {

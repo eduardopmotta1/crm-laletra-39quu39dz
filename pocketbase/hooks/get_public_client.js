@@ -36,9 +36,10 @@ routerAdd('GET', '/backend/v1/public/clients/{token}', (c) => {
 
     let birthDateStr = ''
     try {
-      const rawDate = client.getString('birth_date')
+      const rawDate = client.getString('birth_date') || ''
       if (rawDate) {
-        birthDateStr = rawDate.split('T')[0]
+        // Suporta tanto YYYY-MM-DD como YYYY-MM-DD 00:00:00.000Z ou ISO com T
+        birthDateStr = rawDate.replace('T', ' ').split(' ')[0].trim()
       }
     } catch (_) {}
 
