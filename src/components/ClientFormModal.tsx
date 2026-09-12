@@ -45,6 +45,7 @@ import {
 } from 'lucide-react'
 import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
 import ClientPurchaseHistoryModal from './ClientPurchaseHistoryModal'
+import ClientQuotesModal from './ClientQuotesModal'
 
 interface ClientFormModalProps {
   isOpen: boolean
@@ -120,6 +121,7 @@ export default function ClientFormModal({
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [startChatModalOpen, setStartChatModalOpen] = useState(false)
   const [purchaseHistoryModalOpen, setPurchaseHistoryModalOpen] = useState(false)
+  const [quotesModalOpen, setQuotesModalOpen] = useState(false)
   const [searchingCep, setSearchingCep] = useState(false)
 
   // Phone lookup detection state (para evitar duplicidade em novos cadastros)
@@ -454,11 +456,20 @@ export default function ClientFormModal({
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled
-                  title="Em breve nesta ficha: Orçamentos"
-                  className="h-8 text-xs bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed"
+                  disabled={!clientToEdit && !existingClient}
+                  title={
+                    clientToEdit || existingClient
+                      ? 'Ver todos os orçamentos deste cliente'
+                      : 'Salve o cadastro do cliente para visualizar os orçamentos'
+                  }
+                  onClick={() => setQuotesModalOpen(true)}
+                  className={`h-8 text-xs font-semibold ${
+                    clientToEdit || existingClient
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900/60 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed'
+                  }`}
                 >
-                  <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5 opacity-70" />
+                  <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
                   Orçamentos
                 </Button>
                 <Button
@@ -1016,6 +1027,14 @@ export default function ClientFormModal({
       <ClientPurchaseHistoryModal
         isOpen={purchaseHistoryModalOpen}
         onClose={() => setPurchaseHistoryModalOpen(false)}
+        client={clientToEdit || existingClient || null}
+        zIndexClass="z-[70]"
+      />
+
+      {/* Orçamentos do Cliente */}
+      <ClientQuotesModal
+        isOpen={quotesModalOpen}
+        onClose={() => setQuotesModalOpen(false)}
         client={clientToEdit || existingClient || null}
         zIndexClass="z-[70]"
       />

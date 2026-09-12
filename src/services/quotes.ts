@@ -63,6 +63,57 @@ export const quotesService = {
   },
 
   /**
+   * Busca orçamentos EXCLUSIVAMENTE por client_id, ordenados por mais recentes (-created)
+   */
+  async getByClientId(clientId: string): Promise<Quote[]> {
+    if (!clientId) return []
+    try {
+      return await pb.collection('quotes').getFullList<Quote>({
+        filter: `client_id = "${clientId}"`,
+        sort: '-created',
+        expand: 'client_id,attendance_id,user_id',
+      })
+    } catch (err) {
+      console.error(`Error fetching quotes for client ${clientId}:`, err)
+      return []
+    }
+  },
+
+  /**
+   * Duplica um orçamento existente gerando novo código e token público em status 'rascunho'
+   */
+  async duplicate(id: string): Promise<Quote> {
+    const existing = await this.getById(id)
+    if (!existing) {
+      throw new Error(`Orçamento com ID ${id} não encontrado para duplicação.`)
+    }
+
+    const nextCode = await this.generateNextCode()
+    const nextToken = this.generatePublicToken()
+
+    const payload: Partial<Quote> = {
+      code: nextCode,
+      public_token: nextToken,
+      status: 'rascunho',
+      client_id: existing.client_id,
+      client_name: existing.client_name,
+      client_phone: existing.client_phone,
+      attendance_id: existing.attendance_id,
+      user_id: pb.authStore.record?.id || existing.user_id,
+      items: existing.items ? JSON.parse(JSON.stringify(existing.items)) : [],
+      total_cost: existing.total_cost,
+      total_sale: existing.total_sale,
+      final_total: existing.final_total,
+      gross_profit: existing.gross_profit,
+      profit_margin_pct: existing.profit_margin_pct,
+      customer_notes: existing.customer_notes,
+      valid_until: existing.valid_until,
+    }
+
+    return await this.create(payload)
+  },
+
+  /**
    * Status válidos de orçamentos considerados "em aberto" (não finalizados/recusados/expirados)
    */
   isOpenQuoteStatus(status?: string): boolean {
