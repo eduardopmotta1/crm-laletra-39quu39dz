@@ -208,17 +208,18 @@ export const quoteToProductionService = {
     // Explicit guarantee: Creating production order from approved quote does NOT mean art is approved.
     // art_approved remains false, approved_proof_id is empty, art_approved_at is empty.
 
-    // 2. Prevent duplicate creation by checking if a production order is already linked to this quote.id / code
+    // 2. Prevent duplicate creation by checking if a production order is already linked to this quote.id
     const existingOrder = await this.findExistingOrderForQuote(freshQuote.id, freshQuote.code)
     if (existingOrder) {
       // Confirm that the existing order matches the quote and attendance context before archiving
+      // CRITÉRIO PRINCIPAL: order.quote_id === freshQuote.id
+      // FALLBACK LEGADO: tag exata [QUOTE_ID:<quote.id>] em notes/description
+      // NUNCA deduplicar por [ORC:<code>]
+      const legacyTag = `[QUOTE_ID:${freshQuote.id}]`
       const matchesQuote =
         existingOrder.quote_id === freshQuote.id ||
-        existingOrder.notes?.includes(`[QUOTE_ID:${freshQuote.id}]`) ||
-        existingOrder.description?.includes(`[QUOTE_ID:${freshQuote.id}]`) ||
-        (freshQuote.code &&
-          (existingOrder.notes?.includes(`[ORC:${freshQuote.code}]`) ||
-            existingOrder.description?.includes(`[ORC:${freshQuote.code}]`)))
+        existingOrder.notes?.includes(legacyTag) ||
+        existingOrder.description?.includes(legacyTag)
 
       const matchesClient =
         !freshQuote.client_id ||

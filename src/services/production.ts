@@ -142,48 +142,43 @@ export const productionService = {
   },
 
   /**
-   * Get production order directly linked to a quote by quote ID / code
+   * Get production order directly linked to a quote by quote ID.
+   * Dedupe rule:
+   * 1. Primary: production_order.quote_id === quote.id
+   * 2. Legacy fallback: exact [QUOTE_ID:<quote.id>] tag in notes/description
+   * NUNCA usar [ORC:<quote.code>] como critério de deduplicação (códigos são reaproveitados).
    */
-  async getByQuoteId(quoteId: string, quoteCode?: string): Promise<ProductionOrder | null> {
-    if (!quoteId && !quoteCode) return null
+  async getByQuoteId(quoteId: string, _quoteCode?: string): Promise<ProductionOrder | null> {
+    if (!quoteId) return null
     try {
+      const cleanId = quoteId.replace(/[\\"]/g, '')
+
       // 1. Primary official search by field quote_id
-      if (quoteId) {
-        const cleanId = quoteId.replace(/[\\"]/g, '')
-        const ordersByField = await pb
-          .collection('production_orders')
-          .getFullList<ProductionOrder>({
-            filter: `quote_id = "${cleanId}"`,
-            sort: '-created',
-            requestKey: null,
-          })
-        if (ordersByField.length > 0) {
-          return ordersByField[0]
-        }
+      const ordersByField = await pb.collection('production_orders').getFullList<ProductionOrder>({
+        filter: `quote_id = "${cleanId}"`,
+        sort: '-created',
+        requestKey: null,
+      })
+      if (ordersByField.length > 0) {
+        return ordersByField[0]
       }
 
-      // 2. Fallback search by legacy notes/description tag
-      const filters: string[] = []
-      if (quoteId) {
-        const cleanId = quoteId.replace(/[\\"]/g, '')
-        filters.push(`notes ~ "[QUOTE_ID:${cleanId}]"`)
-        filters.push(`description ~ "[QUOTE_ID:${cleanId}]"`)
-      }
-      if (quoteCode) {
-        const cleanCode = quoteCode.replace(/[\\"]/g, '')
-        filters.push(`notes ~ "[ORC:${cleanCode}]"`)
-        filters.push(`description ~ "[ORC:${cleanCode}]"`)
-      }
-      if (filters.length > 0) {
-        const filterStr = filters.join(' || ')
-        const orders = await pb.collection('production_orders').getFullList<ProductionOrder>({
-          filter: filterStr,
-          sort: '-created',
-          requestKey: null,
-        })
-        return orders.length > 0 ? orders[0] : null
-      }
-      return null
+      // 2. Fallback search strictly by legacy exact [QUOTE_ID:<id>] tag in notes/description
+      const tagTarget = `[QUOTE_ID:${cleanId}]`
+      const legacyOrders = await pb.collection('production_orders').getFullList<ProductionOrder>({
+        filter: `notes ~ "${tagTarget}" || description ~ "${tagTarget}"`,
+        sort: '-created',
+        requestKey: null,
+      })
+
+      // Rigorous in-memory verification for exact string match (avoids substring false positives)
+      const exactMatch = legacyOrders.find((order) => {
+        const notesMatch = order.notes?.includes(tagTarget)
+        const descMatch = order.description?.includes(tagTarget)
+        return notesMatch || descMatch
+      })
+
+      return exactMatch || null
     } catch (error) {
       console.error('Error finding order by quote ID:', error)
       return null

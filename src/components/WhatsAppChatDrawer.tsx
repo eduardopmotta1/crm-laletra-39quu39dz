@@ -172,17 +172,14 @@ export default function WhatsAppChatDrawer({
   const [createOrderFromQuoteModalOpen, setCreateOrderFromQuoteModalOpen] = useState(false)
   const [quoteToCreateOrder, setQuoteToCreateOrder] = useState<Quote | null>(null)
 
-  // Helper map: quote.id or quote.code -> ProductionOrder
+  // Helper map: quote.id -> ProductionOrder (vínculo inequívoco por quote_id ou tag [QUOTE_ID:<id>] exata)
   const getLinkedOrderForQuote = (quote: Quote): ProductionOrder | undefined => {
+    const legacyTag = `[QUOTE_ID:${quote.id}]`
     return productionOrders.find(
       (o) =>
         o.quote_id === quote.id ||
-        (o.notes &&
-          (o.notes.includes(`[QUOTE_ID:${quote.id}]`) ||
-            o.notes.includes(`[ORC:${quote.code}]`))) ||
-        (o.description &&
-          (o.description.includes(`[QUOTE_ID:${quote.id}]`) ||
-            o.description.includes(`[ORC:${quote.code}]`))),
+        (o.notes && o.notes.includes(legacyTag)) ||
+        (o.description && o.description.includes(legacyTag)),
     )
   }
 
