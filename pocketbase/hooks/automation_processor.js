@@ -20,7 +20,13 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
     // 1. debug_token
     if (!metaWabaId && metaToken) {
       try {
-        const debugUrl = 'https://graph.facebook.com/' + metaApiVersion + '/debug_token?input_token=' + metaToken + '&access_token=' + metaToken
+        const debugUrl =
+          'https://graph.facebook.com/' +
+          metaApiVersion +
+          '/debug_token?input_token=' +
+          metaToken +
+          '&access_token=' +
+          metaToken
         const dRes = $http.send({ url: debugUrl, method: 'GET', timeout: 15 })
         if (dRes && dRes.statusCode === 200) {
           const dData = dRes.json || JSON.parse(dRes.raw || '{}')
@@ -53,11 +59,16 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
         })
         if (bRes && bRes.statusCode === 200) {
           const bData = bRes.json || JSON.parse(bRes.raw || '{}')
-          const bList = (bData && Array.isArray(bData.data)) ? bData.data : []
+          const bList = bData && Array.isArray(bData.data) ? bData.data : []
           for (let b = 0; b < bList.length; b++) {
             const bizId = bList[b].id
             const oReq = $http.send({
-              url: 'https://graph.facebook.com/' + metaApiVersion + '/' + bizId + '/owned_whatsapp_business_accounts',
+              url:
+                'https://graph.facebook.com/' +
+                metaApiVersion +
+                '/' +
+                bizId +
+                '/owned_whatsapp_business_accounts',
               method: 'GET',
               headers: { Authorization: 'Bearer ' + metaToken },
               timeout: 15,
@@ -78,7 +89,12 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
     // 3. Phone lookup
     if (!metaWabaId && metaPhoneId && metaToken) {
       try {
-        const phoneLookupUrl = 'https://graph.facebook.com/' + metaApiVersion + '/' + metaPhoneId + '?fields=id,whatsapp_business_account'
+        const phoneLookupUrl =
+          'https://graph.facebook.com/' +
+          metaApiVersion +
+          '/' +
+          metaPhoneId +
+          '?fields=id,whatsapp_business_account'
         const phoneRes = $http.send({
           url: phoneLookupUrl,
           method: 'GET',
@@ -89,7 +105,11 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
         if (phoneRes && phoneRes.statusCode === 200) {
           phoneData = phoneRes.json || JSON.parse(phoneRes.raw || '{}')
         }
-        if (phoneData && phoneData.whatsapp_business_account && phoneData.whatsapp_business_account.id) {
+        if (
+          phoneData &&
+          phoneData.whatsapp_business_account &&
+          phoneData.whatsapp_business_account.id
+        ) {
           const cand = String(phoneData.whatsapp_business_account.id).trim()
           if (cand && cand !== metaPhoneId && /^\d+$/.test(cand)) {
             metaWabaId = cand
@@ -104,7 +124,12 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
     if (metaWabaId && metaToken) {
       try {
         const tRes = $http.send({
-          url: 'https://graph.facebook.com/' + metaApiVersion + '/' + metaWabaId + '/message_templates?limit=100',
+          url:
+            'https://graph.facebook.com/' +
+            metaApiVersion +
+            '/' +
+            metaWabaId +
+            '/message_templates?limit=100',
           method: 'GET',
           headers: { Authorization: 'Bearer ' + metaToken },
           timeout: 25,
@@ -127,7 +152,11 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
       templatesRes: templatesRes,
     }
 
-    const rec = $app.findFirstRecordByData('system_settings', 'setting_key', 'temp_meta_test_status')
+    const rec = $app.findFirstRecordByData(
+      'system_settings',
+      'setting_key',
+      'temp_meta_test_status',
+    )
     if (rec) {
       rec.set('description', JSON.stringify(syncExecResult).substring(0, 1500))
       rec.set('setting_value', 'cron_sync_' + Date.now())

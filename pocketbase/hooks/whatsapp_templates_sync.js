@@ -169,7 +169,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
           bizData = bizRes.json || JSON.parse(bizRes.raw)
         } catch (_) {}
       }
-      const bizList = (bizData && Array.isArray(bizData.data)) ? bizData.data : []
+      const bizList = bizData && Array.isArray(bizData.data) ? bizData.data : []
       for (let b = 0; b < bizList.length; b++) {
         const bizId = bizList[b].id
         if (!bizId) continue
