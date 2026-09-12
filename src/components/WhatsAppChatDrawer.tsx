@@ -2924,14 +2924,19 @@ export default function WhatsAppChatDrawer({
                 </div>
               )}
 
-              {/* TAB CONTENT: PEDIDOS DE PRODUÇÃO */}
+              {/* TAB CONTENT: HISTÓRICO DE PEDIDOS */}
               {rightTab === 'orders' && (
                 <div className="p-4 space-y-4">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                      <Package className="h-4 w-4 text-emerald-600" />
-                      Pedidos de Produção Vinculados ({productionOrders.length})
-                    </h4>
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <Package className="h-4 w-4 text-emerald-600" />
+                        Histórico de Pedidos ({productionOrders.length})
+                      </h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Todos os pedidos anteriores, em produção, concluídos e arquivados
+                      </p>
+                    </div>
                     <Button
                       size="sm"
                       onClick={() => {
@@ -2946,68 +2951,140 @@ export default function WhatsAppChatDrawer({
                   </div>
 
                   {productionOrders.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
-                      Nenhum pedido de produção gerado para este cliente ainda.
+                    <div className="p-5 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                      Este cliente ainda não possui pedidos.
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {productionOrders.map((ord) => (
-                        <div
-                          key={ord.id}
-                          onClick={() => {
-                            setSelectedOrderToEdit(ord)
-                            setOrderModalOpen(true)
-                          }}
-                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-xs space-y-2 cursor-pointer transition-all shadow-sm"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-extrabold font-mono text-slate-900 dark:text-white bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border text-[11px]">
-                                {ord.order_number}
+                      {productionOrders.map((ord) => {
+                        // Badge styling based on order state
+                        const isCompleted = Boolean(
+                          ord.is_completed || ord.stage_internal_id === 'completed',
+                        )
+                        const isArchived = Boolean(ord.is_archived)
+                        const repName =
+                          ord.expand?.sales_rep_id?.name ||
+                          ord.expand?.sales_rep_id?.email?.split('@')[0] ||
+                          (ord.sales_rep_id
+                            ? usersMap[ord.sales_rep_id]?.name ||
+                              usersMap[ord.sales_rep_id]?.email?.split('@')[0]
+                            : null)
+
+                        return (
+                          <div
+                            key={ord.id}
+                            onClick={() => {
+                              setSelectedOrderToEdit(ord)
+                              setOrderModalOpen(true)
+                            }}
+                            className={`p-3 rounded-xl border text-xs space-y-2 cursor-pointer transition-all shadow-xs hover:shadow-sm ${
+                              isArchived
+                                ? 'bg-slate-100/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 opacity-90'
+                                : isCompleted
+                                  ? 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
+                                  : 'bg-emerald-50/20 dark:bg-slate-800/90 border-emerald-200/80 dark:border-slate-700 hover:border-emerald-500'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-extrabold font-mono text-slate-900 dark:text-white bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[11px]">
+                                  {ord.order_number}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] ${
+                                    isArchived
+                                      ? 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-700 dark:text-slate-300'
+                                      : isCompleted
+                                        ? 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300'
+                                        : 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+                                  }`}
+                                >
+                                  {ord.stage_name}
+                                </Badge>
+                                {isArchived && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[9px] bg-slate-100 text-slate-500 border-slate-200"
+                                  >
+                                    Arquivado
+                                  </Badge>
+                                )}
+                              </div>
+                              <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                {ord.total_value ? formatCurrency(ord.total_value) : 'R$ 0,00'}
                               </span>
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] bg-emerald-50 text-emerald-800 border-emerald-200"
-                              >
-                                {ord.stage_name}
-                              </Badge>
                             </div>
-                            <span className="font-bold text-emerald-600">
-                              {ord.total_value ? formatCurrency(ord.total_value) : 'R$ 0,00'}
-                            </span>
-                          </div>
 
-                          <div>
-                            <span className="font-semibold text-slate-900 dark:text-white block">
-                              {ord.product}
-                            </span>
-                            {ord.description && (
-                              <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
-                                {ord.description}
-                              </p>
-                            )}
-                          </div>
+                            <div>
+                              <span className="font-semibold text-slate-900 dark:text-white block">
+                                {ord.product}
+                              </span>
+                              {ord.description && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
+                                  {ord.description}
+                                </p>
+                              )}
+                            </div>
 
-                          <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700">
-                            <span>
-                              Prazo:{' '}
-                              {ord.promised_deadline
-                                ? new Date(ord.promised_deadline).toLocaleDateString('pt-BR')
-                                : 'Sem prazo'}
-                            </span>
-                            <a
-                              href={`${window.location.origin}/acompanhar/${ord.tracking_token}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              Rastreio Público
-                            </a>
+                            {/* Informações detalhadas: Data, Origem, Responsável */}
+                            <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-slate-200/70 dark:border-slate-700/70 text-[10px] text-slate-500 dark:text-slate-400">
+                              <div>
+                                <span className="text-slate-400 dark:text-slate-500">
+                                  Criação:{' '}
+                                </span>
+                                <span className="font-medium text-slate-700 dark:text-slate-300">
+                                  {ord.created ? formatDateTime(ord.created) : '-'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 dark:text-slate-500">Prazo: </span>
+                                <span className="font-medium text-slate-700 dark:text-slate-300">
+                                  {ord.promised_deadline
+                                    ? new Date(ord.promised_deadline).toLocaleDateString('pt-BR')
+                                    : 'Sem prazo'}
+                                </span>
+                              </div>
+                              {(ord.quote_id || ord.attendance_id) && (
+                                <div className="col-span-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                                  <span className="text-slate-400 dark:text-slate-500">
+                                    Origem:{' '}
+                                  </span>
+                                  <span className="font-mono text-emerald-700 dark:text-emerald-300 font-semibold">
+                                    {ord.quote_id ? `Orçamento vinculado` : `Atendimento vinculado`}
+                                  </span>
+                                </div>
+                              )}
+                              {repName && (
+                                <div className="col-span-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                                  <span className="text-slate-400 dark:text-slate-500">
+                                    Responsável:{' '}
+                                  </span>
+                                  <span className="font-medium text-slate-700 dark:text-slate-300">
+                                    {repName}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <span className="text-[10px] text-slate-400">
+                                Clique para abrir detalhes
+                              </span>
+                              <a
+                                href={`${window.location.origin}/acompanhar/${ord.tracking_token}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                Rastreio Público
+                              </a>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
