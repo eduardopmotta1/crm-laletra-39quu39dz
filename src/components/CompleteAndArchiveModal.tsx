@@ -17,13 +17,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { CheckCircle2, XCircle, Archive, DollarSign, Sparkles, Package } from 'lucide-react'
+import {
+  CheckCircle2,
+  XCircle,
+  Archive,
+  DollarSign,
+  Sparkles,
+  Package,
+  FileText,
+  Loader2,
+} from 'lucide-react'
 import type { Client, DealResult } from '@/types/crm'
+import type { Quote } from '@/types/quotes'
 import { dealsService } from '@/services/deals'
 import { productionService } from '@/services/production'
+import { quotesService } from '@/services/quotes'
 import { formatCurrency } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 import ProductionOrderModal from './ProductionOrderModal'
+import CreateProductionOrderFromQuoteModal from './CreateProductionOrderFromQuoteModal'
 
 interface CompleteAndArchiveModalProps {
   isOpen: boolean
@@ -64,11 +76,16 @@ export default function CompleteAndArchiveModal({
   const [finalNotes, setFinalNotes] = useState<string>('')
   const [createProductionOrder, setCreateProductionOrder] = useState<boolean>(true)
   const [productionModalOpen, setProductionModalOpen] = useState<boolean>(false)
+  const [quoteProductionModalOpen, setQuoteProductionModalOpen] = useState<boolean>(false)
   const [createdArchivedDealId, setCreatedArchivedDealId] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState<boolean>(false)
 
+  // Linked approved quote detection
+  const [approvedQuote, setApprovedQuote] = useState<Quote | null>(null)
+  const [checkingQuote, setCheckingQuote] = useState<boolean>(false)
+
   React.useEffect(() => {
-    if (client) {
+    if (client && isOpen) {
       setQuoteValue(client.quote_value ? String(client.quote_value) : '')
       setProductInterest(client.product_interest || '')
       if (client.stage === 'Não fechou') {
@@ -80,8 +97,67 @@ export default function CompleteAndArchiveModal({
       setCustomLossReason('')
       setFinalNotes('')
       setCreateProductionOrder(true)
+      setApprovedQuote(null)
+
+      // Detect linked approved quote for attendance or client
+      const effectiveAttId = attendanceId || client.attendance_id
+      setCheckingQuote(true)
+
+      const detectQuote = async () => {
+        try {
+          let foundApproved: Quote | null = null
+
+          // 1. Try finding by attendanceId first (strict context)
+          if (effectiveAttId) {
+            const attQuotes = await quotesService.getByAttendanceId(effectiveAttId)
+            // Look for approved quote first, then any open quote
+            foundApproved = attQuotes.find((q) => q.status === 'aprovado') || null
+          }
+
+          // 2. If not found by attendance, look by clientId
+          if (!foundApproved && client.id) {
+            const clientQuotes = await quotesService.getAll(
+              `client_id = "${client.id}" && status = "aprovado"`,
+              '-updated',
+            )
+            if (clientQuotes.length > 0) {
+              foundApproved = clientQuotes[0]
+            }
+          }
+
+          if (foundApproved) {
+            setApprovedQuote(foundApproved)
+            // Autofill values from approved quote if not already set or customized
+            const qVal = quotesService.getQuoteTotal(foundApproved)
+            if (qVal > 0) {
+              setQuoteValue(String(qVal))
+            }
+            if (Array.isArray(foundApproved.items) && foundApproved.items.length > 0) {
+              const summaryNames = foundApproved.items
+                .map(
+                  (it) =>
+                    (it.quantity && it.quantity > 1 ? `${it.quantity}x ` : '') +
+                    (it.product_name || 'Item'),
+                )
+                .join(', ')
+              if (summaryNames) {
+                setProductInterest(summaryNames)
+              }
+            }
+          }
+        } catch (detectErr) {
+          console.warn(
+            '[CompleteAndArchiveModal] Falha ao verificar orçamentos vinculados:',
+            detectErr,
+          )
+        } finally {
+          setCheckingQuote(false)
+        }
+      }
+
+      detectQuote()
     }
-  }, [client, initialResult, isOpen])
+  }, [client, initialResult, isOpen, attendanceId])
 
   if (!client) return null
 
@@ -96,6 +172,23 @@ export default function CompleteAndArchiveModal({
       return
     }
 
+    // REGRA CRÍTICA: Se for "Venda fechada" com "Criar Pedido de Produção imediatamente",
+    // a conclusão/arquivamento definitivo SÓ ocorre após a criação da ordem de produção ter sucesso.
+    // Se a criação da produção falhar ou for cancelada, o atendimento continua aberto,
+    // sem perda do contexto da venda.
+    if (result === 'Venda fechada' && createProductionOrder) {
+      if (approvedQuote) {
+        // Fluxo com orçamento aprovado vinculado: abrir CreateProductionOrderFromQuoteModal
+        // O serviço quoteToProductionService conclui e arquiva o atendimento com segurança após a ordem de produção ser salva no banco.
+        setQuoteProductionModalOpen(true)
+      } else {
+        // Fallback manual: abrir ProductionOrderModal antes de arquivar
+        setProductionModalOpen(true)
+      }
+      return
+    }
+
+    // Fluxo sem criação imediata de pedido de produção (ex: venda perdida ou venda fechada sem pedido de produção)
     setLoading(true)
     try {
       const selectedReason =
@@ -122,13 +215,8 @@ export default function CompleteAndArchiveModal({
         description: `O atendimento de "${client.name}" foi arquivado no CRM com dados preservados.`,
       })
 
-      if (result === 'Venda fechada' && createProductionOrder) {
-        // Open Production Order Modal with prefilled data
-        setProductionModalOpen(true)
-      } else {
-        if (onSuccess) onSuccess()
-        onClose()
-      }
+      if (onSuccess) onSuccess()
+      onClose()
       window.dispatchEvent(new CustomEvent('crm-client-updated'))
     } catch (err: any) {
       console.error(
@@ -162,7 +250,10 @@ export default function CompleteAndArchiveModal({
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onClose}>
+      <Dialog
+        open={isOpen && !productionModalOpen && !quoteProductionModalOpen}
+        onOpenChange={onClose}
+      >
         <DialogContent zIndexClass={zIndexClass} className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white text-base">
@@ -307,24 +398,48 @@ export default function CompleteAndArchiveModal({
 
             {/* Create Production Order Option for Won Deals */}
             {result === 'Venda fechada' && (
-              <div className="p-3.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="createProductionOrderCheck"
-                  checked={createProductionOrder}
-                  onChange={(e) => setCreateProductionOrder(e.target.checked)}
-                  className="mt-1 h-4 w-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500"
-                />
-                <label htmlFor="createProductionOrderCheck" className="text-xs cursor-pointer">
-                  <span className="font-bold text-emerald-950 dark:text-emerald-100 flex items-center gap-1">
-                    <Package className="h-3.5 w-3.5 text-emerald-600" />
-                    Criar Pedido de Produção imediatamente
-                  </span>
-                  <span className="text-emerald-700 dark:text-emerald-300 text-[11px] block mt-0.5">
-                    Abre o modal de produção com dados pré-preenchidos (cliente, produto, valores)
-                    para gerar a ordem de serviço na esteira de produção.
-                  </span>
-                </label>
+              <div className="p-3.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="createProductionOrderCheck"
+                    checked={createProductionOrder}
+                    onChange={(e) => setCreateProductionOrder(e.target.checked)}
+                    className="mt-1 h-4 w-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500"
+                  />
+                  <label htmlFor="createProductionOrderCheck" className="text-xs cursor-pointer">
+                    <span className="font-bold text-emerald-950 dark:text-emerald-100 flex items-center gap-1">
+                      <Package className="h-3.5 w-3.5 text-emerald-600" />
+                      Criar Pedido de Produção imediatamente
+                    </span>
+                    <span className="text-emerald-700 dark:text-emerald-300 text-[11px] block mt-0.5">
+                      {approvedQuote
+                        ? `Orçamento aprovado ${approvedQuote.code} detectado. Carrega todos os itens, medidas, acabamentos e arte aprovada diretamente para a produção.`
+                        : 'Abre o formulário de produção pré-preenchido para gerar a ordem de serviço na esteira.'}
+                    </span>
+                  </label>
+                </div>
+
+                {approvedQuote && (
+                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-emerald-300 dark:border-emerald-800 text-xs flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-emerald-600 shrink-0" />
+                      <div>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          Orçamento Vinculado: {approvedQuote.code}
+                        </span>
+                        <span className="text-[11px] text-slate-500 block">
+                          {Array.isArray(approvedQuote.items) ? approvedQuote.items.length : 0}{' '}
+                          item(ns) discriminado(s) • Total:{' '}
+                          {formatCurrency(quotesService.getQuoteTotal(approvedQuote))}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      ✓ Aprovado
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -352,20 +467,75 @@ export default function CompleteAndArchiveModal({
         </DialogContent>
       </Dialog>
 
-      {/* Production Order Modal triggered after winning deal */}
+      {/* Fluxo com orçamento aprovado vinculado: CreateProductionOrderFromQuoteModal */}
+      {approvedQuote && (
+        <CreateProductionOrderFromQuoteModal
+          isOpen={quoteProductionModalOpen}
+          zIndexClass={zIndexClass}
+          quote={approvedQuote}
+          onClose={() => {
+            setQuoteProductionModalOpen(false)
+            // Se fechou sem criar, a venda NÃO é arquivada e o atendimento continua aberto!
+          }}
+          onOrderCreated={async () => {
+            setQuoteProductionModalOpen(false)
+            toast({
+              title: '🎉 Venda Concluída & Pedido em Produção!',
+              description: `Pedido gerado a partir do orçamento ${approvedQuote.code} e atendimento de "${client.name}" arquivado com sucesso.`,
+            })
+            if (onSuccess) onSuccess()
+            onClose()
+            window.dispatchEvent(new CustomEvent('crm-client-updated'))
+            window.dispatchEvent(new CustomEvent('production-order-updated'))
+          }}
+          onOpenExistingOrder={() => {
+            setQuoteProductionModalOpen(false)
+            if (onSuccess) onSuccess()
+            onClose()
+          }}
+        />
+      )}
+
+      {/* Fallback Manual: ProductionOrderModal quando NÃO houver orçamento aprovado */}
       <ProductionOrderModal
         isOpen={productionModalOpen}
         zIndexClass={zIndexClass}
         onClose={() => {
           setProductionModalOpen(false)
-          if (onSuccess) onSuccess()
-          onClose()
+          // Se fechar o modal manual de produção sem salvar, a venda NÃO é arquivada e o atendimento permanece aberto!
         }}
-        onSaved={() => {
+        onSaved={async () => {
           setProductionModalOpen(false)
+          // Arquivar somente após o salvamento com sucesso do pedido de produção
+          try {
+            await dealsService.completeAndArchive({
+              clientId: client.id,
+              attendanceId: attendanceId || client.attendance_id,
+              result: 'Venda fechada',
+              quoteValue: quoteValue ? Number(quoteValue) : undefined,
+              productInterest: productInterest.trim() || undefined,
+              finalNotes: finalNotes.trim() || undefined,
+            })
+            toast({
+              title: '🎉 Venda Concluída & Arquivada!',
+              description: `Pedido de produção criado e atendimento de "${client.name}" arquivado com sucesso.`,
+            })
+          } catch (archiveErr: any) {
+            console.error(
+              'Falha ao arquivar atendimento após criação manual de pedido:',
+              archiveErr,
+            )
+            toast({
+              title: 'Pedido criado',
+              description:
+                'O pedido de produção foi gerado, mas ocorreu um erro ao arquivar o atendimento.',
+              variant: 'destructive',
+            })
+          }
           if (onSuccess) onSuccess()
           onClose()
           window.dispatchEvent(new CustomEvent('production-order-updated'))
+          window.dispatchEvent(new CustomEvent('crm-client-updated'))
         }}
         prefillData={{
           clientId: client?.id,
