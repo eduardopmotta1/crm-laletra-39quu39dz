@@ -51,8 +51,8 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
         'whatsapp_business_account_id',
       )
       const val = wabaRec ? wabaRec.get('setting_value') : ''
-      if (val && val !== '982736154820931' && !val.includes('DEMO')) {
-        metaWabaId = val
+      if (val && !val.includes('DEMO')) {
+        metaWabaId = String(val).trim()
       }
     }
   } catch (_) {}
@@ -536,14 +536,22 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
       } else {
         action = 'error'
         errorCount++
+        const serializedTplError = JSON.stringify({
+          httpCode: statusCode,
+          code: errorCode,
+          subcode: errorSubcode,
+          type: errObj.type || '',
+          message: errorMessage,
+          error_user_title: errObj.error_user_title || '',
+          error_user_msg: errObj.error_user_msg || '',
+          fbtrace_id: errObj.fbtrace_id || '',
+          raw: apiRes ? String(apiRes.raw || '').substring(0, 1000) : '',
+        })
         console.error(
-          '[WHATSAPP TEMPLATES SUBMIT] Erro da Meta para o template ' + templateName + ':',
-          {
-            code: errorCode,
-            subcode: errorSubcode,
-            message: errorMessage,
-            user_msg: errObj.error_user_msg || '',
-          },
+          '[WHATSAPP TEMPLATES SUBMIT] Erro da Meta para o template ' +
+            templateName +
+            ': ' +
+            serializedTplError,
         )
       }
     }

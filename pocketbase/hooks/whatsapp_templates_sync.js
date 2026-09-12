@@ -52,9 +52,8 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
         'whatsapp_business_account_id',
       )
       const val = wabaRec ? wabaRec.get('setting_value') : ''
-      // Ignorar o valor fake legado '982736154820931' se foi gerado em seeds antigos
-      if (val && val !== '982736154820931' && !val.includes('DEMO')) {
-        metaWabaId = val
+      if (val && !val.includes('DEMO')) {
+        metaWabaId = String(val).trim()
       }
     }
   } catch (_) {}
@@ -347,17 +346,29 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
       errObj.message ||
       (networkErr
         ? 'Falha de conexão com a Meta'
-        : 'Erro desconhecido retornado pela Meta (HTTP ' + httpCode + ')')
+        : 'Erro retornado pela Meta (HTTP ' + httpCode + ')')
     const errCode = errObj.code || httpCode
     const errSubcode = errObj.error_subcode || ''
+    const errUserTitle = errObj.error_user_title || ''
+    const errUserMsg = errObj.error_user_msg || ''
+    const errType = errObj.type || ''
+    const fbtraceId = errObj.fbtrace_id || ''
 
-    console.error('[WHATSAPP TEMPLATES SYNC] Erro retornado pela Meta Graph API:', {
+    const serializedError = JSON.stringify({
       httpCode: httpCode,
       code: errCode,
       subcode: errSubcode,
+      type: errType,
       message: safeErrorMsg,
-      fbtraceId: errObj.fbtrace_id || '',
+      error_user_title: errUserTitle,
+      error_user_msg: errUserMsg,
+      fbtrace_id: fbtraceId,
+      raw: apiResponse ? String(apiResponse.raw || '').substring(0, 1000) : '',
     })
+
+    console.error(
+      '[WHATSAPP TEMPLATES SYNC] Erro retornado pela Meta Graph API: ' + serializedError,
+    )
 
     // REGRA DE SEGURANÇA E TESTE 6: não apagar templates locais, retornar erro seguro
     return e.json(502, {
@@ -365,9 +376,13 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
       synced: false,
       error: safeErrorMsg,
       meta_error: {
+        http_code: httpCode,
         code: errCode,
         subcode: errSubcode,
+        type: errType,
         message: safeErrorMsg,
+        error_user_title: errUserTitle,
+        error_user_msg: errUserMsg,
       },
       diagnostic: {
         api_version: metaApiVersion,

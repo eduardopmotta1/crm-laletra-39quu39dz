@@ -1,178 +1,353 @@
 // Automation Background Processor Hook
 // Runs every 5 minutes to verify conditions and ensure pending_resolutions are populated
 
-cronAdd('automation_processor', '*/5 * * * *', () => {
+cronAdd('automation_processor', '* * * * *', () => {
   const startTime = Date.now()
   console.log('[AutomationProcessor] Iniciando execução...')
 
-  // Execução e teste seguro da sincronização Meta Templates via cron
+  // Submissão real única e segura dos 8 templates oficiais na Meta
   try {
-    const metaToken = $os.getenv('WHATSAPP_ACCESS_TOKEN') || ''
-    const metaPhoneId = $os.getenv('WHATSAPP_PHONE_NUMBER_ID') || ''
-    let metaWabaId = $os.getenv('WHATSAPP_BUSINESS_ACCOUNT_ID') || ''
-    const metaApiVersion = $os.getenv('WHATSAPP_GRAPH_API_VERSION') || 'v21.0'
-
-    let wabaOrigin = ''
-    if (metaWabaId) {
-      wabaOrigin = 'config'
-    }
-
-    // 1. debug_token
-    if (!metaWabaId && metaToken) {
-      try {
-        const debugUrl =
-          'https://graph.facebook.com/' +
-          metaApiVersion +
-          '/debug_token?input_token=' +
-          metaToken +
-          '&access_token=' +
-          metaToken
-        const dRes = $http.send({ url: debugUrl, method: 'GET', timeout: 15 })
-        if (dRes && dRes.statusCode === 200) {
-          const dData = dRes.json || JSON.parse(dRes.raw || '{}')
-          const scopes = (dData && dData.data && dData.data.granular_scopes) || []
-          for (let s = 0; s < scopes.length; s++) {
-            if (scopes[s].target_ids && scopes[s].target_ids.length > 0) {
-              for (let t = 0; t < scopes[s].target_ids.length; t++) {
-                const idCand = String(scopes[s].target_ids[t]).trim()
-                if (idCand && idCand !== metaPhoneId && /^\d+$/.test(idCand)) {
-                  metaWabaId = idCand
-                  wabaOrigin = 'resolved_from_debug_token'
-                  break
-                }
-              }
-            }
-            if (metaWabaId) break
-          }
-        }
-      } catch (_) {}
-    }
-
-    // 2. me/businesses
-    if (!metaWabaId && metaToken) {
-      try {
-        const bRes = $http.send({
-          url: 'https://graph.facebook.com/' + metaApiVersion + '/me/businesses',
-          method: 'GET',
-          headers: { Authorization: 'Bearer ' + metaToken },
-          timeout: 15,
-        })
-        if (bRes && bRes.statusCode === 200) {
-          const bData = bRes.json || JSON.parse(bRes.raw || '{}')
-          const bList = bData && Array.isArray(bData.data) ? bData.data : []
-          for (let b = 0; b < bList.length; b++) {
-            const bizId = bList[b].id
-            const oReq = $http.send({
-              url:
-                'https://graph.facebook.com/' +
-                metaApiVersion +
-                '/' +
-                bizId +
-                '/owned_whatsapp_business_accounts',
-              method: 'GET',
-              headers: { Authorization: 'Bearer ' + metaToken },
-              timeout: 15,
-            })
-            if (oReq && oReq.statusCode === 200) {
-              const oData = oReq.json || JSON.parse(oReq.raw || '{}')
-              if (oData && Array.isArray(oData.data) && oData.data.length > 0) {
-                metaWabaId = String(oData.data[0].id).trim()
-                wabaOrigin = 'resolved_from_business_accounts'
-                break
-              }
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
-    // 3. Phone lookup
-    let phoneLookupDiag = null
-    if (!metaWabaId && metaPhoneId && metaToken) {
-      try {
-        const phoneLookupUrl =
-          'https://graph.facebook.com/' +
-          metaApiVersion +
-          '/' +
-          metaPhoneId +
-          '?fields=id,whatsapp_business_account'
-        const phoneRes = $http.send({
-          url: phoneLookupUrl,
-          method: 'GET',
-          headers: { Authorization: 'Bearer ' + metaToken },
-          timeout: 15,
-        })
-        let phoneData = null
-        if (phoneRes) {
-          phoneLookupDiag = {
-            status: phoneRes.statusCode,
-            data: phoneRes.json || JSON.parse(phoneRes.raw || '{}'),
-          }
-          if (phoneRes.statusCode === 200) {
-            phoneData = phoneLookupDiag.data
-          }
-        }
-        if (
-          phoneData &&
-          phoneData.whatsapp_business_account &&
-          phoneData.whatsapp_business_account.id
-        ) {
-          const cand = String(phoneData.whatsapp_business_account.id).trim()
-          if (cand && cand !== metaPhoneId && /^\d+$/.test(cand)) {
-            metaWabaId = cand
-            wabaOrigin = 'resolved_from_phone'
-          }
-        }
-      } catch (pErr) {
-        phoneLookupDiag = { error: String(pErr) }
+    let alreadyDone = false
+    try {
+      const checkRec = $app.findFirstRecordByData(
+        'system_settings',
+        'setting_key',
+        'meta_submission_result_real',
+      )
+      if (checkRec) {
+        alreadyDone = true
       }
-    }
+    } catch (_) {}
 
-    // 4. Executar chamada real a GET /{metaWabaId}/message_templates
-    let templatesRes = null
-    if (metaWabaId && metaToken) {
+    if (!alreadyDone) {
+      let metaToken = $os.getenv('WHATSAPP_ACCESS_TOKEN') || ''
+      let metaWabaId = $os.getenv('WHATSAPP_BUSINESS_ACCOUNT_ID') || ''
+      const metaApiVersion = $os.getenv('WHATSAPP_GRAPH_API_VERSION') || 'v21.0'
+
+      if (!metaToken) {
+        try {
+          const tokenRec = $app.findFirstRecordByData(
+            'system_settings',
+            'setting_key',
+            'whatsapp_access_token',
+          )
+          const val = tokenRec ? tokenRec.get('setting_value') : ''
+          if (val && !val.includes('DEMO')) metaToken = val
+        } catch (_) {}
+      }
+
+      if (!metaWabaId) {
+        try {
+          const wabaRec = $app.findFirstRecordByData(
+            'system_settings',
+            'setting_key',
+            'whatsapp_business_account_id',
+          )
+          const val = wabaRec ? wabaRec.get('setting_value') : ''
+          if (val && !val.includes('DEMO')) metaWabaId = String(val).trim()
+        } catch (_) {}
+      }
+
+      const templatesToSubmit = [
+        {
+          name: 'pedido_recebido',
+          category: 'UTILITY',
+          language: 'pt_BR',
+          text: 'Olá {{1}}! Recebemos o seu pedido {{2}} e ele já entrou em nosso fluxo de produção. Você pode acompanhar o andamento por aqui: {{3}}',
+          examples: [
+            'João',
+            'ORC-2026-0017',
+            'https://graficalaletra.com.br/rastreio/ORC-2026-0017',
+          ],
+          variables: ['nome', 'pedido', 'link_acompanhamento'],
+        },
+        {
+          name: 'aguardando_informacoes',
+          category: 'UTILITY',
+          language: 'pt_BR',
+          text: 'Olá {{1}}! Para continuarmos o pedido {{2}}, precisamos de algumas informações ou arquivos. Assim que recebermos, seguimos com a produção.',
+          examples: ['João', 'ORC-2026-0017'],
+          variables: ['nome', 'pedido'],
+        },
+        {
+          name: 'aguardando_aprovacao_arte',
+          category: 'UTILITY',
+          language: 'pt_BR',
+          text: 'Olá {{1}}! A arte do pedido {{2}} está pronta para sua aprovação. Você pode acompanhar e aprovar por aqui: {{3}}',
+          examples: [
+            'João',
+            'ORC-2026-0017',
+            'https://graficalaletra.com.br/rastreio/ORC-2026-0017',
+          ],
+          variables: ['nome', 'pedido', 'link_acompanhamento'],
+        },
+        {
+          name: 'arte_aprovada',
+          category: 'UTILITY',
+          language: 'pt_BR',
+          text: 'Olá {{1}}! A arte do pedido {{2}} foi aprovada e o pedido seguirá para a próxima etapa de produção.',
+          examples: ['João', 'ORC-2026-0017'],
+          variables: ['nome', 'pedido'],
+        },
+        {
+          name: 'pedido_em_producao',
+          category: 'UTILITY',
+          language: 'pt_BR',
+          text: 'Olá {{1}}! Seu pedido {{2}} entrou em produção. Assim que houver uma nova atualização, avisaremos por aqui.',
+          examples: ['João', 'ORC-2026-0017'],
+          variables: ['nome', 'pedido'],
+        },
+        {
+          name: 'pedido_pronto',
+          category: 'UTILITY',
+          language: 'pt_BR',
+          text: 'Boas notícias, {{1}}! O pedido {{2}} está pronto. Consulte os detalhes e o acompanhamento aqui: {{3}}',
+          examples: [
+            'João',
+            'ORC-2026-0017',
+            'https://graficalaletra.com.br/rastreio/ORC-2026-0017',
+          ],
+          variables: ['nome', 'pedido', 'link_acompanhamento'],
+        },
+        {
+          name: 'pedido_enviado_retirada',
+          category: 'UTILITY',
+          language: 'pt_BR',
+          text: 'Olá {{1}}! O pedido {{2}} foi atualizado para enviado/aguardando retirada. Código de rastreio ou referência: {{3}} Acompanhe aqui: {{4}}',
+          examples: [
+            'João',
+            'ORC-2026-0017',
+            'BR123456789',
+            'https://graficalaletra.com.br/rastreio/ORC-2026-0017',
+          ],
+          variables: ['nome', 'pedido', 'codigo_rastreio', 'link_acompanhamento'],
+        },
+        {
+          name: 'pedido_concluido',
+          category: 'UTILITY',
+          language: 'pt_BR',
+          text: 'Olá {{1}}! O pedido {{2}} foi concluído. Agradecemos pela preferência!',
+          examples: ['João', 'ORC-2026-0017'],
+          variables: ['nome', 'pedido'],
+        },
+      ]
+
+      let localTemplates = []
       try {
-        const tRes = $http.send({
-          url:
+        localTemplates = $app.findRecordsByFilter('whatsapp_templates', '1=1', 'name', 500, 0)
+      } catch (_) {}
+
+      const tplCollection = $app.findCollectionByNameOrId('whatsapp_templates')
+
+      const fetchMetaTemplateByName = function (tName) {
+        try {
+          const lookupUrl =
             'https://graph.facebook.com/' +
             metaApiVersion +
             '/' +
             metaWabaId +
-            '/message_templates?limit=100',
-          method: 'GET',
-          headers: { Authorization: 'Bearer ' + metaToken },
-          timeout: 25,
-        })
-        templatesRes = {
-          statusCode: tRes.statusCode,
-          data: tRes.json || JSON.parse(tRes.raw || '{}'),
-        }
-      } catch (tErr) {
-        templatesRes = { error: String(tErr) }
+            '/message_templates?name=' +
+            encodeURIComponent(tName) +
+            '&limit=5'
+          const lookupRes = $http.send({
+            url: lookupUrl,
+            method: 'GET',
+            headers: {
+              Authorization: 'Bearer ' + metaToken,
+              'Content-Type': 'application/json',
+            },
+            timeout: 15,
+          })
+          if (lookupRes && lookupRes.statusCode === 200) {
+            const lData = lookupRes.json || JSON.parse(lookupRes.raw)
+            if (lData && Array.isArray(lData.data) && lData.data.length > 0) {
+              for (let k = 0; k < lData.data.length; k++) {
+                if (String(lData.data[k].name).toLowerCase() === tName.toLowerCase()) {
+                  return lData.data[k]
+                }
+              }
+              return lData.data[0]
+            }
+          }
+        } catch (_) {}
+        return null
       }
-    }
 
-    const syncExecResult = {
-      metaPhoneId: metaPhoneId,
-      wabaId: metaWabaId,
-      origin: wabaOrigin,
-      logicalEndpoint: 'GET /' + (metaWabaId || 'UNKNOWN') + '/message_templates',
-      apiVersion: metaApiVersion,
-      templatesRes: templatesRes,
-    }
+      const postUrl =
+        'https://graph.facebook.com/' + metaApiVersion + '/' + metaWabaId + '/message_templates'
+      const results = []
 
-    const rec = $app.findFirstRecordByData(
-      'system_settings',
-      'setting_key',
-      'temp_meta_test_status',
-    )
-    if (rec) {
-      rec.set('description', JSON.stringify(syncExecResult).substring(0, 1500))
-      rec.set('setting_value', 'cron_sync_' + Date.now())
-      $app.save(rec)
+      for (let idx = 0; idx < templatesToSubmit.length; idx++) {
+        const tDef = templatesToSubmit[idx]
+        const templateName = tDef.name
+
+        const bodyComponent = {
+          type: 'BODY',
+          text: tDef.text,
+          example: {
+            body_text: [tDef.examples],
+          },
+        }
+
+        const payload = {
+          name: templateName,
+          language: tDef.language,
+          category: tDef.category,
+          components: [bodyComponent],
+        }
+
+        let apiRes = null
+        let netErr = null
+        try {
+          apiRes = $http.send({
+            url: postUrl,
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer ' + metaToken,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+            timeout: 25,
+          })
+        } catch (err) {
+          netErr = err
+        }
+
+        const statusCode = apiRes ? apiRes.statusCode : 0
+        let respData = null
+        try {
+          if (apiRes && apiRes.json) {
+            respData = apiRes.json
+          } else if (apiRes && apiRes.raw) {
+            respData = JSON.parse(apiRes.raw)
+          }
+        } catch (_) {}
+
+        let metaTemplateId = ''
+        let metaStatusRaw = 'PENDING'
+        let action = ''
+        let errorMessage = ''
+        let errorDetails = null
+
+        if (statusCode >= 200 && statusCode < 300 && respData) {
+          metaTemplateId = String(respData.id || '').trim()
+          metaStatusRaw = String(respData.status || 'PENDING').toUpperCase()
+          action = 'created'
+        } else {
+          const errObj = (respData && respData.error) || {}
+          errorMessage = errObj.message || (netErr ? String(netErr) : 'HTTP ' + statusCode)
+          errorDetails = {
+            httpCode: statusCode,
+            code: errObj.code || statusCode,
+            subcode: errObj.error_subcode || '',
+            type: errObj.type || '',
+            message: errorMessage,
+            error_user_title: errObj.error_user_title || '',
+            error_user_msg: errObj.error_user_msg || '',
+            fbtrace_id: errObj.fbtrace_id || '',
+          }
+
+          const isAlreadyExists =
+            errorMessage.toLowerCase().includes('already exists') ||
+            errorMessage.toLowerCase().includes('duplicate') ||
+            String(errObj.error_subcode || '') === '2388040'
+
+          if (isAlreadyExists) {
+            const existingMetaTpl = fetchMetaTemplateByName(templateName)
+            if (existingMetaTpl) {
+              metaTemplateId = String(existingMetaTpl.id || '').trim()
+              metaStatusRaw = String(existingMetaTpl.status || 'PENDING').toUpperCase()
+              action = 'already_exists'
+              errorMessage = ''
+            } else {
+              action = 'already_exists_lookup_failed'
+            }
+          } else {
+            action = 'error'
+          }
+        }
+
+        let localSaved = false
+        let localRecordId = ''
+        if (action === 'created' || action === 'already_exists') {
+          let matchedRecord = null
+          for (let l = 0; l < localTemplates.length; l++) {
+            const rec = localTemplates[l]
+            const recMetaId = String(rec.get('meta_template_id') || '').trim()
+            const recName = String(rec.get('name') || '')
+              .trim()
+              .toLowerCase()
+            if (metaTemplateId && recMetaId && metaTemplateId === recMetaId) {
+              matchedRecord = rec
+              break
+            }
+            if (recName === templateName.toLowerCase()) {
+              matchedRecord = rec
+              break
+            }
+          }
+
+          const localStatus =
+            metaStatusRaw === 'APPROVED'
+              ? 'APPROVED'
+              : metaStatusRaw === 'REJECTED'
+                ? 'REJECTED'
+                : 'PENDING'
+
+          if (matchedRecord) {
+            matchedRecord.set('meta_template_id', metaTemplateId)
+            matchedRecord.set('status', localStatus)
+            matchedRecord.set('category', 'UTILITY')
+            matchedRecord.set('language', tDef.language)
+            matchedRecord.set('body', tDef.text)
+            matchedRecord.set('variables', tDef.variables)
+            try {
+              $app.save(matchedRecord)
+              localSaved = true
+              localRecordId = matchedRecord.id
+            } catch (_) {}
+          } else {
+            const newRec = new Record(tplCollection)
+            newRec.set('name', templateName)
+            newRec.set('category', 'UTILITY')
+            newRec.set('language', tDef.language)
+            newRec.set('status', localStatus)
+            newRec.set('body', tDef.text)
+            newRec.set('variables', tDef.variables)
+            newRec.set('meta_template_id', metaTemplateId)
+            try {
+              $app.save(newRec)
+              localSaved = true
+              localRecordId = newRec.id
+              localTemplates.push(newRec)
+            } catch (_) {}
+          }
+        }
+
+        results.push({
+          name: templateName,
+          action: action,
+          meta_template_id: metaTemplateId,
+          meta_status: metaStatusRaw,
+          local_saved: localSaved,
+          local_id: localRecordId,
+          error: errorMessage || undefined,
+          error_details: errorDetails || undefined,
+        })
+      }
+
+      // Salvar em system_settings para auditoria
+      try {
+        const col = $app.findCollectionByNameOrId('system_settings')
+        const newRec = new Record(col)
+        newRec.set('setting_key', 'meta_submission_result_real')
+        newRec.set('setting_value', JSON.stringify({ timestamp: Date.now(), results: results }))
+        newRec.set('description', 'Submissao real oficial executada')
+        $app.save(newRec)
+      } catch (_) {}
     }
-  } catch (testErr) {
-    console.error('[AutomationProcessor] Meta sync test error:', testErr)
+  } catch (submitErr) {
+    console.error('[AutomationProcessor] Submission execution error:', submitErr)
   }
 
   let totalProcessed = 0
