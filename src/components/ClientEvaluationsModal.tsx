@@ -229,12 +229,38 @@ export default function ClientEvaluationsModal({
 
   if (!isOpen || !client) return null
 
+  const handleEvaluationsOpenChange = (open: boolean) => {
+    if (!open) {
+      if (orderModalOpen) {
+        return
+      }
+      onClose()
+    }
+  }
+
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onClose}>
+      <Dialog open={isOpen} onOpenChange={handleEvaluationsOpenChange}>
         <DialogContent
           zIndexClass={zIndexClass}
           className="max-w-4xl max-h-[92vh] overflow-hidden flex flex-col p-0 gap-0"
+          onEscapeKeyDown={(e) => {
+            if (orderModalOpen) {
+              e.preventDefault()
+              return
+            }
+            e.stopPropagation()
+          }}
+          onInteractOutside={(e) => {
+            if (orderModalOpen) {
+              e.preventDefault()
+            }
+          }}
+          onPointerDownOutside={(e) => {
+            if (orderModalOpen) {
+              e.preventDefault()
+            }
+          }}
         >
           {/* Header */}
           <DialogHeader className="p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">

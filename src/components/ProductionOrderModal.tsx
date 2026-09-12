@@ -557,9 +557,38 @@ export default function ProductionOrderModal({
     }
   }
 
+  const handleProductionOrderOpenChange = (open: boolean) => {
+    if (!open) {
+      if (chatDrawerOpen) {
+        return
+      }
+      onClose()
+    }
+  }
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent zIndexClass={zIndexClass} className="max-w-3xl max-h-[90vh] overflow-y-auto">
+    <Dialog open={isOpen} onOpenChange={handleProductionOrderOpenChange}>
+      <DialogContent
+        zIndexClass={zIndexClass}
+        className="max-w-3xl max-h-[90vh] overflow-y-auto"
+        onEscapeKeyDown={(e) => {
+          if (chatDrawerOpen) {
+            e.preventDefault()
+            return
+          }
+          e.stopPropagation()
+        }}
+        onInteractOutside={(e) => {
+          if (chatDrawerOpen) {
+            e.preventDefault()
+          }
+        }}
+        onPointerDownOutside={(e) => {
+          if (chatDrawerOpen) {
+            e.preventDefault()
+          }
+        }}
+      >
         <DialogHeader>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="space-y-1">

@@ -301,12 +301,38 @@ export default function ClientQuotesModal({
 
   if (!isOpen || !client) return null
 
+  const handleQuotesOpenChange = (open: boolean) => {
+    if (!open) {
+      if (detailsOpen) {
+        return
+      }
+      onClose()
+    }
+  }
+
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onClose}>
+      <Dialog open={isOpen} onOpenChange={handleQuotesOpenChange}>
         <DialogContent
           zIndexClass={zIndexClass}
           className="max-w-4xl max-h-[92vh] overflow-hidden flex flex-col p-0 gap-0"
+          onEscapeKeyDown={(e) => {
+            if (detailsOpen) {
+              e.preventDefault()
+              return
+            }
+            e.stopPropagation()
+          }}
+          onInteractOutside={(e) => {
+            if (detailsOpen) {
+              e.preventDefault()
+            }
+          }}
+          onPointerDownOutside={(e) => {
+            if (detailsOpen) {
+              e.preventDefault()
+            }
+          }}
         >
           {/* Header */}
           <DialogHeader className="p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
@@ -715,7 +741,13 @@ export default function ClientQuotesModal({
 
       {/* Modal de Detalhes Reutilizando o mesmo padrão estrutural da QuotesListPage */}
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <DialogContent zIndexClass="z-[90]" className="sm:max-w-2xl max-h-[88vh] overflow-y-auto">
+        <DialogContent
+          zIndexClass="z-[90]"
+          className="sm:max-w-2xl max-h-[88vh] overflow-y-auto"
+          onEscapeKeyDown={(e) => {
+            e.stopPropagation()
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white font-mono">
               <FileSpreadsheet className="h-5 w-5 text-emerald-600" />

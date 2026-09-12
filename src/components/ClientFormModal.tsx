@@ -399,10 +399,37 @@ export default function ClientFormModal({
     }
   }
 
+  const isAnyChildModalOpen =
+    startChatModalOpen || purchaseHistoryModalOpen || quotesModalOpen || evaluationsModalOpen
+
+  const handleParentOpenChange = (open: boolean) => {
+    if (!open) {
+      // Se qualquer modal filho estiver aberto, NÃO fecha a ficha do cliente
+      if (isAnyChildModalOpen) {
+        return
+      }
+      onClose()
+    }
+  }
+
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-0">
+      <Dialog open={isOpen} onOpenChange={handleParentOpenChange}>
+        <DialogContent
+          className="max-w-3xl max-h-[92vh] overflow-y-auto p-0"
+          onEscapeKeyDown={(e) => {
+            // Se qualquer modal filho estiver aberto, impede que ESC feche a ficha do cliente
+            if (isAnyChildModalOpen) {
+              e.preventDefault()
+            }
+          }}
+          onInteractOutside={(e) => {
+            // Se algum modal filho estiver aberto, impede interação externa fechar a ficha do cliente
+            if (isAnyChildModalOpen) {
+              e.preventDefault()
+            }
+          }}
+        >
           {/* Header da Ficha */}
           <div className="sticky top-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-800 px-6 py-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
