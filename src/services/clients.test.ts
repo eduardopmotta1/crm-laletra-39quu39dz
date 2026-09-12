@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { calculateClientProfileCompleteness, clientsService } from './clients'
 import type { Client } from '@/types/crm'
 import { isWithin24HourWindow } from '@/types/crm'
+import { normalizeDateInput, normalizeDateForStorage } from '@/lib/utils'
 
 describe('calculateClientProfileCompleteness', () => {
   it('retorna incompleto se o cliente for nulo ou indefinido', () => {
@@ -192,5 +193,43 @@ describe('isWithin24HourWindow para envio do link pelo WhatsApp', () => {
       lastCustomerMessageAt: fiveHoursAgo,
     })
     expect(within).toBe(true)
+  })
+})
+
+describe('normalizeDateInput e normalizeDateForStorage (preservação de birth_date sem timezone)', () => {
+  it('normaliza data do PocketBase com espaço para YYYY-MM-DD', () => {
+    expect(normalizeDateInput('1991-09-10 00:00:00.000Z')).toBe('1991-09-10')
+  })
+
+  it('normaliza data ISO com T para YYYY-MM-DD', () => {
+    expect(normalizeDateInput('1991-09-10T00:00:00.000Z')).toBe('1991-09-10')
+  })
+
+  it('preserva valor já em formato YYYY-MM-DD', () => {
+    expect(normalizeDateInput('1991-09-10')).toBe('1991-09-10')
+  })
+
+  it('preserva dia exato sem conversão de timezone (1990-05-20 continua 1990-05-20)', () => {
+    expect(normalizeDateInput('1990-05-20 00:00:00.000Z')).toBe('1990-05-20')
+    expect(normalizeDateInput('1990-05-20')).toBe('1990-05-20')
+  })
+
+  it('lida com anos de 4 dígitos quaisquer (ex: 0991-09-10 00:00:00.000Z)', () => {
+    expect(normalizeDateInput('0991-09-10 00:00:00.000Z')).toBe('0991-09-10')
+  })
+
+  it('retorna string vazia para valores vazios, indefinidos ou inválidos', () => {
+    expect(normalizeDateInput('')).toBe('')
+    expect(normalizeDateInput(null)).toBe('')
+    expect(normalizeDateInput(undefined)).toBe('')
+    expect(normalizeDateInput('invalid-date')).toBe('')
+  })
+
+  it('normalizeDateForStorage formata para gravação canônica no PocketBase', () => {
+    expect(normalizeDateForStorage('1991-09-10')).toBe('1991-09-10 00:00:00.000Z')
+    expect(normalizeDateForStorage('1990-05-20')).toBe('1990-05-20 00:00:00.000Z')
+    expect(normalizeDateForStorage('')).toBe('')
+    expect(normalizeDateForStorage(null)).toBe('')
+    expect(normalizeDateForStorage(undefined)).toBe('')
   })
 })

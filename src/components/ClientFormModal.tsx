@@ -24,7 +24,7 @@ import { whatsappService, usersService } from '@/services/whatsapp'
 import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
-import { normalizePhone } from '@/lib/utils'
+import { normalizeDateForStorage, normalizeDateInput, normalizePhone } from '@/lib/utils'
 import { formatCurrency, formatDateTime } from '@/lib/sla'
 import {
   UserCheck,
@@ -168,7 +168,7 @@ export default function ClientFormModal({
           trade_name: clientToEdit.trade_name || '',
           client_type: clientToEdit.client_type || 'pessoa_fisica',
           cpf_cnpj: clientToEdit.cpf_cnpj || '',
-          birth_date: clientToEdit.birth_date ? clientToEdit.birth_date.split('T')[0] : '',
+          birth_date: normalizeDateInput(clientToEdit.birth_date),
           phone: clientToEdit.phone || '',
           secondary_phone: clientToEdit.secondary_phone || '',
           email: clientToEdit.email || '',
@@ -229,6 +229,9 @@ export default function ClientFormModal({
             email: prev.email.trim() ? prev.email : canonical.email || '',
             trade_name: prev.trade_name.trim() ? prev.trade_name : canonical.trade_name || '',
             cpf_cnpj: prev.cpf_cnpj.trim() ? prev.cpf_cnpj : canonical.cpf_cnpj || '',
+            birth_date: prev.birth_date.trim()
+              ? prev.birth_date
+              : normalizeDateInput(canonical.birth_date),
             secondary_phone: prev.secondary_phone.trim()
               ? prev.secondary_phone
               : canonical.secondary_phone || '',
@@ -322,7 +325,7 @@ export default function ClientFormModal({
         trade_name: formData.trade_name.trim(),
         client_type: formData.client_type,
         cpf_cnpj: formData.cpf_cnpj.trim(),
-        birth_date: formData.birth_date ? formData.birth_date.split('T')[0] : '',
+        birth_date: normalizeDateForStorage(formData.birth_date),
         secondary_phone: formData.secondary_phone.trim(),
         email: formData.email.trim(),
         instagram: formData.instagram.trim(),

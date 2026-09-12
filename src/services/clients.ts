@@ -373,8 +373,9 @@ export const clientsService = {
     for (const key of dateFieldNames) {
       if (key in sanitizedData) {
         const val = sanitizedData[key]
-        if (typeof val === 'string' && val.includes('T')) {
-          sanitizedData[key] = val.split('T')[0]
+        if (typeof val === 'string') {
+          // Suporta tanto 'T' quanto espaço no separador
+          sanitizedData[key] = val.replace('T', ' ').split(' ')[0].trim()
         }
       }
     }
@@ -546,8 +547,9 @@ export const clientsService = {
     for (const key of dateFieldNames) {
       if (key in sanitizedData) {
         const val = sanitizedData[key]
-        if (typeof val === 'string' && val.includes('T')) {
-          sanitizedData[key] = val.split('T')[0]
+        if (typeof val === 'string') {
+          // Suporta tanto 'T' quanto espaço no separador
+          sanitizedData[key] = val.replace('T', ' ').split(' ')[0].trim()
         }
       }
     }
