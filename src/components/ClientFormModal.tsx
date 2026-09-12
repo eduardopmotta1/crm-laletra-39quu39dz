@@ -129,6 +129,8 @@ export default function ClientFormModal({
   // Guarda síncrona para modais filhos — previne race condition no ciclo de fechamento Radix UI
   const openChildModalRef = useRef<'evaluations' | 'history' | 'quotes' | 'chat' | null>(null)
   const closingTimeoutRef = useRef<any>(null)
+  const justClosedChildRef = useRef<boolean>(false)
+  const justClosedTimerRef = useRef<any>(null)
 
   // Phone lookup detection state (para evitar duplicidade em novos cadastros)
   const [checkingPhone, setCheckingPhone] = useState(false)
@@ -423,6 +425,16 @@ export default function ClientFormModal({
     else if (modal === 'quotes') setQuotesModalOpen(false)
     else if (modal === 'chat') setStartChatModalOpen(false)
 
+    // Marca flag imediata de fechamento recente para proteger contra eventos subsequentes do Radix
+    justClosedChildRef.current = true
+    if (justClosedTimerRef.current) {
+      clearTimeout(justClosedTimerRef.current)
+    }
+    justClosedTimerRef.current = setTimeout(() => {
+      justClosedChildRef.current = false
+      justClosedTimerRef.current = null
+    }, 350)
+
     // Mantém a ref síncrona ativa durante o tick de eventos Radix UI (pointerDownOutside / interactOutside / focus restoration)
     if (closingTimeoutRef.current) {
       clearTimeout(closingTimeoutRef.current)
@@ -432,12 +444,13 @@ export default function ClientFormModal({
         openChildModalRef.current = null
       }
       closingTimeoutRef.current = null
-    }, 150)
+    }, 350)
   }
 
   const isChildOpenSync = () => {
     return Boolean(
       openChildModalRef.current ||
+      justClosedChildRef.current ||
       evaluationsModalOpen ||
       purchaseHistoryModalOpen ||
       quotesModalOpen ||

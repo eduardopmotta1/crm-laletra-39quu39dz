@@ -245,18 +245,20 @@ export default function ClientEvaluationsModal({
           zIndexClass={zIndexClass}
           className="max-w-4xl max-h-[92vh] overflow-hidden flex flex-col p-0 gap-0"
           onEscapeKeyDown={(e) => {
+            e.stopPropagation()
             if (orderModalOpen) {
               e.preventDefault()
               return
             }
-            e.stopPropagation()
           }}
           onInteractOutside={(e) => {
+            e.stopPropagation()
             if (orderModalOpen) {
               e.preventDefault()
             }
           }}
           onPointerDownOutside={(e) => {
+            e.stopPropagation()
             if (orderModalOpen) {
               e.preventDefault()
             }
