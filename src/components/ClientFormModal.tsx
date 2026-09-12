@@ -44,6 +44,7 @@ import {
   Crown,
 } from 'lucide-react'
 import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
+import ClientPurchaseHistoryModal from './ClientPurchaseHistoryModal'
 
 interface ClientFormModalProps {
   isOpen: boolean
@@ -118,6 +119,7 @@ export default function ClientFormModal({
   const [loading, setLoading] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [startChatModalOpen, setStartChatModalOpen] = useState(false)
+  const [purchaseHistoryModalOpen, setPurchaseHistoryModalOpen] = useState(false)
   const [searchingCep, setSearchingCep] = useState(false)
 
   // Phone lookup detection state (para evitar duplicidade em novos cadastros)
@@ -425,17 +427,27 @@ export default function ClientFormModal({
                 </p>
               </div>
 
-              {/* Botões Preparados (Visual) para próximas etapas */}
+              {/* Botões de Ações do Cliente */}
               <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Botão Histórico de Compras Ativado */}
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled
-                  title="Em breve nesta ficha: Histórico de Compras"
-                  className="h-8 text-xs bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed"
+                  disabled={!clientToEdit && !existingClient}
+                  title={
+                    clientToEdit || existingClient
+                      ? 'Ver histórico completo de compras e pedidos deste cliente'
+                      : 'Salve o cadastro do cliente para visualizar o histórico de compras'
+                  }
+                  onClick={() => setPurchaseHistoryModalOpen(true)}
+                  className={`h-8 text-xs font-semibold ${
+                    clientToEdit || existingClient
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900/60 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed'
+                  }`}
                 >
-                  <ShoppingBag className="h-3.5 w-3.5 mr-1.5 opacity-70" />
+                  <ShoppingBag className="h-3.5 w-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
                   Histórico de Compras
                 </Button>
                 <Button
@@ -998,6 +1010,14 @@ export default function ClientFormModal({
           onSaved(updated)
           onClose()
         }}
+      />
+
+      {/* Histórico de Compras do Cliente (Pedidos de Produção) */}
+      <ClientPurchaseHistoryModal
+        isOpen={purchaseHistoryModalOpen}
+        onClose={() => setPurchaseHistoryModalOpen(false)}
+        client={clientToEdit || existingClient || null}
+        zIndexClass="z-[70]"
       />
     </>
   )
