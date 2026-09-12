@@ -198,153 +198,193 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
     })
   }
 
-  // 6. Preparar payload oficial da WhatsApp Cloud API da Meta
-  // POST https://graph.facebook.com/{GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages
-  const metaUrl = 'https://graph.facebook.com/' + metaApiVersion + '/' + metaPhoneId + '/messages'
-  const metaPayload = {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to: phoneNormalized,
-    type: 'text',
-    text: {
-      preview_url: false,
-      body: rawText,
-    },
-  }
+  // 6. Helper interno reutilizável para despacho Meta Cloud API, gravação de mensagem e atualização de registros
+  const executeMetaWhatsAppSend = function (params) {
+    const targetPhone = params.phoneNormalized
+    const textBody = params.textBody
+    const token = params.token
+    const phoneId = params.phoneId
+    const apiVersion = params.apiVersion || 'v21.0'
+    const targetClient = params.clientRecord
+    const targetAttendanceId = params.attendanceId || ''
+    const sender = params.senderName || 'Atendente'
+    const userSenderId = params.userId || ''
 
-  console.log('[WHATSAPP SEND] Enviando mensagem para ' + phoneNormalized + ' via ' + metaUrl)
-
-  let metaResponse = null
-  let httpError = null
-
-  try {
-    metaResponse = $http.send({
-      url: metaUrl,
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + metaToken,
-        'Content-Type': 'application/json',
+    const url = 'https://graph.facebook.com/' + apiVersion + '/' + phoneId + '/messages'
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: targetPhone,
+      type: 'text',
+      text: {
+        preview_url: false,
+        body: textBody,
       },
-      body: JSON.stringify(metaPayload),
-      timeout: 20,
-    })
-  } catch (err) {
-    httpError = err
-    console.error('[WHATSAPP SEND] Exceção de rede ao chamar Meta:', err)
-  }
-
-  const statusCode = metaResponse ? metaResponse.statusCode : 0
-  const rawBody = metaResponse ? metaResponse.raw : ''
-  let responseJson = null
-
-  try {
-    if (metaResponse && metaResponse.json) {
-      responseJson = metaResponse.json
-    } else if (rawBody) {
-      responseJson = JSON.parse(rawBody)
     }
-  } catch (_) {}
 
-  // 7. Avaliar resposta da Meta
-  // Sucesso HTTP 200/201 e existência de messages[0].id
-  const isMetaSuccess =
-    statusCode >= 200 &&
-    statusCode < 300 &&
-    responseJson &&
-    responseJson.messages &&
-    responseJson.messages.length > 0
-  const externalMessageId = isMetaSuccess ? responseJson.messages[0].id : ''
+    console.log('[WHATSAPP SEND] Enviando mensagem para ' + targetPhone + ' via ' + url)
 
-  const messagesCol = $app.findCollectionByNameOrId('messages')
-  const messageRecord = new Record(messagesCol)
+    let response = null
+    let errorNetwork = null
 
-  messageRecord.set('client_id', clientId)
-  if (attendanceId) {
-    messageRecord.set('attendance_id', attendanceId)
-  }
-  messageRecord.set('direction', 'outbound')
-  messageRecord.set('message_text', rawText)
-  messageRecord.set('sender_name', senderName)
-  messageRecord.set('sent_by_user', userId)
-
-  const currentTimestampIso = new Date().toISOString()
-
-  if (isMetaSuccess) {
-    messageRecord.set('status', 'sent')
-    messageRecord.set('whatsapp_message_id', externalMessageId)
-    $app.save(messageRecord)
-
-    // Atualizar last_message do cliente com timestamp completo
     try {
-      clientRecord.set('last_message_at', currentTimestampIso)
-      clientRecord.set('last_message_direction', 'outbound')
-      clientRecord.set('last_message_text', rawText.substring(0, 100))
-      $app.save(clientRecord)
-    } catch (cErr) {
-      console.warn('[WHATSAPP SEND] Erro ao atualizar client:', cErr)
+      response = $http.send({
+        url: url,
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        timeout: 20,
+      })
+    } catch (errNet) {
+      errorNetwork = errNet
+      console.error('[WHATSAPP SEND] Exceção de rede ao chamar Meta:', errNet)
     }
 
-    // Atualizar last_company_message_at no atendimento com timestamp completo (sem alterar last_customer_message_at)
-    if (attendanceId) {
+    const httpCode = response ? response.statusCode : 0
+    const bodyRaw = response ? response.raw : ''
+    let respJson = null
+
+    try {
+      if (response && response.json) {
+        respJson = response.json
+      } else if (bodyRaw) {
+        respJson = JSON.parse(bodyRaw)
+      }
+    } catch (_) {}
+
+    const isSuccess =
+      httpCode >= 200 &&
+      httpCode < 300 &&
+      respJson &&
+      respJson.messages &&
+      respJson.messages.length > 0
+    const wamid = isSuccess ? respJson.messages[0].id : ''
+
+    const msgCol = $app.findCollectionByNameOrId('messages')
+    const msgRec = new Record(msgCol)
+
+    msgRec.set('client_id', targetClient.id)
+    if (targetAttendanceId) {
+      msgRec.set('attendance_id', targetAttendanceId)
+    }
+    msgRec.set('direction', 'outbound')
+    msgRec.set('message_text', textBody)
+    msgRec.set('sender_name', sender)
+    if (userSenderId) {
+      msgRec.set('sent_by_user', userSenderId)
+    }
+
+    const timestampIso = new Date().toISOString()
+
+    if (isSuccess) {
+      msgRec.set('status', 'sent')
+      msgRec.set('whatsapp_message_id', wamid)
+      $app.save(msgRec)
+
       try {
-        const attRec = $app.findRecordById('attendances', attendanceId)
-        if (attRec) {
-          attRec.set('last_company_message_at', currentTimestampIso)
-          $app.save(attRec)
+        targetClient.set('last_message_at', timestampIso)
+        targetClient.set('last_message_direction', 'outbound')
+        targetClient.set('last_message_text', textBody.substring(0, 100))
+        $app.save(targetClient)
+      } catch (cErr) {
+        console.warn('[WHATSAPP SEND] Erro ao atualizar client:', cErr)
+      }
+
+      if (targetAttendanceId) {
+        try {
+          const att = $app.findRecordById('attendances', targetAttendanceId)
+          if (att) {
+            att.set('last_company_message_at', timestampIso)
+            $app.save(att)
+          }
+        } catch (aErr) {
+          console.warn('[WHATSAPP SEND] Erro ao atualizar attendance:', aErr)
         }
-      } catch (aErr) {
-        console.warn('[WHATSAPP SEND] Erro ao atualizar attendance:', aErr)
+      }
+
+      console.log('[WHATSAPP SEND] Mensagem enviada com sucesso pela Meta. WAMID:', wamid)
+
+      return {
+        success: true,
+        statusCode: 200,
+        status: 'sent',
+        whatsapp_message_id: wamid,
+        messageRecord: msgRec,
+        clientRecord: targetClient,
       }
     }
 
-    console.log('[WHATSAPP SEND] Mensagem enviada com sucesso pela Meta. WAMID:', externalMessageId)
+    // Falha na chamada da Meta:
+    msgRec.set('status', 'failed')
+    try {
+      $app.save(msgRec)
+    } catch (saveFailedErr) {
+      console.error('[WHATSAPP SEND] Erro ao salvar mensagem com status failed:', saveFailedErr)
+    }
 
+    const errObj = respJson && respJson.error ? respJson.error : {}
+    const errMessage =
+      errObj.message || (errorNetwork ? String(errorNetwork) : 'Erro desconhecido da Meta')
+    const errCode = errObj.code || httpCode
+    const errSubcode = errObj.error_subcode || ''
+    const errType = errObj.type || ''
+    const traceId = errObj.fbtrace_id || ''
+
+    console.error('[WHATSAPP SEND] Falha da Meta Cloud API:', {
+      httpStatus: httpCode,
+      errorCode: errCode,
+      errorSubcode: errSubcode,
+      errorType: errType,
+      errorMessage: errMessage,
+      fbtraceId: traceId,
+    })
+
+    return {
+      success: false,
+      statusCode: httpCode >= 400 && httpCode < 600 ? httpCode : 502,
+      status: 'failed',
+      error: 'Não foi possível enviar a mensagem pelo WhatsApp.',
+      messageRecord: msgRec,
+      meta_error: {
+        code: errCode,
+        subcode: errSubcode,
+        type: errType,
+      },
+    }
+  }
+
+  // 7. Executar envio através do helper
+  const sendResult = executeMetaWhatsAppSend({
+    phoneNormalized: phoneNormalized,
+    textBody: rawText,
+    token: metaToken,
+    phoneId: metaPhoneId,
+    apiVersion: metaApiVersion,
+    clientRecord: clientRecord,
+    attendanceId: attendanceId,
+    senderName: senderName,
+    userId: userId,
+  })
+
+  if (sendResult.success) {
     return e.json(200, {
       success: true,
       status: 'sent',
-      whatsapp_message_id: externalMessageId,
-      message: messageRecord.publicExport(),
-      client: clientRecord.publicExport(),
+      whatsapp_message_id: sendResult.whatsapp_message_id,
+      message: sendResult.messageRecord.publicExport(),
+      client: sendResult.clientRecord.publicExport(),
     })
   }
 
-  // Falha na chamada da Meta:
-  // Salvar mensagem como failed para auditoria do CRM
-  messageRecord.set('status', 'failed')
-  try {
-    $app.save(messageRecord)
-  } catch (saveFailedErr) {
-    console.error('[WHATSAPP SEND] Erro ao salvar mensagem com status failed:', saveFailedErr)
-  }
-
-  // Extrair detalhes de erro para log técnico SEM expor token
-  const metaErrObj = responseJson && responseJson.error ? responseJson.error : {}
-  const metaErrMsg =
-    metaErrObj.message || (httpError ? String(httpError) : 'Erro desconhecido da Meta')
-  const metaErrCode = metaErrObj.code || statusCode
-  const metaErrSubcode = metaErrObj.error_subcode || ''
-  const metaErrType = metaErrObj.type || ''
-  const fbtraceId = metaErrObj.fbtrace_id || ''
-
-  console.error('[WHATSAPP SEND] Falha da Meta Cloud API:', {
-    httpStatus: statusCode,
-    errorCode: metaErrCode,
-    errorSubcode: metaErrSubcode,
-    errorType: metaErrType,
-    errorMessage: metaErrMsg,
-    fbtraceId: fbtraceId,
-  })
-
-  return e.json(statusCode >= 400 && statusCode < 600 ? statusCode : 502, {
+  return e.json(sendResult.statusCode, {
     success: false,
     status: 'failed',
-    error: 'Não foi possível enviar a mensagem pelo WhatsApp.',
-    message: messageRecord.publicExport(),
-    meta_error: {
-      code: metaErrCode,
-      subcode: metaErrSubcode,
-      type: metaErrType,
-    },
+    error: sendResult.error,
+    message: sendResult.messageRecord ? sendResult.messageRecord.publicExport() : null,
+    meta_error: sendResult.meta_error,
   })
 })
 

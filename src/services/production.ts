@@ -338,23 +338,16 @@ export const productionService = {
     }
 
     // Log initial creation
+    // Nota: Criação inicial de pedido não dispara notificação de transição de etapa;
+    // se houver envio automático futuro na criação, deve ser controlado com envio Meta real.
     await this.logTransition({
       orderId: created.id,
       toStageId: initialStageId,
       toStageName: stageName,
       changeType: 'automatic',
       notes: `Pedido criado e registrado com sucesso. Número: ${usedOrderNumber}.`,
-      whatsappSent: stage?.auto_notify_whatsapp || false,
-      whatsappStatus: stage?.auto_notify_whatsapp ? 'enviado' : 'nao_enviado',
-      whatsappMessage: stage?.whatsapp_message_template
-        ? stage.whatsapp_message_template
-            .replace('{{nome}}', payload.clientName)
-            .replace('{{pedido}}', usedOrderNumber)
-            .replace(
-              '{{link_acompanhamento}}',
-              `${window.location.origin}/acompanhar/${trackingToken}`,
-            )
-        : undefined,
+      whatsappSent: false,
+      whatsappStatus: 'nao_enviado',
     })
 
     return created
@@ -432,53 +425,10 @@ export const productionService = {
       }
     }
 
-    // Prepare WhatsApp automated message template
-    let whatsappMessage = ''
-    let whatsappSent = false
-    let whatsappStatus: 'nao_enviado' | 'enviado' | 'entregue' | 'falhou' = 'nao_enviado'
-
-    if (targetStage?.auto_notify_whatsapp && targetStage.whatsapp_message_template) {
-      whatsappMessage = targetStage.whatsapp_message_template
-        .replace('{{nome}}', currentOrder.client_name)
-        .replace('{{pedido}}', currentOrder.order_number)
-        .replace(
-          '{{link_acompanhamento}}',
-          `${window.location.origin}/acompanhar/${currentOrder.tracking_token}`,
-        )
-        .replace(
-          '{{codigo_rastreio}}',
-          options?.trackingCode ? `Código de rastreio: ${options.trackingCode}` : '',
-        )
-
-      // Simulate sending WhatsApp dispatch
-      whatsappSent = true
-      whatsappStatus = 'enviado'
-
-      // Also record message in WhatsApp chat if client is linked
-      if (currentOrder.client_id) {
-        try {
-          const authUser = pb.authStore.record
-          const senderName = authUser?.name?.trim() || authUser?.email || 'Produção Laletra'
-          await pb.collection('messages').create(
-            {
-              client_id: currentOrder.client_id,
-              direction: 'outbound',
-              message_text: `📦 [Produção ${currentOrder.order_number}] ${whatsappMessage}`,
-              sender_name: senderName,
-              sent_by_user: authUser?.id || undefined,
-              status: 'sent',
-            },
-            {
-              expand: 'sent_by_user,sent_by_user.role_id',
-            },
-          )
-        } catch (e) {
-          console.error('Error logging WhatsApp notification in messages:', e)
-        }
-      }
-    }
-
-    // Register full audit log
+    // Audit log da transição de etapa
+    // Nota: O envio real de WhatsApp e o registro correspondente (enviado / requires_template / falhou)
+    // são realizados exclusivamente pelo hook backend (production_status_notify) com validação da janela de 24h e Meta Cloud API.
+    // Nenhuma simulação ou gravação falsa de mensagem é feita no frontend.
     await this.logTransition({
       orderId: updated.id,
       fromStageId: currentOrder.stage_internal_id,
@@ -487,9 +437,8 @@ export const productionService = {
       toStageName: targetStageName,
       changeType: options?.changeType || 'manual',
       notes: options?.notes || `Movido para ${targetStageName}`,
-      whatsappSent,
-      whatsappStatus,
-      whatsappMessage: whatsappMessage || undefined,
+      whatsappSent: false,
+      whatsappStatus: 'nao_enviado',
     })
 
     return updated
