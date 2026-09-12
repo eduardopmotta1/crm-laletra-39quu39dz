@@ -71,6 +71,9 @@ export default function ClientsListPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [stageFilter, setStageFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
+  const [completenessFilter, setCompletenessFilter] = useState<'all' | 'complete' | 'incomplete'>(
+    'all',
+  )
   const [sortBy, setSortBy] = useState<'name_asc' | 'name_desc' | 'created_desc' | 'created_asc'>(
     'name_asc',
   )
@@ -135,7 +138,13 @@ export default function ClientsListPage() {
       const matchesStage = stageFilter === 'all' || c.stage === stageFilter
       const matchesPriority = priorityFilter === 'all' || c.priority === priorityFilter
 
-      return matchesSearch && matchesStage && matchesPriority
+      const comp = clientsService.calculateCompleteness(c)
+      const matchesCompleteness =
+        completenessFilter === 'all' ||
+        (completenessFilter === 'complete' && comp.isComplete) ||
+        (completenessFilter === 'incomplete' && !comp.isComplete)
+
+      return matchesSearch && matchesStage && matchesPriority && matchesCompleteness
     })
     .sort((a, b) => {
       if (sortBy === 'name_asc') {
@@ -255,6 +264,21 @@ export default function ClientsListPage() {
               <SelectItem value="urgente">Urgente</SelectItem>
             </SelectContent>
           </Select>
+
+          {/* Completeness Filter (Etapa 2) */}
+          <Select
+            value={completenessFilter}
+            onValueChange={(val: 'all' | 'complete' | 'incomplete') => setCompletenessFilter(val)}
+          >
+            <SelectTrigger className="w-full sm:w-44 text-xs h-9 bg-slate-50 dark:bg-slate-800">
+              <SelectValue placeholder="Status do Cadastro" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os cadastros</SelectItem>
+              <SelectItem value="complete">Cadastro completo</SelectItem>
+              <SelectItem value="incomplete">Cadastro incompleto</SelectItem>
+            </SelectContent>
+          </Select>
           {/* Sort Selector */}
           <Select
             value={sortBy}
@@ -314,18 +338,40 @@ export default function ClientsListPage() {
                     client.stage,
                     slaConfig,
                   )
+                  const completeness = clientsService.calculateCompleteness(client)
 
                   return (
                     <tr
                       key={client.id}
                       className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                     >
-                      {/* Name & Phone */}
+                      {/* Name & Phone & Badges */}
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-semibold text-slate-900 dark:text-white text-sm">
                             {client.name}
                           </span>
+                          {/* Badge de Completude Cadastral */}
+                          {completeness.isComplete ? (
+                            <Badge
+                              className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-300 text-[9px] px-1.5 py-0 font-semibold shadow-2xs"
+                              title="Todos os dados essenciais estão preenchidos"
+                            >
+                              Completo
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border-amber-300 text-[9px] px-1.5 py-0 font-semibold shadow-2xs cursor-pointer"
+                              title={`Faltando: ${completeness.missingFields.join(', ')}`}
+                              onClick={() => {
+                                setClientToEdit(client)
+                                setModalOpen(true)
+                              }}
+                            >
+                              Incompleto ({completeness.missingFields.length})
+                            </Badge>
+                          )}
                           {client.is_vip && (
                             <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] px-1.5 py-0 font-bold shadow-xs">
                               ⭐ VIP

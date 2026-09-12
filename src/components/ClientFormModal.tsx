@@ -46,6 +46,9 @@ import {
   Copy,
   ExternalLink,
   Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
 import ClientPurchaseHistoryModal from './ClientPurchaseHistoryModal'
@@ -132,6 +135,7 @@ export default function ClientFormModal({
   const [copiedLink, setCopiedLink] = useState(false)
   const [requestLinkModalOpen, setRequestLinkModalOpen] = useState(false)
   const [currentPublicToken, setCurrentPublicToken] = useState<string>('')
+  const [missingFieldsExpanded, setMissingFieldsExpanded] = useState(false)
 
   // Guarda síncrona para modais filhos — previne race condition no ciclo de fechamento Radix UI
   const openChildModalRef = useRef<'evaluations' | 'history' | 'quotes' | 'chat' | null>(null)
@@ -418,6 +422,9 @@ export default function ClientFormModal({
 
   const activeClientTarget = clientToEdit || existingClient || null
 
+  // Cálculo reativo e dinâmico de completude cadastral baseado nos dados atuais do formulário
+  const completeness = clientsService.calculateCompleteness(formData)
+
   const getPublicLinkUrl = () => {
     if (!activeClientTarget) return ''
     const token = currentPublicToken || activeClientTarget.public_token
@@ -669,6 +676,130 @@ export default function ClientFormModal({
           </div>
 
           <div className="px-6 py-5 space-y-6">
+            {/* Indicador de Completude Cadastral (Etapa 2) */}
+            <div
+              className={`rounded-xl border p-4 transition-all shadow-xs ${
+                completeness.isComplete
+                  ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/70'
+                  : 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/70'
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div
+                    className={`p-2 rounded-lg shrink-0 ${
+                      completeness.isComplete
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-amber-500 text-white'
+                    }`}
+                  >
+                    {completeness.isComplete ? (
+                      <CheckCircle2 className="h-5 w-5" />
+                    ) : (
+                      <AlertTriangle className="h-5 w-5" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span
+                        className={`text-sm font-bold ${
+                          completeness.isComplete
+                            ? 'text-emerald-950 dark:text-emerald-100'
+                            : 'text-amber-950 dark:text-amber-100'
+                        }`}
+                      >
+                        {completeness.isComplete
+                          ? 'Cadastro completo'
+                          : `Cadastro incompleto — faltam ${completeness.missingFields.length} dado${
+                              completeness.missingFields.length === 1 ? '' : 's'
+                            }`}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-bold ${
+                          completeness.isComplete
+                            ? 'bg-emerald-100/80 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-emerald-300'
+                            : 'bg-amber-100/80 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border-amber-300'
+                        }`}
+                      >
+                        {completeness.percentage}% preenchido
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                      {completeness.isComplete
+                        ? 'Todos os dados essenciais para faturamento, entrega e contato estão cadastrados.'
+                        : `${completeness.completedRequired} de ${completeness.totalRequired} dados essenciais preenchidos.`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center">
+                  {!completeness.isComplete && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setMissingFieldsExpanded((prev) => !prev)}
+                        className="h-8 text-xs font-semibold text-amber-900 dark:text-amber-200 hover:bg-amber-100/60 dark:hover:bg-amber-900/40 gap-1"
+                      >
+                        {missingFieldsExpanded ? (
+                          <>
+                            Ocultar faltantes <ChevronUp className="h-3.5 w-3.5" />
+                          </>
+                        ) : (
+                          <>
+                            Ver campos faltantes <ChevronDown className="h-3.5 w-3.5" />
+                          </>
+                        )}
+                      </Button>
+
+                      {/* Botão Solicitar Cadastro em destaque caso cadastro esteja incompleto */}
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleOpenRequestLinkModal}
+                        disabled={!clientToEdit && !existingClient}
+                        title={
+                          clientToEdit || existingClient
+                            ? 'Enviar link público para o cliente preencher os dados faltantes'
+                            : 'Salve o cadastro do cliente para habilitar o link público'
+                        }
+                        className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs gap-1.5"
+                      >
+                        <Link2 className="h-3.5 w-3.5" />
+                        Solicitar cadastro
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Lista expandida de campos faltantes */}
+              {!completeness.isComplete && missingFieldsExpanded && (
+                <div className="mt-3 pt-3 border-t border-amber-200/80 dark:border-amber-900/60 text-xs">
+                  <span className="font-semibold text-amber-950 dark:text-amber-100 block mb-1.5">
+                    Faltando preencher:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {completeness.missingFields.map((field) => (
+                      <Badge
+                        key={field}
+                        variant="secondary"
+                        className="bg-white/80 dark:bg-slate-900/80 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800 text-[11px] font-medium"
+                      >
+                        {field}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
+                    Dica: Preencha os campos abaixo ou clique em "Solicitar cadastro" para enviar o
+                    link para o cliente completar.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Banner informativo de detecção de cliente existente */}
             {!clientToEdit && existingClient && (
               <div className="p-3.5 rounded-xl bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 space-y-2">

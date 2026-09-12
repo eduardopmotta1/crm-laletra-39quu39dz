@@ -12,7 +12,116 @@ export interface FindClientByPhoneResult {
   attendancesCount: number
 }
 
+export interface ClientProfileCompleteness {
+  isComplete: boolean
+  missingFields: string[]
+  totalRequired: number
+  completedRequired: number
+  percentage: number
+}
+
+/**
+ * Calcula dinamicamente o status de completude cadastral do cliente.
+ * Campos essenciais para todos:
+ * - name ("Nome / Razão Social")
+ * - phone ("WhatsApp / Telefone")
+ * - client_type ("Tipo de Cliente")
+ * - cpf_cnpj ("CPF / CNPJ")
+ * - email ("E-mail")
+ * - address_zip ("CEP")
+ * - address_street ("Logradouro")
+ * - address_number ("Número")
+ * - address_neighborhood ("Bairro")
+ * - address_city ("Cidade")
+ * - address_state ("Estado (UF)")
+ *
+ * Se client_type === 'pessoa_juridica':
+ * - trade_name ("Nome Fantasia") também é obrigatório.
+ *
+ * NÃO obrigatórios: birth_date, secondary_phone, instagram, how_found, address_complement, notes, is_vip.
+ */
+export function calculateClientProfileCompleteness(
+  client: Partial<Client> | null | undefined,
+): ClientProfileCompleteness {
+  if (!client) {
+    return {
+      isComplete: false,
+      missingFields: [
+        'Nome / Razão Social',
+        'WhatsApp / Telefone',
+        'Tipo de Cliente',
+        'CPF / CNPJ',
+        'E-mail',
+        'CEP',
+        'Logradouro',
+        'Número',
+        'Bairro',
+        'Cidade',
+        'Estado (UF)',
+      ],
+      totalRequired: 11,
+      completedRequired: 0,
+      percentage: 0,
+    }
+  }
+
+  const isFilled = (val: unknown): boolean => {
+    if (val === null || val === undefined) return false
+    if (typeof val === 'string') return val.trim().length > 0
+    return true
+  }
+
+  // Lista base de campos obrigatórios com suas respectivas labels em pt-BR
+  const checks: { key: keyof Client; label: string; condition?: boolean }[] = [
+    { key: 'name', label: 'Nome / Razão Social' },
+    { key: 'phone', label: 'WhatsApp / Telefone' },
+    { key: 'client_type', label: 'Tipo de Cliente' },
+    { key: 'cpf_cnpj', label: 'CPF / CNPJ' },
+    { key: 'email', label: 'E-mail' },
+    { key: 'address_zip', label: 'CEP' },
+    { key: 'address_street', label: 'Logradouro' },
+    { key: 'address_number', label: 'Número' },
+    { key: 'address_neighborhood', label: 'Bairro' },
+    { key: 'address_city', label: 'Cidade' },
+    { key: 'address_state', label: 'Estado (UF)' },
+  ]
+
+  // Se PJ, trade_name passa a ser obrigatório
+  const isPj = client.client_type === 'pessoa_juridica'
+  if (isPj) {
+    checks.push({ key: 'trade_name', label: 'Nome Fantasia' })
+  }
+
+  const missingFields: string[] = []
+  let completedRequired = 0
+
+  for (const item of checks) {
+    const val = client[item.key]
+    if (isFilled(val)) {
+      completedRequired++
+    } else {
+      missingFields.push(item.label)
+    }
+  }
+
+  const totalRequired = checks.length
+  const isComplete = missingFields.length === 0
+  const percentage = totalRequired > 0 ? Math.round((completedRequired / totalRequired) * 100) : 100
+
+  return {
+    isComplete,
+    missingFields,
+    totalRequired,
+    completedRequired,
+    percentage,
+  }
+}
+
 export const clientsService = {
+  /**
+   * Helper unificado para cálculo de completude de cadastro
+   */
+  calculateCompleteness: calculateClientProfileCompleteness,
   /**
    * Extrai o ID canônico se o cliente tiver nota de [DUPLICADO_CONSOLIDADO -> canonical_id]
    */
