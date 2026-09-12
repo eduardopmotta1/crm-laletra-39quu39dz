@@ -72,6 +72,81 @@ export const whatsappTemplatesService = {
   },
 
   /**
+   * Submete os 8 templates oficiais de produção à Meta WABA
+   */
+  async submitProductionTemplates(): Promise<{
+    success: boolean
+    submitted_count?: number
+    already_existed_count?: number
+    error_count?: number
+    total?: number
+    diagnostic?: {
+      waba_origin?: string
+      waba_id?: string
+      api_version?: string
+    }
+    results?: Array<{
+      name: string
+      category: string
+      language: string
+      action: string
+      meta_template_id?: string
+      meta_status?: string
+      local_status?: string
+      local_saved?: boolean
+      local_id?: string
+      error?: string
+      error_code?: number
+      error_subcode?: string
+    }>
+    error?: string
+  }> {
+    try {
+      const response = await pb.send<{
+        success: boolean
+        submitted_count?: number
+        already_existed_count?: number
+        error_count?: number
+        total?: number
+        diagnostic?: {
+          waba_origin?: string
+          waba_id?: string
+          api_version?: string
+        }
+        results?: Array<{
+          name: string
+          category: string
+          language: string
+          action: string
+          meta_template_id?: string
+          meta_status?: string
+          local_status?: string
+          local_saved?: boolean
+          local_id?: string
+          error?: string
+          error_code?: number
+          error_subcode?: string
+        }>
+        error?: string
+      }>('/backend/v1/crm/whatsapp-submit-templates', {
+        method: 'POST',
+      })
+      return response
+    } catch (error: any) {
+      console.error('Error submitting Meta templates:', error)
+      const respError =
+        error?.data?.error ||
+        error?.data?.message ||
+        error?.message ||
+        'Falha ao submeter templates na Meta'
+      return {
+        success: false,
+        error: respError,
+      }
+    }
+  },
+
+  /**
    * Sincroniza templates diretamente com a API Oficial da Meta WABA
    */
   async syncMetaTemplates(): Promise<{

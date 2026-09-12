@@ -87,6 +87,7 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
     }
 
     // 3. Phone lookup
+    let phoneLookupDiag = null
     if (!metaWabaId && metaPhoneId && metaToken) {
       try {
         const phoneLookupUrl =
@@ -102,8 +103,14 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
           timeout: 15,
         })
         let phoneData = null
-        if (phoneRes && phoneRes.statusCode === 200) {
-          phoneData = phoneRes.json || JSON.parse(phoneRes.raw || '{}')
+        if (phoneRes) {
+          phoneLookupDiag = {
+            status: phoneRes.statusCode,
+            data: phoneRes.json || JSON.parse(phoneRes.raw || '{}'),
+          }
+          if (phoneRes.statusCode === 200) {
+            phoneData = phoneLookupDiag.data
+          }
         }
         if (
           phoneData &&
@@ -116,7 +123,9 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
             wabaOrigin = 'resolved_from_phone'
           }
         }
-      } catch (_) {}
+      } catch (pErr) {
+        phoneLookupDiag = { error: String(pErr) }
+      }
     }
 
     // 4. Executar chamada real a GET /{metaWabaId}/message_templates

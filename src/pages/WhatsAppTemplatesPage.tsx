@@ -16,6 +16,7 @@ import {
   Globe,
   Tag,
   Eye,
+  Send,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -56,6 +57,7 @@ export default function WhatsAppTemplatesPage() {
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -206,6 +208,49 @@ export default function WhatsAppTemplatesPage() {
     }
   }
 
+  const handleSubmitProductionTemplates = async () => {
+    setSubmitting(true)
+    try {
+      const res = await whatsappTemplatesService.submitProductionTemplates()
+      if (res.success || (res.results && res.results.length > 0)) {
+        const submitted = res.submitted_count || 0
+        const existed = res.already_existed_count || 0
+        const errors = res.error_count || 0
+
+        // Toast detalhado de resultado
+        if (errors === 0) {
+          toast({
+            title: 'Templates submetidos na Meta!',
+            description: `${submitted} criados (PENDING) e ${existed} já existentes. Sincronização local efetuada com sucesso.`,
+            variant: 'default',
+          })
+        } else {
+          const firstErr = res.results?.find((r) => r.error)
+          toast({
+            title: 'Submissão parcial na Meta',
+            description: `${submitted} submetidos, ${existed} já existentes, ${errors} com erro. ${firstErr ? `${firstErr.name}: ${firstErr.error}` : ''}`,
+            variant: 'destructive',
+          })
+        }
+        await loadTemplates()
+      } else {
+        toast({
+          title: 'Falha na submissão à Meta',
+          description: res.error || 'Não foi possível submeter os templates.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro na submissão',
+        description: err?.message || 'Falha ao comunicar com o servidor.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const handleSyncMeta = async () => {
     setSyncing(true)
     try {
@@ -310,11 +355,23 @@ export default function WhatsAppTemplatesPage() {
             janela de 24h.
           </p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            variant="outline"
+            onClick={handleSubmitProductionTemplates}
+            disabled={submitting || syncing}
+            className="text-xs border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 h-9"
+            title="Submete os 8 templates oficiais de produção na Meta Cloud API"
+          >
+            <Send
+              className={`h-3.5 w-3.5 mr-1.5 text-emerald-600 ${submitting ? 'animate-pulse' : ''}`}
+            />
+            {submitting ? 'Submetendo na Meta...' : 'Submeter templates de produção na Meta'}
+          </Button>
           <Button
             variant="outline"
             onClick={handleSyncMeta}
-            disabled={syncing}
+            disabled={syncing || submitting}
             className="text-xs border-slate-300 dark:border-slate-700 h-9"
           >
             <RefreshCw
