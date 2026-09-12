@@ -154,6 +154,22 @@ export interface Client {
   notes?: string
   next_action?: string
   next_action_date?: string
+  // Permanent customer registration fields
+  client_type?: 'pessoa_fisica' | 'pessoa_juridica'
+  trade_name?: string
+  cpf_cnpj?: string
+  birth_date?: string
+  secondary_phone?: string
+  instagram?: string
+  how_found?: string
+  is_vip?: boolean
+  address_zip?: string
+  address_street?: string
+  address_number?: string
+  address_complement?: string
+  address_neighborhood?: string
+  address_city?: string
+  address_state?: string
   created: string
   updated: string
 }

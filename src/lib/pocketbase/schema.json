@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T19:23:31.928Z",
+  "generatedAt": "2026-09-12T19:41:17.980Z",
   "collections": [
     {
       "name": "users",
@@ -260,6 +260,97 @@
         },
         {
           "name": "normalized_phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_type",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pessoa_fisica", "pessoa_juridica"]
+        },
+        {
+          "name": "trade_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cpf_cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "birth_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "secondary_phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "instagram",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "how_found",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_vip",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_zip",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_street",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_number",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_complement",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_neighborhood",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_city",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address_state",
           "type": "text",
           "required": false,
           "system": false

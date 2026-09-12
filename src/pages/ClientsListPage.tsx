@@ -230,7 +230,7 @@ export default function ClientsListPage() {
           {/* Stage Filter */}
           <Select value={stageFilter} onValueChange={setStageFilter}>
             <SelectTrigger className="w-full sm:w-44 text-xs h-9 bg-slate-50 dark:bg-slate-800">
-              <SelectValue placeholder="Etapa do Funil" />
+              <SelectValue placeholder="Etapa do Atendimento" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas as etapas</SelectItem>
@@ -255,7 +255,6 @@ export default function ClientsListPage() {
               <SelectItem value="urgente">Urgente</SelectItem>
             </SelectContent>
           </Select>
-
           {/* Sort Selector */}
           <Select
             value={sortBy}
@@ -327,6 +326,14 @@ export default function ClientsListPage() {
                           <span className="font-semibold text-slate-900 dark:text-white text-sm">
                             {client.name}
                           </span>
+                          {client.is_vip && (
+                            <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] px-1.5 py-0 font-bold shadow-xs">
+                              ⭐ VIP
+                            </Badge>
+                          )}
+                          {client.trade_name && (
+                            <span className="text-slate-400 text-xs">({client.trade_name})</span>
+                          )}
                           {client.has_returned && (
                             <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0 flex items-center gap-0.5 font-bold">
                               <RotateCcw className="h-2.5 w-2.5" />

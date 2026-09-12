@@ -202,6 +202,7 @@ export const clientsService = {
       'first_purchase_date',
       'last_purchase_date',
       'last_message_at',
+      'birth_date',
     ]
 
     const sanitizedData: Record<string, any> = { ...data }
@@ -374,6 +375,7 @@ export const clientsService = {
       'first_purchase_date',
       'last_purchase_date',
       'last_message_at',
+      'birth_date',
     ]
 
     const sanitizedData: Record<string, any> = { ...data }
