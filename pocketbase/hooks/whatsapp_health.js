@@ -3,9 +3,8 @@ console.log('[WHATSAPP HEALTH] hook loaded')
 routerAdd('GET', '/backend/v1/crm/whatsapp-health', (e) => {
   console.log('[WHATSAPP HEALTH] endpoint called')
   return e.json(200, {
-    ok: true,
+    status: 'ok',
     service: 'whatsapp-backend',
-    runtime: 'pocketbase',
-    version: 'health-v1',
+    timestamp: new Date().toISOString(),
   })
 })

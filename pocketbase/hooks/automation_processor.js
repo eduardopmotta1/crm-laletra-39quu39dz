@@ -5,6 +5,138 @@ cronAdd('automation_processor', '*/5 * * * *', () => {
   const startTime = Date.now()
   console.log('[AutomationProcessor] Iniciando execução...')
 
+  // Execução e teste seguro da sincronização Meta Templates via cron
+  try {
+    const metaToken = $os.getenv('WHATSAPP_ACCESS_TOKEN') || ''
+    const metaPhoneId = $os.getenv('WHATSAPP_PHONE_NUMBER_ID') || ''
+    let metaWabaId = $os.getenv('WHATSAPP_BUSINESS_ACCOUNT_ID') || ''
+    const metaApiVersion = $os.getenv('WHATSAPP_GRAPH_API_VERSION') || 'v21.0'
+
+    let wabaOrigin = ''
+    if (metaWabaId) {
+      wabaOrigin = 'config'
+    }
+
+    // 1. debug_token
+    if (!metaWabaId && metaToken) {
+      try {
+        const debugUrl = 'https://graph.facebook.com/' + metaApiVersion + '/debug_token?input_token=' + metaToken + '&access_token=' + metaToken
+        const dRes = $http.send({ url: debugUrl, method: 'GET', timeout: 15 })
+        if (dRes && dRes.statusCode === 200) {
+          const dData = dRes.json || JSON.parse(dRes.raw || '{}')
+          const scopes = (dData && dData.data && dData.data.granular_scopes) || []
+          for (let s = 0; s < scopes.length; s++) {
+            if (scopes[s].target_ids && scopes[s].target_ids.length > 0) {
+              for (let t = 0; t < scopes[s].target_ids.length; t++) {
+                const idCand = String(scopes[s].target_ids[t]).trim()
+                if (idCand && idCand !== metaPhoneId && /^\d+$/.test(idCand)) {
+                  metaWabaId = idCand
+                  wabaOrigin = 'resolved_from_debug_token'
+                  break
+                }
+              }
+            }
+            if (metaWabaId) break
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. me/businesses
+    if (!metaWabaId && metaToken) {
+      try {
+        const bRes = $http.send({
+          url: 'https://graph.facebook.com/' + metaApiVersion + '/me/businesses',
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + metaToken },
+          timeout: 15,
+        })
+        if (bRes && bRes.statusCode === 200) {
+          const bData = bRes.json || JSON.parse(bRes.raw || '{}')
+          const bList = (bData && Array.isArray(bData.data)) ? bData.data : []
+          for (let b = 0; b < bList.length; b++) {
+            const bizId = bList[b].id
+            const oReq = $http.send({
+              url: 'https://graph.facebook.com/' + metaApiVersion + '/' + bizId + '/owned_whatsapp_business_accounts',
+              method: 'GET',
+              headers: { Authorization: 'Bearer ' + metaToken },
+              timeout: 15,
+            })
+            if (oReq && oReq.statusCode === 200) {
+              const oData = oReq.json || JSON.parse(oReq.raw || '{}')
+              if (oData && Array.isArray(oData.data) && oData.data.length > 0) {
+                metaWabaId = String(oData.data[0].id).trim()
+                wabaOrigin = 'resolved_from_business_accounts'
+                break
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Phone lookup
+    if (!metaWabaId && metaPhoneId && metaToken) {
+      try {
+        const phoneLookupUrl = 'https://graph.facebook.com/' + metaApiVersion + '/' + metaPhoneId + '?fields=id,whatsapp_business_account'
+        const phoneRes = $http.send({
+          url: phoneLookupUrl,
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + metaToken },
+          timeout: 15,
+        })
+        let phoneData = null
+        if (phoneRes && phoneRes.statusCode === 200) {
+          phoneData = phoneRes.json || JSON.parse(phoneRes.raw || '{}')
+        }
+        if (phoneData && phoneData.whatsapp_business_account && phoneData.whatsapp_business_account.id) {
+          const cand = String(phoneData.whatsapp_business_account.id).trim()
+          if (cand && cand !== metaPhoneId && /^\d+$/.test(cand)) {
+            metaWabaId = cand
+            wabaOrigin = 'resolved_from_phone'
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 4. Executar chamada real a GET /{metaWabaId}/message_templates
+    let templatesRes = null
+    if (metaWabaId && metaToken) {
+      try {
+        const tRes = $http.send({
+          url: 'https://graph.facebook.com/' + metaApiVersion + '/' + metaWabaId + '/message_templates?limit=100',
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + metaToken },
+          timeout: 25,
+        })
+        templatesRes = {
+          statusCode: tRes.statusCode,
+          data: tRes.json || JSON.parse(tRes.raw || '{}'),
+        }
+      } catch (tErr) {
+        templatesRes = { error: String(tErr) }
+      }
+    }
+
+    const syncExecResult = {
+      metaPhoneId: metaPhoneId,
+      wabaId: metaWabaId,
+      origin: wabaOrigin,
+      logicalEndpoint: 'GET /' + (metaWabaId || 'UNKNOWN') + '/message_templates',
+      apiVersion: metaApiVersion,
+      templatesRes: templatesRes,
+    }
+
+    const rec = $app.findFirstRecordByData('system_settings', 'setting_key', 'temp_meta_test_status')
+    if (rec) {
+      rec.set('description', JSON.stringify(syncExecResult).substring(0, 1500))
+      rec.set('setting_value', 'cron_sync_' + Date.now())
+      $app.save(rec)
+    }
+  } catch (testErr) {
+    console.error('[AutomationProcessor] Meta sync test error:', testErr)
+  }
+
   let totalProcessed = 0
   let waitingCreated = 0
   let quotesCreated = 0

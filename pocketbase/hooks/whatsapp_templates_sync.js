@@ -52,6 +52,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
         'whatsapp_business_account_id',
       )
       const val = wabaRec ? wabaRec.get('setting_value') : ''
+      // Ignorar o valor fake legado '982736154820931' se foi gerado em seeds antigos
       if (val && val !== '982736154820931' && !val.includes('DEMO')) {
         metaWabaId = val
       }
@@ -84,8 +85,127 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
     })
   }
 
-  // Se o WABA ID não estiver setado diretamente, podemos buscar através de /v21.0/{phone_number_id}?fields=whatsapp_business_management
-  // ou /v21.0/me?fields=... mas se tivermos o phone_number_id da Meta, podemos consultar GET https://graph.facebook.com/{apiVersion}/{metaPhoneId}?fields=whatsapp_business_account
+  // Diagnóstico seguro: rastrear origem do WABA ID
+  let wabaOrigin = ''
+  if ($os.getenv('WHATSAPP_BUSINESS_ACCOUNT_ID')) {
+    wabaOrigin = 'config' // veio de WHATSAPP_BUSINESS_ACCOUNT_ID
+  } else if (metaWabaId) {
+    wabaOrigin = 'system_settings'
+  }
+
+  // 1.1 Se o WABA ID não existir, tentar resolver automaticamente via Graph API
+  // Estratégia A: debug_token (retorna granular_scopes com target_ids = [WABA_ID])
+  if (!metaWabaId) {
+    try {
+      const debugUrl =
+        'https://graph.facebook.com/' +
+        metaApiVersion +
+        '/debug_token?input_token=' +
+        metaToken +
+        '&access_token=' +
+        metaToken
+      const debugRes = $http.send({
+        url: debugUrl,
+        method: 'GET',
+        timeout: 15,
+      })
+
+      let debugData = null
+      if (debugRes && debugRes.statusCode === 200) {
+        try {
+          debugData = debugRes.json || JSON.parse(debugRes.raw)
+        } catch (_) {}
+      }
+
+      if (debugData && debugData.data) {
+        const scopes = debugData.data.granular_scopes || []
+        for (let sc = 0; sc < scopes.length; sc++) {
+          const sObj = scopes[sc]
+          if (
+            sObj &&
+            (sObj.scope === 'whatsapp_business_management' ||
+              sObj.scope === 'whatsapp_business_messaging') &&
+            Array.isArray(sObj.target_ids) &&
+            sObj.target_ids.length > 0
+          ) {
+            for (let tid = 0; tid < sObj.target_ids.length; tid++) {
+              const candId = String(sObj.target_ids[tid]).trim()
+              if (candId && candId !== metaPhoneId && /^\d+$/.test(candId)) {
+                metaWabaId = candId
+                wabaOrigin = 'resolved_from_debug_token'
+                console.log(
+                  '[WHATSAPP TEMPLATES SYNC] [DIAGNOSTIC] WABA ID resolvido via debug_token scopes (' +
+                    sObj.scope +
+                    '): ' +
+                    metaWabaId,
+                )
+                break
+              }
+            }
+          }
+          if (metaWabaId) break
+        }
+      }
+    } catch (debugErr) {
+      console.warn(
+        '[WHATSAPP TEMPLATES SYNC] [DIAGNOSTIC] debug_token falhou na resolução:',
+        debugErr,
+      )
+    }
+  }
+
+  // Estratégia B: GET /me/businesses (retorna businesses, depois /owned_whatsapp_business_accounts ou /client_whatsapp_business_accounts)
+  if (!metaWabaId) {
+    try {
+      const bizRes = $http.send({
+        url: 'https://graph.facebook.com/' + metaApiVersion + '/me/businesses',
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + metaToken },
+        timeout: 15,
+      })
+      let bizData = null
+      if (bizRes && bizRes.statusCode === 200) {
+        try {
+          bizData = bizRes.json || JSON.parse(bizRes.raw)
+        } catch (_) {}
+      }
+      const bizList = (bizData && Array.isArray(bizData.data)) ? bizData.data : []
+      for (let b = 0; b < bizList.length; b++) {
+        const bizId = bizList[b].id
+        if (!bizId) continue
+        const wabaReq = $http.send({
+          url:
+            'https://graph.facebook.com/' +
+            metaApiVersion +
+            '/' +
+            bizId +
+            '/owned_whatsapp_business_accounts',
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + metaToken },
+          timeout: 15,
+        })
+        let wabaList = null
+        if (wabaReq && wabaReq.statusCode === 200) {
+          try {
+            wabaList = wabaReq.json || JSON.parse(wabaReq.raw)
+          } catch (_) {}
+        }
+        if (wabaList && Array.isArray(wabaList.data) && wabaList.data.length > 0) {
+          metaWabaId = String(wabaList.data[0].id).trim()
+          wabaOrigin = 'resolved_from_business_accounts'
+          console.log(
+            '[WHATSAPP TEMPLATES SYNC] [DIAGNOSTIC] WABA ID resolvido via owned_whatsapp_business_accounts: ' +
+              metaWabaId,
+          )
+          break
+        }
+      }
+    } catch (bizErr) {
+      console.warn('[WHATSAPP TEMPLATES SYNC] [DIAGNOSTIC] me/businesses falhou:', bizErr)
+    }
+  }
+
+  // Estratégia C: consulta em GET /{phone_number_id}
   if (!metaWabaId && metaPhoneId) {
     try {
       const phoneLookupUrl =
@@ -97,49 +217,65 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
       const phoneRes = $http.send({
         url: phoneLookupUrl,
         method: 'GET',
-        headers: {
-          Authorization: 'Bearer ' + metaToken,
-        },
+        headers: { Authorization: 'Bearer ' + metaToken },
         timeout: 15,
       })
+      let phoneData = null
       if (phoneRes && phoneRes.statusCode === 200) {
-        let phoneData = null
         try {
           phoneData = phoneRes.json || JSON.parse(phoneRes.raw)
         } catch (_) {}
-        if (
-          phoneData &&
-          phoneData.whatsapp_business_account &&
-          phoneData.whatsapp_business_account.id
-        ) {
-          metaWabaId = phoneData.whatsapp_business_account.id
-          console.log(
-            '[WHATSAPP TEMPLATES SYNC] WABA ID resolvido via Phone Number ID:',
-            metaWabaId,
-          )
+      }
+      if (
+        phoneData &&
+        phoneData.whatsapp_business_account &&
+        phoneData.whatsapp_business_account.id
+      ) {
+        const cand = String(phoneData.whatsapp_business_account.id).trim()
+        if (cand && cand !== metaPhoneId && /^\d+$/.test(cand)) {
+          metaWabaId = cand
+          wabaOrigin = 'resolved_from_phone'
         }
       }
-    } catch (lookupErr) {
-      console.warn(
-        '[WHATSAPP TEMPLATES SYNC] Não foi possível consultar WABA ID via phone_id:',
-        lookupErr,
-      )
-    }
+    } catch (_) {}
   }
 
-  // Se ainda assim não temos WABA ID, tentar o valor cadastrado em system_settings mesmo que tenha sido o inicial ou verificar se tem waba_id
-  if (!metaWabaId) {
+  // Se resolvido automaticamente, persistir em system_settings para cache de alta performance
+  if (metaWabaId && (wabaOrigin.startsWith('resolved_') || wabaOrigin === 'config')) {
     try {
       const wabaRec = $app.findFirstRecordByData(
         'system_settings',
         'setting_key',
         'whatsapp_business_account_id',
       )
-      const val = wabaRec ? wabaRec.get('setting_value') : ''
-      if (val) {
-        metaWabaId = val
+      if (wabaRec && wabaRec.get('setting_value') !== metaWabaId) {
+        wabaRec.set('setting_value', metaWabaId)
+        $app.save(wabaRec)
+        console.log('[WHATSAPP TEMPLATES SYNC] WABA ID salvo em system_settings: ' + metaWabaId)
       }
     } catch (_) {}
+  }
+
+  // Validação estrita: metaWabaId NÃO pode ser igual ao metaPhoneId (pois causaria erro #100)
+  if (metaWabaId && metaPhoneId && metaWabaId === metaPhoneId) {
+    console.error(
+      '[WHATSAPP TEMPLATES SYNC] [DIAGNOSTIC] ERRO CRÍTICO: WABA ID (' +
+        metaWabaId +
+        ') é idêntico ao Phone Number ID. Isso causaria erro #100!',
+    )
+    return e.json(400, {
+      success: false,
+      synced: false,
+      error:
+        'Configuração incorreta: o WABA ID fornecido é idêntico ao Phone Number ID. O endpoint /message_templates exige o ID da conta comercial (WABA ID), não o ID do telefone.',
+      diagnostic: {
+        api_version: metaApiVersion,
+        waba_origin: wabaOrigin,
+        waba_id: metaWabaId,
+        phone_number_id: metaPhoneId,
+        endpoint_called: 'GET /' + metaWabaId + '/message_templates',
+      },
+    })
   }
 
   if (!metaWabaId) {
@@ -148,24 +284,32 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
       success: false,
       synced: false,
       error:
-        'WABA ID (WhatsApp Business Account ID) não configurado. Adicione o WABA ID em Configurações > WhatsApp API ou defina WHATSAPP_BUSINESS_ACCOUNT_ID.',
+        'WABA ID (WhatsApp Business Account ID) não configurado nem foi possível resolvê-lo automaticamente via Meta API. Adicione o WABA ID em Configurações > WhatsApp API ou defina WHATSAPP_BUSINESS_ACCOUNT_ID.',
+      diagnostic: {
+        api_version: metaApiVersion,
+        waba_origin: 'none',
+        waba_id: '',
+        endpoint_called: 'none',
+      },
     })
   }
 
   // 2. Buscar templates na Meta Graph API
   // GET https://graph.facebook.com/{apiVersion}/{waba_id}/message_templates?limit=100
+  const logicalEndpoint = 'GET /' + metaWabaId + '/message_templates?limit=100'
   const metaTemplatesUrl =
     'https://graph.facebook.com/' +
     metaApiVersion +
     '/' +
     metaWabaId +
     '/message_templates?limit=100'
-  console.log(
-    '[WHATSAPP TEMPLATES SYNC] Buscando templates da WABA ID ' +
-      metaWabaId +
-      ' via ' +
-      metaTemplatesUrl,
-  )
+
+  console.log('[WHATSAPP TEMPLATES SYNC] [DIAGNOSTIC] Executando chamada segura:', {
+    api_version: metaApiVersion,
+    waba_origin: wabaOrigin,
+    waba_id: metaWabaId,
+    endpoint: logicalEndpoint,
+  })
 
   let apiResponse = null
   let networkErr = null
@@ -224,6 +368,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
         code: errCode,
         subcode: errSubcode,
         message: safeErrorMsg,
+      },
+      diagnostic: {
+        api_version: metaApiVersion,
+        waba_origin: wabaOrigin,
+        waba_id: metaWabaId,
+        endpoint_called: logicalEndpoint,
       },
     })
   }
@@ -451,6 +601,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
     created_count: createdCount,
     unmarked_count: unmarkedCount,
     message: summaryMessage,
+    diagnostic: {
+      api_version: metaApiVersion,
+      waba_origin: wabaOrigin,
+      waba_id: metaWabaId,
+      endpoint_called: logicalEndpoint,
+    },
   })
 })
 

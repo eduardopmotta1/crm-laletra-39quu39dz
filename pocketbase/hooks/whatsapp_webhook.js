@@ -8,7 +8,6 @@ routerAdd('GET', '/backend/v1/crm/whatsapp-webhook', (e) => {
   const hubChallenge = e.request.url.query().get('hub.challenge')
 
   const verifyToken = 'laletra_crm_webhook_2024'
-
   console.log(
     '[WHATSAPP WEBHOOK GET]',
     'mode:',
