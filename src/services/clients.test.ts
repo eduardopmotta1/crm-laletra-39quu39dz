@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { calculateClientProfileCompleteness } from './clients'
+import { calculateClientProfileCompleteness, clientsService } from './clients'
 import type { Client } from '@/types/crm'
+import { isWithin24HourWindow } from '@/types/crm'
 
 describe('calculateClientProfileCompleteness', () => {
   it('retorna incompleto se o cliente for nulo ou indefinido', () => {
@@ -141,5 +142,55 @@ describe('calculateClientProfileCompleteness', () => {
     expect(res.totalRequired).toBe(11)
     expect(res.completedRequired).toBe(10)
     expect(res.percentage).toBe(91)
+  })
+})
+
+describe('clientsService.getPublicClientUrl', () => {
+  it('gera URL pública preferencialmente com public_token', () => {
+    const url = clientsService.getPublicClientUrl({
+      id: 'client123',
+      public_token: 'tok_abc_789',
+    })
+    expect(url).toContain('/cadastro/tok_abc_789')
+  })
+
+  it('usa fallback de id caso public_token não esteja presente', () => {
+    const url = clientsService.getPublicClientUrl({
+      id: 'client123',
+    })
+    expect(url).toContain('/cadastro/client123')
+  })
+})
+
+describe('isWithin24HourWindow para envio do link pelo WhatsApp', () => {
+  it('permite envio livre dentro da janela de 24h a partir de mensagem do cliente', () => {
+    const now = new Date()
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
+    const within = isWithin24HourWindow(twoHoursAgo, 'inbound')
+    expect(within).toBe(true)
+  })
+
+  it('bloqueia envio livre quando ultrapassar a janela de 24h', () => {
+    const now = new Date()
+    const thirtyHoursAgo = new Date(now.getTime() - 30 * 60 * 60 * 1000).toISOString()
+    const within = isWithin24HourWindow(thirtyHoursAgo, 'inbound')
+    expect(within).toBe(false)
+  })
+
+  it('bloqueia envio se última mensagem foi enviada pela equipe (outbound) sem mensagem recente do cliente', () => {
+    const now = new Date()
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
+    const within = isWithin24HourWindow(twoHoursAgo, 'outbound')
+    expect(within).toBe(false)
+  })
+
+  it('permite envio se a última mensagem geral foi outbound mas existe lastCustomerMessageAt recente (<24h)', () => {
+    const now = new Date()
+    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000).toISOString()
+    const fiveHoursAgo = new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString()
+    const within = isWithin24HourWindow(oneHourAgo, 'outbound', {
+      lastCustomerMessageAt: fiveHoursAgo,
+    })
+    expect(within).toBe(true)
   })
 })
