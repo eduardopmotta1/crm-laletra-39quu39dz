@@ -78,6 +78,7 @@ interface ProductionOrderModalProps {
   initialStageId?: string
   prefillData?: {
     clientId?: string
+    attendanceId?: string
     clientName?: string
     clientPhone?: string
     clientEmail?: string
@@ -369,6 +370,7 @@ export default function ProductionOrderModal({
 
         const created = await productionService.create({
           clientId: targetClientId,
+          attendanceId: prefillData?.attendanceId,
           clientName: clientName.trim(),
           clientPhone: clientPhone.trim(),
           clientEmail: clientEmail.trim() || undefined,

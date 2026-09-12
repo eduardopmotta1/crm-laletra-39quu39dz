@@ -535,8 +535,9 @@ export default function QuotesListPage() {
                     </span>
                   </div>
 
-                  {/* Botão de Criação / Visualização de Pedido de Produção para Orçamentos Aprovados */}
-                  {q.status === 'aprovado' &&
+                  {/* Botão de Criação / Visualização de Pedido de Produção (para orçamentos aprovados e internos válidos) */}
+                  {q.status !== 'recusado' &&
+                    q.status !== 'expirado' &&
                     (() => {
                       const linkedOrder = getLinkedOrderForQuote(q)
                       if (linkedOrder) {
@@ -840,7 +841,8 @@ export default function QuotesListPage() {
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
-                  {selectedQuote.status === 'aprovado' &&
+                  {selectedQuote.status !== 'recusado' &&
+                    selectedQuote.status !== 'expirado' &&
                     (() => {
                       const linkedOrder = getLinkedOrderForQuote(selectedQuote)
                       if (linkedOrder) {

@@ -196,9 +196,12 @@ export const quoteToProductionService = {
       throw new Error(`Orçamento #${quote.code || quote.id} não foi encontrado no sistema.`)
     }
 
-    if (freshQuote.status !== 'aprovado') {
+    // Permite orçamentos aprovados E orçamentos internos válidos (ex: rascunho, enviado, alteracao_solicitada)
+    // O vendedor pode enviar para produção em todos os cenários sem exigir aprovação pública
+    const invalidStatuses = ['recusado', 'expirado']
+    if (invalidStatuses.includes(freshQuote.status)) {
       throw new Error(
-        `Apenas orçamentos com status "Aprovado" podem ser convertidos em pedido de produção. Status atual: "${freshQuote.status}".`,
+        `Orçamentos com status "${freshQuote.status}" não podem ser convertidos em pedido de produção.`,
       )
     }
 
@@ -287,7 +290,7 @@ export const quoteToProductionService = {
     const combinedNotes = [
       options.productionNotes?.trim() || '',
       freshQuote.notes?.trim() ? `Obs. comercial do orçamento: ${freshQuote.notes.trim()}` : '',
-      `Origem: Orçamento ${freshQuote.code} aprovado em ${freshQuote.approved_at ? new Date(freshQuote.approved_at).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR')}. ${trackingTag}`,
+      `Origem: Orçamento ${freshQuote.code} (${freshQuote.status})${freshQuote.approved_at ? ` aprovado em ${new Date(freshQuote.approved_at).toLocaleDateString('pt-BR')}` : ''}. ${trackingTag}`,
     ]
       .filter(Boolean)
       .join('\n\n')

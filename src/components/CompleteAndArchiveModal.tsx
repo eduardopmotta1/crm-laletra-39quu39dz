@@ -80,8 +80,8 @@ export default function CompleteAndArchiveModal({
   const [createdArchivedDealId, setCreatedArchivedDealId] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState<boolean>(false)
 
-  // Linked approved quote detection
-  const [approvedQuote, setApprovedQuote] = useState<Quote | null>(null)
+  // Linked quote detection (aprovado ou interno válido: rascunho, enviado, alteracao_solicitada)
+  const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null)
   const [checkingQuote, setCheckingQuote] = useState<boolean>(false)
 
   React.useEffect(() => {
@@ -97,43 +97,54 @@ export default function CompleteAndArchiveModal({
       setCustomLossReason('')
       setFinalNotes('')
       setCreateProductionOrder(true)
-      setApprovedQuote(null)
+      setSelectedQuote(null)
 
-      // Detect linked approved quote for attendance or client
+      // Detect linked quote for attendance or client
+      // Ordem prioritária: (a) quote aprovado vinculado, (b) quote interno válido, (c) sem quote -> formulário manual
       const effectiveAttId = attendanceId || client.attendance_id
       setCheckingQuote(true)
 
       const detectQuote = async () => {
         try {
-          let foundApproved: Quote | null = null
+          const isValidQuote = (q: Quote) => q.status !== 'recusado' && q.status !== 'expirado'
+
+          let foundQuote: Quote | null = null
 
           // 1. Try finding by attendanceId first (strict context)
           if (effectiveAttId) {
             const attQuotes = await quotesService.getByAttendanceId(effectiveAttId)
-            // Look for approved quote first, then any open quote
-            foundApproved = attQuotes.find((q) => q.status === 'aprovado') || null
+            // Prioridade (a): quote aprovado vinculado ao atendimento
+            const approved = attQuotes.find((q) => q.status === 'aprovado')
+            if (approved) {
+              foundQuote = approved
+            } else {
+              // Prioridade (b): quote interno válido vinculado ao atendimento
+              foundQuote = attQuotes.find(isValidQuote) || null
+            }
           }
 
           // 2. If not found by attendance, look by clientId
-          if (!foundApproved && client.id) {
-            const clientQuotes = await quotesService.getAll(
-              `client_id = "${client.id}" && status = "aprovado"`,
-              '-updated',
-            )
-            if (clientQuotes.length > 0) {
-              foundApproved = clientQuotes[0]
+          if (!foundQuote && client.id) {
+            const clientQuotes = await quotesService.getByClientId(client.id)
+            // Prioridade (a): quote aprovado do cliente
+            const approved = clientQuotes.find((q) => q.status === 'aprovado')
+            if (approved) {
+              foundQuote = approved
+            } else {
+              // Prioridade (b): quote interno válido do cliente
+              foundQuote = clientQuotes.find(isValidQuote) || null
             }
           }
 
-          if (foundApproved) {
-            setApprovedQuote(foundApproved)
-            // Autofill values from approved quote if not already set or customized
-            const qVal = quotesService.getQuoteTotal(foundApproved)
+          if (foundQuote) {
+            setSelectedQuote(foundQuote)
+            // Autofill values from quote if not already set or customized
+            const qVal = quotesService.getQuoteTotal(foundQuote)
             if (qVal > 0) {
               setQuoteValue(String(qVal))
             }
-            if (Array.isArray(foundApproved.items) && foundApproved.items.length > 0) {
-              const summaryNames = foundApproved.items
+            if (Array.isArray(foundQuote.items) && foundQuote.items.length > 0) {
+              const summaryNames = foundQuote.items
                 .map(
                   (it) =>
                     (it.quantity && it.quantity > 1 ? `${it.quantity}x ` : '') +
@@ -177,12 +188,12 @@ export default function CompleteAndArchiveModal({
     // Se a criação da produção falhar ou for cancelada, o atendimento continua aberto,
     // sem perda do contexto da venda.
     if (result === 'Venda fechada' && createProductionOrder) {
-      if (approvedQuote) {
-        // Fluxo com orçamento aprovado vinculado: abrir CreateProductionOrderFromQuoteModal
+      if (selectedQuote) {
+        // Fluxo com orçamento (aprovado ou interno válido): abrir CreateProductionOrderFromQuoteModal
         // O serviço quoteToProductionService conclui e arquiva o atendimento com segurança após a ordem de produção ser salva no banco.
         setQuoteProductionModalOpen(true)
       } else {
-        // Fallback manual: abrir ProductionOrderModal antes de arquivar
+        // Fallback manual (sem orçamento): abrir ProductionOrderModal antes de arquivar
         setProductionModalOpen(true)
       }
       return
@@ -413,30 +424,38 @@ export default function CompleteAndArchiveModal({
                       Criar Pedido de Produção imediatamente
                     </span>
                     <span className="text-emerald-700 dark:text-emerald-300 text-[11px] block mt-0.5">
-                      {approvedQuote
-                        ? `Orçamento aprovado ${approvedQuote.code} detectado. Carrega todos os itens, medidas, acabamentos e arte aprovada diretamente para a produção.`
+                      {selectedQuote
+                        ? `Orçamento ${selectedQuote.code} (${selectedQuote.status}) detectado. Carrega todos os itens, medidas e acabamentos diretamente para a produção.`
                         : 'Abre o formulário de produção pré-preenchido para gerar a ordem de serviço na esteira.'}
                     </span>
                   </label>
                 </div>
 
-                {approvedQuote && (
+                {selectedQuote && (
                   <div className="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-emerald-300 dark:border-emerald-800 text-xs flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-emerald-600 shrink-0" />
                       <div>
                         <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          Orçamento Vinculado: {approvedQuote.code}
+                          Orçamento Vinculado: {selectedQuote.code}
                         </span>
                         <span className="text-[11px] text-slate-500 block">
-                          {Array.isArray(approvedQuote.items) ? approvedQuote.items.length : 0}{' '}
+                          {Array.isArray(selectedQuote.items) ? selectedQuote.items.length : 0}{' '}
                           item(ns) discriminado(s) • Total:{' '}
-                          {formatCurrency(quotesService.getQuoteTotal(approvedQuote))}
+                          {formatCurrency(quotesService.getQuoteTotal(selectedQuote))}
                         </span>
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      ✓ Aprovado
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                        selectedQuote.status === 'aprovado'
+                          ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300'
+                          : 'text-blue-700 bg-blue-100 dark:bg-blue-950 dark:text-blue-300'
+                      }`}
+                    >
+                      {selectedQuote.status === 'aprovado'
+                        ? '✓ Aprovado'
+                        : `Interno (${selectedQuote.status})`}
                     </span>
                   </div>
                 )}
@@ -467,12 +486,12 @@ export default function CompleteAndArchiveModal({
         </DialogContent>
       </Dialog>
 
-      {/* Fluxo com orçamento aprovado vinculado: CreateProductionOrderFromQuoteModal */}
-      {approvedQuote && (
+      {/* Fluxo com orçamento vinculado (aprovado ou interno): CreateProductionOrderFromQuoteModal */}
+      {selectedQuote && (
         <CreateProductionOrderFromQuoteModal
           isOpen={quoteProductionModalOpen}
           zIndexClass={zIndexClass}
-          quote={approvedQuote}
+          quote={selectedQuote}
           onClose={() => {
             setQuoteProductionModalOpen(false)
             // Se fechou sem criar, a venda NÃO é arquivada e o atendimento continua aberto!
@@ -481,7 +500,7 @@ export default function CompleteAndArchiveModal({
             setQuoteProductionModalOpen(false)
             toast({
               title: '🎉 Venda Concluída & Pedido em Produção!',
-              description: `Pedido gerado a partir do orçamento ${approvedQuote.code} e atendimento de "${client.name}" arquivado com sucesso.`,
+              description: `Pedido gerado a partir do orçamento ${selectedQuote.code} e atendimento de "${client.name}" arquivado com sucesso.`,
             })
             if (onSuccess) onSuccess()
             onClose()
@@ -496,7 +515,7 @@ export default function CompleteAndArchiveModal({
         />
       )}
 
-      {/* Fallback Manual: ProductionOrderModal quando NÃO houver orçamento aprovado */}
+      {/* Fallback Manual: ProductionOrderModal quando NÃO houver orçamento */}
       <ProductionOrderModal
         isOpen={productionModalOpen}
         zIndexClass={zIndexClass}
@@ -539,6 +558,7 @@ export default function CompleteAndArchiveModal({
         }}
         prefillData={{
           clientId: client?.id,
+          attendanceId: attendanceId || client?.attendance_id,
           clientName: client?.name,
           clientPhone: client?.phone,
           clientEmail: client?.email,

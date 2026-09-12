@@ -122,14 +122,15 @@ export default function CreateProductionOrderFromQuoteModal({
 
   const snapshot = extractProductionOrderDataFromQuote(quote)
   const isApproved = quote.status === 'aprovado'
+  const isRejectedOrExpired = quote.status === 'recusado' || quote.status === 'expirado'
 
   const handleConfirmCreate = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!isApproved) {
+    if (isRejectedOrExpired) {
       toast({
-        title: 'Orçamento não está aprovado',
-        description: 'Apenas orçamentos com status "Aprovado" podem ser convertidos em pedido.',
+        title: 'Orçamento não pode ser convertido',
+        description: `Orçamentos com status "${quote.status}" não podem ser convertidos em pedido.`,
         variant: 'destructive',
       })
       return
@@ -216,15 +217,15 @@ export default function CreateProductionOrderFromQuoteModal({
               className={
                 isApproved
                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border-emerald-300'
-                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 border-amber-300'
+                  : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200 border-blue-300'
               }
             >
-              {isApproved ? '✓ Orçamento Aprovado' : `Status: ${quote.status}`}
+              {isApproved ? '✓ Orçamento Aprovado' : `Orçamento Interno (${quote.status})`}
             </Badge>
           </div>
           <DialogDescription className="text-xs text-slate-500 dark:text-slate-400">
-            Confira as especificações exatas aprovadas pelo cliente e complete os dados de produção
-            (prazo, responsáveis e observações internas).
+            Confira as especificações da proposta comercial e complete os dados de produção (prazo,
+            responsáveis e observações internas).
           </DialogDescription>
         </DialogHeader>
 
@@ -288,10 +289,9 @@ export default function CreateProductionOrderFromQuoteModal({
                   {quote.attendance_id || 'Atendimento comercial'}
                 </strong>
                 <span className="text-slate-500 text-[11px]">
-                  Aprovado em:{' '}
                   {quote.approved_at
-                    ? new Date(quote.approved_at).toLocaleDateString('pt-BR')
-                    : 'Data recente'}
+                    ? `Aprovado em: ${new Date(quote.approved_at).toLocaleDateString('pt-BR')}`
+                    : `Status: ${quote.status}`}
                 </span>
               </div>
 
@@ -564,7 +564,7 @@ export default function CreateProductionOrderFromQuoteModal({
             ) : (
               <Button
                 type="submit"
-                disabled={loading || !isApproved || checkingExisting}
+                disabled={loading || isRejectedOrExpired || checkingExisting}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs gap-1.5 min-w-[160px]"
               >
                 {loading ? (

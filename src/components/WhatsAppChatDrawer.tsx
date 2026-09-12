@@ -1679,8 +1679,9 @@ export default function WhatsAppChatDrawer({
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0 ml-auto flex-wrap sm:flex-nowrap">
-                            {/* Botão Criar Pedido / Pedido já criado para orçamentos Aprovados */}
-                            {quote.status === 'aprovado' &&
+                            {/* Botão Criar Pedido / Pedido já criado (para orçamentos aprovados e internos válidos) */}
+                            {quote.status !== 'recusado' &&
+                              quote.status !== 'expirado' &&
                               (() => {
                                 const linkedOrder = getLinkedOrderForQuote(quote)
                                 if (linkedOrder) {
@@ -3651,7 +3652,8 @@ export default function WhatsAppChatDrawer({
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
-                  {selectedQuoteToView.status === 'aprovado' &&
+                  {selectedQuoteToView.status !== 'recusado' &&
+                    selectedQuoteToView.status !== 'expirado' &&
                     (() => {
                       const linkedOrder = getLinkedOrderForQuote(selectedQuoteToView)
                       if (linkedOrder) {
