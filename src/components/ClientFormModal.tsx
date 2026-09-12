@@ -42,6 +42,10 @@ import {
   Star,
   Search,
   Crown,
+  Link2,
+  Copy,
+  ExternalLink,
+  Check,
 } from 'lucide-react'
 import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
 import ClientPurchaseHistoryModal from './ClientPurchaseHistoryModal'
@@ -125,6 +129,9 @@ export default function ClientFormModal({
   const [quotesModalOpen, setQuotesModalOpen] = useState(false)
   const [evaluationsModalOpen, setEvaluationsModalOpen] = useState(false)
   const [searchingCep, setSearchingCep] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
+  const [requestLinkModalOpen, setRequestLinkModalOpen] = useState(false)
+  const [currentPublicToken, setCurrentPublicToken] = useState<string>('')
 
   // Guarda síncrona para modais filhos — previne race condition no ciclo de fechamento Radix UI
   const openChildModalRef = useRef<'evaluations' | 'history' | 'quotes' | 'chat' | null>(null)
@@ -170,6 +177,7 @@ export default function ClientFormModal({
           is_vip: Boolean(clientToEdit.is_vip),
           notes: clientToEdit.notes || '',
         })
+        setCurrentPublicToken(clientToEdit.public_token || '')
         setPhoneMatch(null)
       } else {
         setFormData({
@@ -237,6 +245,9 @@ export default function ClientFormModal({
             how_found: prev.how_found.trim() ? prev.how_found : canonical.how_found || '',
             is_vip: prev.is_vip || Boolean(canonical.is_vip),
           }))
+          if (canonical.public_token) {
+            setCurrentPublicToken(canonical.public_token)
+          }
         }
       } catch (err) {
         console.error('Error checking phone duplicate:', err)
@@ -402,6 +413,54 @@ export default function ClientFormModal({
       })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const activeClientTarget = clientToEdit || existingClient || null
+
+  const getPublicLinkUrl = () => {
+    if (!activeClientTarget) return ''
+    const token = currentPublicToken || activeClientTarget.public_token
+    if (!token) return ''
+    return clientsService.getPublicClientUrl({ public_token: token, id: activeClientTarget.id })
+  }
+
+  const handleOpenRequestLinkModal = async () => {
+    if (!activeClientTarget) return
+    let token = currentPublicToken || activeClientTarget.public_token
+    if (!token) {
+      try {
+        const updated = await clientsService.ensurePublicToken(activeClientTarget)
+        if (updated.public_token) {
+          token = updated.public_token
+          setCurrentPublicToken(token)
+          activeClientTarget.public_token = token
+        }
+      } catch (err) {
+        console.warn('Falha ao gerar public_token para cliente:', err)
+      }
+    }
+    setCopiedLink(false)
+    setRequestLinkModalOpen(true)
+  }
+
+  const handleCopyLink = async () => {
+    const url = getPublicLinkUrl()
+    if (!url) return
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedLink(true)
+      toast({
+        title: 'Link copiado com sucesso!',
+        description: 'Envie o link para o cliente completar ou revisar os dados cadastrais.',
+      })
+      setTimeout(() => setCopiedLink(false), 3000)
+    } catch (_) {
+      toast({
+        title: 'Não foi possível copiar',
+        description: 'Selecione e copie o link manualmente.',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -582,6 +641,28 @@ export default function ClientFormModal({
                 >
                   <Star className="h-3.5 w-3.5 mr-1.5 text-amber-500 fill-amber-400" />
                   Avaliações
+                </Button>
+
+                {/* Botão Solicitar Cadastro (Página Pública) */}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!clientToEdit && !existingClient}
+                  title={
+                    clientToEdit || existingClient
+                      ? 'Gerar e copiar link público para o cliente preencher/corrigir os dados cadastrais'
+                      : 'Salve o cadastro do cliente para habilitar o link público'
+                  }
+                  onClick={handleOpenRequestLinkModal}
+                  className={`h-8 text-xs font-semibold ${
+                    clientToEdit || existingClient
+                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/60 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed'
+                  }`}
+                >
+                  <Link2 className="h-3.5 w-3.5 mr-1.5 text-blue-600 dark:text-blue-400" />
+                  Solicitar cadastro
                 </Button>
               </div>
             </div>
@@ -1146,6 +1227,85 @@ export default function ClientFormModal({
         client={clientToEdit || existingClient || null}
         zIndexClass="z-[70]"
       />
+
+      {/* Modal / Diálogo para exibir e copiar o Link Público de Solicitar Cadastro */}
+      <Dialog open={requestLinkModalOpen} onOpenChange={setRequestLinkModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-blue-600" />
+              Solicitar Cadastro ao Cliente
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Envie o link público exclusivo abaixo para o cliente. Ao acessar, ele poderá
+              visualizar, corrigir e completar os próprios dados cadastrais e de endereço de forma
+              autônoma e segura.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Link Público do Cliente:
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={getPublicLinkUrl()}
+                  className="font-mono text-xs bg-slate-50 dark:bg-slate-900 select-all"
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleCopyLink}
+                  className="bg-blue-600 hover:bg-blue-700 text-white shrink-0 font-semibold text-xs gap-1.5"
+                >
+                  {copiedLink ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      Copiado!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      Copiar link
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 text-xs">
+              <span className="text-slate-400 text-[11px]">
+                Token reutilizável e exclusivo deste cliente.
+              </span>
+              {getPublicLinkUrl() && (
+                <a
+                  href={getPublicLinkUrl()}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-semibold inline-flex items-center gap-1 hover:underline text-xs"
+                >
+                  Abrir link <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setRequestLinkModalOpen(false)}
+            >
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

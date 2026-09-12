@@ -28,6 +28,7 @@ import NewQuotePage from '@/pages/NewQuotePage'
 import PublicTrackingPage from '@/pages/PublicTrackingPage'
 import PublicEvaluationPage from '@/pages/PublicEvaluationPage'
 import PublicQuotePage from '@/pages/PublicQuotePage'
+import PublicClientFormPage from '@/pages/PublicClientFormPage'
 import ProceduresPage from '@/pages/ProceduresPage'
 import NotFound from '@/pages/NotFound'
 const App = () => (
@@ -50,6 +51,9 @@ const App = () => (
 
           {/* Public Quote Approval/Change Route (No Auth Required) */}
           <Route path="/orcamento/:token" element={<PublicQuotePage />} />
+
+          {/* Public Client Registration / Profile Route (No Auth Required) */}
+          <Route path="/cadastro/:token" element={<PublicClientFormPage />} />
 
           {/* Protected CRM App Routes */}
           <Route

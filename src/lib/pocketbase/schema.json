@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T21:16:56.582Z",
+  "generatedAt": "2026-09-12T21:57:19.602Z",
   "collections": [
     {
       "name": "users",
@@ -354,6 +354,12 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "public_token",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -362,7 +368,8 @@
         "CREATE INDEX idx_clients_assigned ON clients (assigned_to)",
         "CREATE INDEX idx_clients_last_msg ON clients (last_message_at DESC)",
         "CREATE INDEX `idx_clients_is_archived` ON `clients` (is_archived)",
-        "CREATE UNIQUE INDEX `idx_clients_normalized_phone_unique` ON `clients` (normalized_phone) WHERE normalized_phone != ''"
+        "CREATE UNIQUE INDEX `idx_clients_normalized_phone_unique` ON `clients` (normalized_phone) WHERE normalized_phone != ''",
+        "CREATE UNIQUE INDEX `idx_clients_public_token` ON `clients` (public_token) WHERE public_token != ''"
       ]
     },
     {

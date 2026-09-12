@@ -170,8 +170,29 @@ export interface Client {
   address_neighborhood?: string
   address_city?: string
   address_state?: string
+  public_token?: string
   created: string
   updated: string
+}
+
+export interface PublicClientProfileData {
+  name: string
+  trade_name?: string
+  client_type: 'pessoa_fisica' | 'pessoa_juridica'
+  cpf_cnpj?: string
+  birth_date?: string
+  phone: string
+  secondary_phone?: string
+  email?: string
+  instagram?: string
+  how_found?: string
+  address_zip?: string
+  address_street?: string
+  address_number?: string
+  address_complement?: string
+  address_neighborhood?: string
+  address_city?: string
+  address_state?: string
 }
 
 export type EvaluationStatus = 'pending_contact' | 'in_recovery' | 'resolved' | 'satisfied'

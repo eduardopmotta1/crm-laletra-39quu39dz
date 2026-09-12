@@ -1,5 +1,5 @@
 import pb from '@/lib/pocketbase/client'
-import type { Attendance, Client, KanbanStage } from '@/types/crm'
+import type { Attendance, Client, KanbanStage, PublicClientProfileData } from '@/types/crm'
 import { normalizePhone } from '@/lib/utils'
 import { dealsService } from './deals'
 import { attendancesService } from './attendances'
@@ -16,6 +16,61 @@ export const clientsService = {
   /**
    * Extrai o ID canônico se o cliente tiver nota de [DUPLICADO_CONSOLIDADO -> canonical_id]
    */
+  /**
+   * Retorna a URL pública para o cliente visualizar/preencher seu próprio cadastro
+   */
+  getPublicClientUrl(client: Client | { public_token?: string; id?: string }): string {
+    const token = client.public_token
+    if (!token || typeof token !== 'string' || token.trim() === '') return ''
+    const origin =
+      typeof window !== 'undefined' && window.location.origin ? window.location.origin : ''
+    return `${origin}/cadastro/${token.trim()}`
+  },
+
+  /**
+   * Garante que um cliente tenha public_token (gera se não possuir)
+   */
+  async ensurePublicToken(client: Client): Promise<Client> {
+    if (client.public_token && client.public_token.trim() !== '') {
+      return client
+    }
+    const token =
+      'ctk_' +
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15) +
+      Date.now().toString(36)
+    return await pb.collection('clients').update<Client>(client.id, { public_token: token })
+  },
+
+  /**
+   * Obtém os dados cadastrais seguros através do public_token (endpoint público sem auth)
+   */
+  async getByPublicToken(token: string): Promise<PublicClientProfileData> {
+    const res = await pb.send<{ data: PublicClientProfileData }>(
+      `/backend/v1/public/clients/${encodeURIComponent(token.trim())}`,
+      {
+        method: 'GET',
+      },
+    )
+    return res.data
+  },
+
+  /**
+   * Atualiza os dados cadastrais através do public_token (endpoint público sem auth, com whitelist rígida)
+   */
+  async updateByPublicToken(
+    token: string,
+    payload: Partial<PublicClientProfileData>,
+  ): Promise<{ success: boolean; message: string; data: PublicClientProfileData }> {
+    return await pb.send<{ success: boolean; message: string; data: PublicClientProfileData }>(
+      `/backend/v1/public/clients/${encodeURIComponent(token.trim())}`,
+      {
+        method: 'POST',
+        body: payload,
+      },
+    )
+  },
+
   extractCanonicalId(client: Client | null): string | null {
     if (!client || !client.notes) return null
     const match = client.notes.match(/\[DUPLICADO_CONSOLIDADO\s*->\s*([a-zA-Z0-9_-]+)\]/i)
