@@ -85,6 +85,22 @@ routerAdd('GET', '/backend/v1/crm/public-production/{tracking_token}', (c) => {
         const proofsCollection = $app.findCollectionByNameOrId('production_proofs')
         const collectionIdOrName = proofsCollection ? proofsCollection.id : 'production_proofs'
 
+        // Determinar a URL base absoluta do backend PocketBase
+        // Preferência para PB_INSTANCE_URL ou appUrl configurado no sistema
+        let pbHost = $os.getenv('PB_INSTANCE_URL') || ''
+        if (!pbHost) {
+          try {
+            const settings = $app.settings()
+            if (settings && settings.meta && settings.meta.appUrl) {
+              pbHost = settings.meta.appUrl
+            }
+          } catch (_) {}
+        }
+        if (!pbHost) {
+          pbHost = 'https://crm-grafica-whatsapp-7b1a5.shrd00.internal.goskip.dev'
+        }
+        const cleanPbHost = pbHost.replace(/\/+$/, '')
+
         publicProofs = proofsRecords.map((prf) => {
           // Extrair arquivos de prova (proof_file pode ser string ou array)
           let fileList = []
@@ -102,10 +118,11 @@ routerAdd('GET', '/backend/v1/crm/public-production/{tracking_token}', (c) => {
             }
           }
 
-          // Montar lista de arquivos com URL direta pública (/api/files/...)
+          // Montar lista de arquivos com URL ABSOLUTA direta do PocketBase
+          // Formato: https://<pocketbase-host>/api/files/<collection-id>/<record-id>/<filename>
           const filesWithUrls = fileList.map((fileName) => ({
             name: fileName,
-            url: `/api/files/${collectionIdOrName}/${prf.id}/${fileName}`,
+            url: `${cleanPbHost}/api/files/${collectionIdOrName}/${prf.id}/${fileName}`,
           }))
 
           return {

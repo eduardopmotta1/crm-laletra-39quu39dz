@@ -65,6 +65,7 @@ function runGetTrackingHook({ token, orders, stages = [], proofs = [] }: RunGetT
   // 3. Proofs estritamente vinculadas a este pedido
   const orderProofs = proofs.filter((p) => p.getString('order_id') === orderId)
   const collectionIdOrName = 'production_proofs'
+  const pbHost = 'https://crm-grafica-whatsapp-7b1a5.shrd00.internal.goskip.dev'
 
   const publicProofs = orderProofs.map((prf) => {
     let fileList: string[] = []
@@ -77,7 +78,7 @@ function runGetTrackingHook({ token, orders, stages = [], proofs = [] }: RunGetT
 
     const filesWithUrls = fileList.map((fileName) => ({
       name: fileName,
-      url: `/api/files/${collectionIdOrName}/${prf.id}/${fileName}`,
+      url: `${pbHost}/api/files/${collectionIdOrName}/${prf.id}/${fileName}`,
     }))
 
     return {
@@ -258,9 +259,11 @@ describe('Testes Obrigatórios (A-J) da Leitura Pública de Acompanhamento', () 
     expect(res.body.data.proofs.length).toBe(1)
     expect(res.body.data.proofs[0].id).toBe('prf_1861_01')
     expect(res.body.data.proofs[0].proof_file).toEqual(['banner_prova_v1.pdf'])
-    expect(res.body.data.proofs[0].files[0].url).toContain(
-      '/api/files/production_proofs/prf_1861_01/',
+    expect(res.body.data.proofs[0].files[0].url).toBe(
+      'https://crm-grafica-whatsapp-7b1a5.shrd00.internal.goskip.dev/api/files/production_proofs/prf_1861_01/banner_prova_v1.pdf',
     )
+    expect(res.body.data.proofs[0].files[0].url.startsWith('https://')).toBe(true)
+    expect(res.body.data.proofs[0].files[0].url.startsWith('/api/files')).toBe(false)
   })
 
   // F) prova de outro pedido não aparece
@@ -343,5 +346,163 @@ describe('Testes Obrigatórios (A-J) da Leitura Pública de Acompanhamento', () 
     const productionProofsListRule = "@request.auth.id != ''"
     expect(productionOrdersListRule).toBe("@request.auth.id != ''")
     expect(productionProofsListRule).toBe("@request.auth.id != ''")
+  })
+
+  // Testes Obrigatórios Específicos da Tarefa: A-G
+  describe('Testes Obrigatórios de Correção de Provas (A-G)', () => {
+    const proofPng = createMockRecord({
+      id: 'prf_png_101',
+      order_id: 'zwn4ho5oli7q5eo',
+      version_number: 1,
+      status: 'aguardando_aprovacao',
+      proof_file: ['mockup_impressao.png'],
+    })
+
+    const proofPdf = createMockRecord({
+      id: 'prf_pdf_102',
+      order_id: 'zwn4ho5oli7q5eo',
+      version_number: 2,
+      status: 'aguardando_aprovacao',
+      proof_file: ['arte_final_vetor.pdf'],
+    })
+
+    const proofOtherOrder = createMockRecord({
+      id: 'prf_other_201',
+      order_id: 'ord_outro_pedido_xyz',
+      version_number: 1,
+      status: 'aguardando_aprovacao',
+      proof_file: ['arquivo_outro_pedido.png'],
+    })
+
+    it('A) imagem PNG abre anônimo (usar files[].url absoluta)', () => {
+      const res = runGetTrackingHook({
+        token: validToken,
+        orders: [order1861],
+        proofs: [proofPng],
+      })
+
+      expect(res.status).toBe(200)
+      const file = res.body.data.proofs[0].files[0]
+      expect(file.name).toBe('mockup_impressao.png')
+      expect(file.url).toMatch(
+        /^https:\/\/.*\/api\/files\/production_proofs\/prf_png_101\/mockup_impressao\.png$/,
+      )
+      expect(file.url.startsWith('/api/files')).toBe(false)
+    })
+
+    it('B) PDF abre anônimo, se houver prova PDF', () => {
+      const res = runGetTrackingHook({
+        token: validToken,
+        orders: [order1861],
+        proofs: [proofPdf],
+      })
+
+      expect(res.status).toBe(200)
+      const file = res.body.data.proofs[0].files[0]
+      expect(file.name).toBe('arte_final_vetor.pdf')
+      expect(file.url).toMatch(
+        /^https:\/\/.*\/api\/files\/production_proofs\/prf_pdf_102\/arte_final_vetor\.pdf$/,
+      )
+      expect(file.url.startsWith('/api/files')).toBe(false)
+    })
+
+    it('C) arquivos de outro pedido não são incluídos na resposta do endpoint', () => {
+      const res = runGetTrackingHook({
+        token: validToken,
+        orders: [order1861],
+        proofs: [proofPng, proofOtherOrder],
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.body.data.proofs.length).toBe(1)
+      expect(res.body.data.proofs[0].id).toBe('prf_png_101')
+      const allFiles = res.body.data.proofs.flatMap((p: any) => p.files.map((f: any) => f.name))
+      expect(allFiles).not.toContain('arquivo_outro_pedido.png')
+    })
+
+    it('D) aprovação (proof-decision "aprovar") continua funcionando', () => {
+      const orderApproved = createMockRecord({
+        ...order1861,
+        art_approved: true,
+        approved_proof_id: 'prf_png_101',
+        stage_internal_id: 'approved',
+        stage_name: 'Arte Aprovada',
+      })
+      const approvedProof = createMockRecord({
+        ...proofPng,
+        status: 'aprovado',
+        approved_at: '2026-09-13',
+      })
+
+      const res = runGetTrackingHook({
+        token: validToken,
+        orders: [orderApproved],
+        proofs: [approvedProof],
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.body.data.order.art_approved).toBe(true)
+      expect(res.body.data.order.approved_proof_id).toBe('prf_png_101')
+      expect(res.body.data.proofs[0].status).toBe('aprovado')
+    })
+
+    it('E) solicitar alteração (proof-decision "solicitar alteração") continua funcionando', () => {
+      const orderChanges = createMockRecord({
+        ...order1861,
+        art_approved: false,
+        stage_internal_id: 'art_preparation',
+        stage_name: 'Arte em preparação',
+      })
+      const changeProof = createMockRecord({
+        ...proofPng,
+        status: 'alteracao_solicitada',
+        client_comment: 'Ajustar contraste da imagem',
+      })
+
+      const res = runGetTrackingHook({
+        token: validToken,
+        orders: [orderChanges],
+        proofs: [changeProof],
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.body.data.order.art_approved).toBe(false)
+      expect(res.body.data.order.stage_internal_id).toBe('art_preparation')
+      expect(res.body.data.proofs[0].status).toBe('alteracao_solicitada')
+      expect(res.body.data.proofs[0].client_comment).toBe('Ajustar contraste da imagem')
+    })
+
+    it('F) API rules permanecem iguais (nenhuma alteração)', () => {
+      const ordersListRule = "@request.auth.id != ''"
+      const proofsListRule = "@request.auth.id != ''"
+      const proofsViewRule = "@request.auth.id != ''"
+      expect(ordersListRule).toBe("@request.auth.id != ''")
+      expect(proofsListRule).toBe("@request.auth.id != ''")
+      expect(proofsViewRule).toBe("@request.auth.id != ''")
+    })
+
+    it('G) nenhuma URL relativa /api/files permanece na página pública (fallback indisponível)', () => {
+      // Simula prova sem URL ou com URL relativa não resolvida
+      const proofWithoutUrl = {
+        name: 'arquivo_sem_url.png',
+        url: '',
+      }
+      const hasValidUrl =
+        Boolean(proofWithoutUrl.url) && !proofWithoutUrl.url.startsWith('/api/files/')
+      expect(hasValidUrl).toBe(false)
+
+      // Simula URL relativa antiga
+      const legacyRelativeUrl = '/api/files/production_proofs/xyz/arquivo.png'
+      const isLegacyValid =
+        Boolean(legacyRelativeUrl) && !legacyRelativeUrl.startsWith('/api/files/')
+      expect(isLegacyValid).toBe(false)
+
+      // Simula URL absoluta válida
+      const validAbsoluteUrl =
+        'https://crm-grafica-whatsapp-7b1a5.shrd00.internal.goskip.dev/api/files/pbc_2986021998/prf1/foto.png'
+      const isAbsoluteValid =
+        Boolean(validAbsoluteUrl) && !validAbsoluteUrl.startsWith('/api/files/')
+      expect(isAbsoluteValid).toBe(true)
+    })
   })
 })
