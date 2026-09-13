@@ -49,6 +49,8 @@ import type {
 import EditColumnModal from '@/components/EditColumnModal'
 import UsersPermissionsSettings from '@/components/UsersPermissionsSettings'
 import AuditLogsTab from '@/components/AuditLogsTab'
+import BackupSettingsTab from '@/components/BackupSettingsTab'
+import { Database } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import {
   Card,
@@ -199,8 +201,8 @@ export default function SettingsPage() {
   } | null>(null)
 
   const { isAdmin, hasPermission } = useAuth()
-  const productionWebhookUrl =
-    'https://crm-grafica-whatsapp-7b1a5.goskip.app/backend/v1/crm/whatsapp-webhook'
+  const backendBaseUrl = pb.baseUrl || window.location.origin
+  const productionWebhookUrl = `${backendBaseUrl}/backend/v1/crm/whatsapp-webhook`
   const currentOriginWebhookUrl = `${window.location.origin}/backend/v1/crm/whatsapp-webhook`
   const [useProductionUrl, setUseProductionUrl] = useState(true)
   const webhookUrl = useProductionUrl ? productionWebhookUrl : currentOriginWebhookUrl
@@ -586,6 +588,12 @@ export default function SettingsPage() {
             <TabsTrigger value="whatsapp" className="flex items-center gap-1.5 text-xs">
               <MessageSquare className="h-4 w-4" />
               <span>WhatsApp API</span>
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="backup" className="flex items-center gap-1.5 text-xs">
+              <Database className="h-4 w-4 text-emerald-600" />
+              <span>Backup</span>
             </TabsTrigger>
           )}
           <TabsTrigger value="company" className="flex items-center gap-1.5 text-xs">
@@ -2178,6 +2186,13 @@ export default function SettingsPage() {
             </div>
           </form>
         </TabsContent>
+
+        {/* TAB: BACKUP MANUAL NATIVO */}
+        {isAdmin && (
+          <TabsContent value="backup" className="space-y-6">
+            <BackupSettingsTab />
+          </TabsContent>
+        )}
 
         {/* TAB 5: COMPANY INFO */}
         <TabsContent value="company" className="space-y-6">
