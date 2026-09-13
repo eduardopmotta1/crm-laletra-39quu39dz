@@ -7,11 +7,13 @@ export interface SendMessagePayload {
   messageText?: string
   senderName?: string
   file?: File | null
+  postSaleId?: string
 }
 
 export interface SendWhatsAppMessageResponse {
   success: boolean
   message?: Message
+  whatsapp_message_id?: string
   error?: string
   api_dispatched?: boolean
   client?: Client
@@ -275,6 +277,8 @@ export const whatsappService = {
           client_id: clientId,
           attendance_id: attId || undefined,
           message_text: messageText,
+          post_sale_id:
+            typeof clientIdOrPayload === 'object' ? clientIdOrPayload.postSaleId : undefined,
         },
       })
 
@@ -284,6 +288,7 @@ export const whatsappService = {
 
       return {
         success: true,
+        whatsapp_message_id: sendRes.whatsapp_message_id || sendRes.message?.whatsapp_message_id,
         message: sendRes.message,
         client: sendRes.client,
         api_dispatched: true,

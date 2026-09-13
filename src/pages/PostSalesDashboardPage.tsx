@@ -44,9 +44,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { formatDateTime, formatCurrency, getWhatsAppDirectUrl } from '@/lib/sla'
+import { formatDateTime, formatCurrency } from '@/lib/sla'
 import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 import { toast } from '@/hooks/use-toast'
+import { settingsService } from '@/services/settings'
+import { whatsappService } from '@/services/whatsapp'
+import { isWithin24HourWindow } from '@/types/crm'
+import { lastInboundAt } from '@/services/whatsappWindow'
+import { Loader2 } from 'lucide-react'
 
 export default function PostSalesDashboardPage() {
   const navigate = useNavigate()
@@ -57,6 +62,7 @@ export default function PostSalesDashboardPage() {
   const [archivedDeals, setArchivedDeals] = useState<ArchivedDeal[]>([])
   const [users, setUsers] = useState<CrmUser[]>([])
   const [loading, setLoading] = useState(true)
+  const [sendingPostSaleId, setSendingPostSaleId] = useState<string | null>(null)
 
   // Filters
   const [periodFilter, setPeriodFilter] = useState<'all' | '7d' | '30d' | '90d'>('30d')
@@ -192,26 +198,112 @@ export default function PostSalesDashboardPage() {
   })
 
   const handleSendPostSaleWhatsApp = async (ps: PostSale) => {
+    // 1. Se ps.status === 'sent': abortar com toast "Este pós-venda já foi enviado."
+    if (ps.status === 'sent') {
+      toast({
+        title: 'Este pós-venda já foi enviado.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     const client = ps.expand?.client_id || clients.find((c) => c.id === ps.client_id)
     if (!client) {
       toast({ title: 'Cliente não localizado', variant: 'destructive' })
       return
     }
 
-    const token = ps.evaluation_token || 'eval_' + Math.random().toString(36).substring(2, 10)
-    const evalLink = `${window.location.origin}/avaliacao/${token}`
-    const orderRef = ps.order_number ? ` (Pedido ${ps.order_number})` : ''
-    const text = `Olá, ${client.name}! Seu pedido${orderRef} foi concluído pela Laletra. Poderia avaliar nosso atendimento e qualidade no link a seguir? Leva menos de 1 minuto: ${evalLink}`
+    setSendingPostSaleId(ps.id)
 
-    // Copy to clipboard or open direct wa
-    navigator.clipboard.writeText(text)
-    await postSalesService.markAsSent(ps.id, 'Link de avaliação enviado via WhatsApp')
-    toast({
-      title: 'Mensagem e link de avaliação copiados!',
-      description: 'O status do pós-venda foi atualizado para Enviado.',
-    })
-    loadData()
-    window.open(getWhatsAppDirectUrl(client.phone, text), '_blank')
+    try {
+      // 2. Buscar texto em post_sale_custom_message via settingsService.getPostSaleConfig()
+      const postSaleConfig = await settingsService.getPostSaleConfig()
+      const templateMessage =
+        postSaleConfig.customMessage ||
+        'Olá {{nome}}! Seu pedido foi entregue recentemente pela Laletra. Poderia avaliar sua experiência conosco no link: {{link_avaliacao}} ? Agradecemos muito!'
+
+      // 3. Gerar link oficial (NUNCA window.location.origin)
+      const token = ps.evaluation_token || 'eval_' + Math.random().toString(36).substring(2, 10)
+      const evalLink = `https://crm-grafica-whatsapp-7b1a5.goskip.app/avaliacao/${token}`
+      const clientName = client.name || 'Cliente'
+      const orderNumber = ps.order_number || ''
+
+      // 4. Interpolar {{nome}}, {{pedido}}, {{link_avaliacao}}
+      const renderedText = templateMessage
+        .split('{{nome}}')
+        .join(clientName)
+        .split('{{pedido}}')
+        .join(orderNumber)
+        .split('{{link_avaliacao}}')
+        .join(evalLink)
+        .trim()
+
+      // 5. Janela 24h: reutilizar isWithin24HourWindow (src/types/crm.ts) + lastInboundAt (src/services/whatsappWindow.ts)
+      const resolvedInboundIso = await lastInboundAt(client.id, ps.attendance_id || null)
+      const within24h = isWithin24HourWindow(
+        client.last_message_at,
+        client.last_message_direction,
+        {
+          lastCustomerMessageAt: resolvedInboundIso,
+        },
+      )
+
+      // 6. Fora de 24h: abortar e mostrar exatamente a mensagem especificada — pós-venda continua pending.
+      if (!within24h) {
+        toast({
+          title:
+            'Fora da janela de 24 horas. É necessário um template oficial aprovado para enviar esta mensagem.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      // 7. Dentro de 24h: chamar whatsappService.sendMessage (infra Cloud API existente)
+      const sendResult = await whatsappService.sendMessage({
+        clientId: client.id,
+        attendanceId: ps.attendance_id,
+        messageText: renderedText,
+        postSaleId: ps.id,
+      })
+
+      // 8. Só chamar postSalesService.markAsSent se res.success === true
+      if (sendResult.success) {
+        await postSalesService.markAsSent(
+          ps.id,
+          'Link de avaliação enviado via WhatsApp Cloud API',
+          'whatsapp',
+        )
+        toast({
+          title: 'Pós-venda enviado com sucesso via WhatsApp!',
+          description: 'A mensagem foi despachada pela API oficial da Meta.',
+        })
+        loadData()
+      } else {
+        // Em falha da Meta: manter pending, registrar erro no notes conforme padrão atual, permitir retry.
+        const errorMsg = sendResult.error || 'Falha ao enviar mensagem pela Meta Cloud API.'
+        const failureNote = `Falha no envio WhatsApp API: ${errorMsg} (${new Date().toLocaleDateString('pt-BR')})`
+        try {
+          await postSalesService.updateNotes(ps.id, failureNote)
+        } catch (updateErr) {
+          console.warn('Erro ao registrar falha nas notas do pós-venda:', updateErr)
+        }
+        toast({
+          title: 'Erro ao enviar via WhatsApp Cloud API',
+          description: errorMsg,
+          variant: 'destructive',
+        })
+        loadData()
+      }
+    } catch (err: any) {
+      console.error('Erro no envio de pós-venda WhatsApp:', err)
+      toast({
+        title: 'Erro ao processar envio',
+        description: err?.message || 'Falha inesperada.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSendingPostSaleId(null)
+    }
   }
 
   return (
@@ -525,12 +617,26 @@ export default function PostSalesDashboardPage() {
                       <Button
                         size="sm"
                         variant="outline"
+                        disabled={ps.status === 'sent' || sendingPostSaleId === ps.id}
                         onClick={() => handleSendPostSaleWhatsApp(ps)}
-                        className="text-xs h-8 px-2.5 text-slate-700 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200"
-                        title="Abrir no WhatsApp Web com link da pesquisa"
+                        className="text-xs h-8 px-2.5 text-slate-700 hover:text-emerald-700 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 disabled:opacity-50"
+                        title={
+                          ps.status === 'sent'
+                            ? 'Este pós-venda já foi enviado.'
+                            : 'Enviar mensagem de avaliação via WhatsApp Cloud API'
+                        }
                       >
-                        <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                        WhatsApp Web
+                        {sendingPostSaleId === ps.id ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                            Enviando...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="h-3.5 w-3.5 mr-1" />
+                            Enviar WhatsApp (API)
+                          </>
+                        )}
                       </Button>
                     </div>
                   </div>

@@ -78,6 +78,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
   const rawText = String(body.message_text || body.messageText || body.text || '').trim()
   let attendanceId = String(body.attendance_id || body.attendanceId || '').trim()
   const clientProvidedPhone = String(body.phone || body.to || '').trim()
+  const postSaleId = String(body.post_sale_id || body.postSaleId || '').trim()
 
   if (!clientId) {
     return e.json(400, {
@@ -91,6 +92,21 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
       success: false,
       error: 'Texto da mensagem não pode ser vazio.',
     })
+  }
+
+  // Trava de envio duplicado no servidor para pós-venda
+  if (postSaleId) {
+    try {
+      const psRec = $app.findRecordById('post_sales', postSaleId)
+      if (psRec && psRec.get('status') === 'sent') {
+        return e.json(400, {
+          success: false,
+          error: 'Este pós-venda já foi enviado.',
+        })
+      }
+    } catch (_) {
+      // Se não encontrou o registro por id fornecido, ignorar ou prosseguir
+    }
   }
 
   // 4. Buscar cliente no banco

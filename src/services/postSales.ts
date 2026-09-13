@@ -88,9 +88,10 @@ export const postSalesService = {
   /**
    * Mark post sale message as sent
    */
-  async markAsSent(id: string, notes?: string): Promise<PostSale> {
+  async markAsSent(id: string, notes?: string, channel: string = 'whatsapp'): Promise<PostSale> {
     return await pb.collection('post_sales').update<PostSale>(id, {
       status: 'sent',
+      channel,
       sent_date: new Date().toISOString().split('T')[0],
       notes: notes || undefined,
     })
@@ -101,5 +102,12 @@ export const postSalesService = {
    */
   async updateStatus(id: string, status: PostSaleStatus): Promise<PostSale> {
     return await pb.collection('post_sales').update<PostSale>(id, { status })
+  },
+
+  /**
+   * Update notes or other fields
+   */
+  async updateNotes(id: string, notes: string): Promise<PostSale> {
+    return await pb.collection('post_sales').update<PostSale>(id, { notes })
   },
 }
