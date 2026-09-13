@@ -280,7 +280,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
       name: 'pedido_recebido',
       category: 'UTILITY',
       language: 'pt_BR',
-      text: 'Olá {{1}}! Recebemos o seu pedido {{2}} e ele já entrou em nosso fluxo de produção. Você pode acompanhar o andamento por aqui: {{3}}',
+      text: 'Olá {{1}}! Recebemos o seu pedido {{2}} e ele já entrou em nosso fluxo de produção. Você pode acompanhar o andamento pelo link {{3}} informado.',
       examples: ['João', 'ORC-2026-0017', 'https://graficalaletra.com.br/rastreio/ORC-2026-0017'],
       variables: ['nome', 'pedido', 'link_acompanhamento'],
     },
@@ -296,7 +296,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
       name: 'aguardando_aprovacao_arte',
       category: 'UTILITY',
       language: 'pt_BR',
-      text: 'Olá {{1}}! A arte do pedido {{2}} está pronta para sua aprovação. Você pode acompanhar e aprovar por aqui: {{3}}',
+      text: 'Olá {{1}}! A arte do pedido {{2}} está pronta para sua aprovação. Você pode acompanhar e aprovar pelo link {{3}} informado.',
       examples: ['João', 'ORC-2026-0017', 'https://graficalaletra.com.br/rastreio/ORC-2026-0017'],
       variables: ['nome', 'pedido', 'link_acompanhamento'],
     },
@@ -320,7 +320,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
       name: 'pedido_pronto',
       category: 'UTILITY',
       language: 'pt_BR',
-      text: 'Boas notícias, {{1}}! O pedido {{2}} está pronto. Consulte os detalhes e o acompanhamento aqui: {{3}}',
+      text: 'Boas notícias, {{1}}! O pedido {{2}} está pronto. Consulte os detalhes e o acompanhamento pelo link {{3}} informado.',
       examples: ['João', 'ORC-2026-0017', 'https://graficalaletra.com.br/rastreio/ORC-2026-0017'],
       variables: ['nome', 'pedido', 'link_acompanhamento'],
     },
@@ -328,7 +328,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
       name: 'pedido_enviado_retirada',
       category: 'UTILITY',
       language: 'pt_BR',
-      text: 'Olá {{1}}! O pedido {{2}} foi atualizado para enviado/aguardando retirada. Código de rastreio ou referência: {{3}}. Acompanhe aqui: {{4}}',
+      text: 'Olá {{1}}! O pedido {{2}} foi atualizado para enviado/aguardando retirada. Código de rastreio ou referência: {{3}}. Acompanhe pelo link {{4}} informado.',
       examples: [
         'João',
         'ORC-2026-0017',
@@ -508,7 +508,8 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
       const isAlreadyExists =
         errorMessage.toLowerCase().includes('already exists') ||
         errorMessage.toLowerCase().includes('duplicate') ||
-        errorSubcode === '2388040'
+        errorSubcode === '2388040' ||
+        errorSubcode === '2388024'
 
       if (isAlreadyExists) {
         console.log(
