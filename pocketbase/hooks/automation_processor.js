@@ -2,22 +2,6 @@
 // Runs every 5 minutes to verify conditions and ensure pending_resolutions are populated
 
 cronAdd('automation_processor', '* * * * *', () => {
-  try {
-    const toClean = $app.findRecordsByFilter('system_settings', "setting_key ~ 'diag_' || setting_key ~ 'run_' || setting_key ~ 'trigger_diag'", '-created', 500, 0)
-    let cCount = 0
-    for (let c = 0; c < toClean.length; c++) {
-      try {
-        $app.delete(toClean[c])
-        cCount++
-      } catch (_) {}
-    }
-    if (cCount > 0) {
-      console.log('[CLEANUP DIAG] Deleted ' + cCount + ' temporary diagnostic records.')
-    }
-  } catch (cleanErr) {
-    console.error('[CLEANUP DIAG ERROR]', cleanErr)
-  }
-
   const startTime = Date.now()
   console.log('[AutomationProcessor] Iniciando execução...')
   let totalProcessed = 0
