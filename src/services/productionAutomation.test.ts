@@ -262,7 +262,7 @@ function runProductionStatusNotifyHook(options: RunHookOptions): HookExecutionRe
 
     // 7. Renderizar template
     const resolvedClientName = clientName || clientRecord.get('name') || 'Cliente'
-    const cleanBaseUrl = 'https://crm-grafica-whatsapp-7b1a5--preview.goskip.app'
+    const cleanBaseUrl = 'https://crm-grafica-whatsapp-7b1a5.goskip.app'
     const trackingLink = trackingToken ? cleanBaseUrl + '/acompanhar/' + trackingToken : ''
     const trackingCodeText = trackingCode ? 'Código de rastreio: ' + trackingCode : ''
 
@@ -543,6 +543,58 @@ describe('Automação de Notificação WhatsApp de Produção (ETAPA A)', () => 
     expect(res.savedProductionLogs.length).toBe(1)
     expect(res.savedProductionLogs[0].whatsapp_sent).toBe(true)
     expect(res.savedProductionLogs[0].whatsapp_status).toBe('enviado')
+  })
+
+  it('valida que link_acompanhamento gerado na notificação de etapa usa o domínio oficial de produção', () => {
+    const stageWithLink = createMockRecord({
+      id: 'stg_link_test',
+      internal_id: 'ready_for_pickup',
+      name: 'Pronto / Expedição',
+      auto_notify_whatsapp: true,
+      whatsapp_message_template:
+        'Olá {{nome}}! Seu pedido {{pedido}} avançou de etapa. Acompanhe pelo link {{link_acompanhamento}}.',
+    })
+
+    const originalOrder = {
+      id: 'ord_1861_status',
+      order_number: '#001861',
+      stage_internal_id: 'in_production',
+      stage_name: 'Em Produção',
+      client_id: 'cli_001',
+      client_name: 'Carlos Oliveira',
+      tracking_token: 'tk_lgkewmryq1wpe0npzrctthf2',
+      updated: '2026-03-30T10:00:00.000Z',
+    }
+
+    const updatedOrder = createMockRecord(
+      {
+        ...originalOrder,
+        stage_internal_id: 'ready_for_pickup',
+        stage_name: 'Pronto / Expedição',
+        updated: '2026-03-30T11:00:00.000Z',
+      },
+      originalOrder,
+    )
+
+    const res = runProductionStatusNotifyHook({
+      record: updatedOrder,
+      stageRecord: stageWithLink,
+      clientRecord: baseClient,
+      attendanceRecord: baseAttendance,
+      httpSendImpl: () => ({
+        statusCode: 200,
+        json: { messages: [{ id: 'wamid.LINK_STAGE_OK' }] },
+      }),
+    })
+
+    expect(res.notified).toBe(true)
+    expect(res.httpRequests.length).toBe(1)
+    const body = res.httpRequests[0].payload.text.body
+    const expectedLink =
+      'https://crm-grafica-whatsapp-7b1a5.goskip.app/acompanhar/tk_lgkewmryq1wpe0npzrctthf2'
+    expect(body).toContain(expectedLink)
+    expect(body).not.toContain('--preview')
+    expect(body).not.toContain('internal.goskip.dev')
   })
 
   // (b) Salvar sem mudar etapa não dispara

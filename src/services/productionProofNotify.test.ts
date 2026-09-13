@@ -217,7 +217,7 @@ function runProductionProofNotifyHook(proofRecord: MockRecord, ctx: TestContext)
   const isInside24h = check24hWindow(clientRecord, lastInboundTimestamp, lastCustomerMessageAt)
 
   const resolvedClientName = clientProvidedName || clientRecord.get('name') || 'Cliente'
-  const cleanBaseUrl = 'https://crm-grafica-whatsapp-7b1a5--preview.goskip.app'
+  const cleanBaseUrl = 'https://crm-grafica-whatsapp-7b1a5.goskip.app'
   const trackingLink = trackingToken ? cleanBaseUrl + '/acompanhar/' + trackingToken : ''
 
   const renderedMessage =
@@ -856,7 +856,7 @@ describe('Notificação WhatsApp para NOVA VERSÃO de prova de arte', () => {
     expect(result.savedProductionLogs[0].whatsapp_status).toBe('falhou')
   })
 
-  it('TESTE H) link contém tracking_token correto do pedido (/acompanhar/{tracking_token})', () => {
+  it('TESTE H) link contém tracking_token correto do pedido (/acompanhar/{tracking_token}) e usa domínio oficial de produção', () => {
     const orderRecord = createMockRecord({
       ...baseOrderData,
       tracking_token: 'tk_unique_token_xyz999',
@@ -885,7 +885,48 @@ describe('Notificação WhatsApp para NOVA VERSÃO de prova de arte', () => {
 
     expect(result.notified).toBe(true)
     const requestBody = result.httpRequests[0].payload.text.body
-    expect(requestBody).toContain('/acompanhar/tk_unique_token_xyz999')
+    expect(requestBody).toContain(
+      'https://crm-grafica-whatsapp-7b1a5.goskip.app/acompanhar/tk_unique_token_xyz999',
+    )
+    expect(requestBody).not.toContain('--preview')
+    expect(requestBody).not.toContain('internal.goskip.dev')
+  })
+
+  it('TESTE #001861) validação estrita do link de acompanhamento para token real de #001861', () => {
+    const orderRecord = createMockRecord({
+      ...baseOrderData,
+      order_number: '#001861',
+      tracking_token: 'tk_lgkewmryq1wpe0npzrctthf2',
+    })
+    const clientRecord = createMockRecord(baseClientData)
+    const inboundMsg = createMockRecord({
+      id: 'msg_inbound_1861',
+      client_id: 'client_eduardo',
+      direction: 'inbound',
+      created: new Date().toISOString(),
+    })
+
+    const proof = createMockRecord({
+      id: 'proof_1861_val',
+      order_id: 'ord_1861',
+      version_number: 1,
+      status: 'aguardando_aprovacao',
+    })
+
+    const result = runProductionProofNotifyHook(proof, {
+      orderRecord,
+      clientRecord,
+      inboundMessages: [inboundMsg],
+      currentTimeMs: Date.now(),
+    })
+
+    expect(result.notified).toBe(true)
+    const requestBody = result.httpRequests[0].payload.text.body
+    const expectedLink =
+      'https://crm-grafica-whatsapp-7b1a5.goskip.app/acompanhar/tk_lgkewmryq1wpe0npzrctthf2'
+    expect(requestBody).toContain(expectedLink)
+    expect(requestBody).not.toContain('--preview')
+    expect(requestBody).not.toContain('internal.goskip.dev')
   })
 
   it('Cenário do pedido #001861: simulação controlada das 3 provas V1–V3 em sequência', () => {

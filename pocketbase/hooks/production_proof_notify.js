@@ -252,11 +252,19 @@ onRecordAfterCreateSuccess((e) => {
 
     // 5. Montar texto da mensagem informando claramente a versão da prova e o link de acompanhamento
     const resolvedClientName = clientProvidedName || clientRecord.get('name') || 'Cliente'
-    const baseUrl =
-      $os.getenv('SITE_URL') ||
-      $os.getenv('PB_INSTANCE_URL') ||
-      'https://crm-grafica-whatsapp-7b1a5--preview.goskip.app'
-    const cleanBaseUrl = baseUrl.replace(/\/+$/, '')
+    // Regra oficial de produção:
+    // O link enviado ao cliente deve ser exatamente https://crm-grafica-whatsapp-7b1a5.goskip.app/acompanhar/{tracking_token}
+    // "PB_INSTANCE_URL é endereço do BACKEND. Não usar PB_INSTANCE_URL para gerar URL pública do frontend."
+    // "Não usar: --preview.goskip.app, internal.goskip.dev para links enviados ao cliente."
+    let rawSiteUrl = String($os.getenv('SITE_URL') || '').trim()
+    if (
+      !rawSiteUrl ||
+      rawSiteUrl.includes('--preview.goskip.app') ||
+      rawSiteUrl.includes('internal.goskip.dev')
+    ) {
+      rawSiteUrl = 'https://crm-grafica-whatsapp-7b1a5.goskip.app'
+    }
+    const cleanBaseUrl = rawSiteUrl.replace(/\/+$/, '')
     const trackingLink = trackingToken ? cleanBaseUrl + '/acompanhar/' + trackingToken : ''
 
     const renderedMessage =
