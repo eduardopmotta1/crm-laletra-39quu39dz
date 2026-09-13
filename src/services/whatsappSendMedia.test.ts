@@ -13,7 +13,8 @@ describe('whatsappService.sendMessage with media', () => {
       success: true,
       status: 'sent',
       whatsapp_message_id: 'wamid.TEST_MEDIA_123',
-      media_id: 'meta_media_999',
+      public_url:
+        'https://media.example.com/backend/v1/crm/public-whatsapp-media/tok12345678901234567890123456789012',
       message: {
         id: 'msg_123',
         client_id: 'c_test',
@@ -22,6 +23,7 @@ describe('whatsappService.sendMessage with media', () => {
         whatsapp_message_id: 'wamid.TEST_MEDIA_123',
         file_name: 'arte.png',
         file_type: 'image/png',
+        public_media_token: 'tok12345678901234567890123456789012',
       } as any,
     })
 

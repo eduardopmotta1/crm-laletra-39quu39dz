@@ -261,7 +261,7 @@ export const whatsappService = {
           success: boolean
           status?: string
           whatsapp_message_id?: string
-          media_id?: string
+          public_url?: string
           message?: Message
           client?: Client
           error?: string

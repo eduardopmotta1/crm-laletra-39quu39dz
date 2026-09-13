@@ -1,8 +1,9 @@
 // WhatsApp Send Media Hook — Envio oficial de mídias (imagem e documento) via WhatsApp Meta Cloud API
+// Utilizando LINK PÚBLICO CONTROLADO em /messages (sem upload multipart na Meta /media)
 // Endpoint autenticado: POST /backend/v1/crm/whatsapp/send-media
 // Recebe multipart/form-data: client_id, attendance_id (opcional), phone (opcional), file, file_name, file_type, caption (opcional), request_id (opcional)
 
-console.log('[WHATSAPP SEND MEDIA] Hook initializing...')
+console.log('[WHATSAPP SEND MEDIA] Hook initializing (controlled public link mode)...')
 
 routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   // 1. Validar autenticação (mesmo padrão do endpoint /send)
@@ -83,7 +84,6 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   }
 
   // 3. Extrair dados da requisição (multipart/form-data)
-  // No PocketBase v0.23+ routerAdd, e.requestInfo().body contém campos de formulário multipart
   const reqInfo = e.requestInfo()
   const body = reqInfo.body || {}
 
@@ -101,7 +101,6 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   }
 
   // 4. Extrair o arquivo enviado
-  // No PocketBase JSVM (v0.23+), e.findUploadedFiles('file') retorna um slice []*filesystem.File
   let uploadedFiles = []
   try {
     if (typeof e.findUploadedFiles === 'function') {
@@ -145,8 +144,6 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   }
 
   const uploadedFile = uploadedFiles[0]
-  // uploadedFile é um filesystem.File do PocketBase
-  // Priorizar body.file_name enviado pelo cliente, caso contrário usar name do arquivo
   let rawFileName = String(
     body.file_name ||
       body.fileName ||
@@ -156,7 +153,6 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
       'arquivo',
   ).trim()
 
-  // Se veio gerado do PocketBase como ex: "captura_de_tela_2026_01_23_145058_dppqren75n.png" ou sem extensão
   let originalFileName = rawFileName
 
   let mimeType = String(
@@ -165,34 +161,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     .toLowerCase()
     .trim()
 
-  // Inspecionar leitor e cabeçalhos do uploadedFile
-  try {
-    let readerType = 'unknown'
-    let mhHeader = null
-    if (uploadedFile.reader) {
-      readerType = typeof uploadedFile.reader
-      if (uploadedFile.reader.header) {
-        mhHeader = uploadedFile.reader.header
-      }
-    }
-    console.log(
-      '[WHATSAPP SEND MEDIA] uploadedFile initial inspect:',
-      JSON.stringify({
-        name: uploadedFile.name,
-        originalName: uploadedFile.originalName,
-        size: uploadedFile.size,
-        readerType: readerType,
-        hasMhHeader: !!mhHeader,
-        mhHeaderContentType:
-          mhHeader && mhHeader.header ? mhHeader.header.get('Content-Type') : null,
-        mhFilename: mhHeader ? mhHeader.filename : null,
-      }),
-    )
-  } catch (initErr) {
-    console.log('[WHATSAPP SEND MEDIA] Initial inspect error:', initErr)
-  }
-
-  // Inferência defensiva e estrita de mimeType por extensão se ausente ou genérico (ex: application/octet-stream)
+  // Inferência defensiva e estrita de mimeType por extensão se ausente ou genérico
   const lowerName = originalFileName.toLowerCase()
   if (!mimeType || mimeType === 'application/octet-stream') {
     if (lowerName.endsWith('.pdf')) {
@@ -211,7 +180,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     mimeType = 'image/jpeg'
   }
 
-  // Garantir que a extensão do originalFileName corresponda ao mimeType
+  // Garantir extensão compatível
   const expectedExt =
     mimeType === 'image/png'
       ? '.png'
@@ -224,17 +193,15 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
             : ''
 
   if (expectedExt && !originalFileName.toLowerCase().endsWith(expectedExt)) {
-    // Se não tem a extensão certa, anexar ou corrigir extensão
     const hasKnownExt = /\.(png|jpe?g|webp|pdf)$/i.test(originalFileName)
     if (!hasKnownExt) {
       originalFileName = originalFileName + expectedExt
     }
   }
 
-  // 5. Validar tipos suportados nesta etapa:
+  // 5. Validar tipos suportados:
   // Imagem: image/jpeg, image/png, image/webp
   // Documento: application/pdf
-  // Bloquear áudio, vídeo, sticker e outros
   let mediaCategory = '' // 'image' ou 'document'
   if (mimeType === 'image/jpeg' || mimeType === 'image/png' || mimeType === 'image/webp') {
     mediaCategory = 'image'
@@ -261,7 +228,6 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     })
   }
 
-  // Resolver telefone do cliente: priorizar clients.normalized_phone, depois clients.phone, depois clientProvidedPhone
   const normalizeForMeta = function (input) {
     if (!input) return ''
     let d = String(input).replace(/\D/g, '')
@@ -299,7 +265,6 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   }
 
   // 7. Validar janela de 24h
-  // Mesma fonte de verdade: última inbound real do cliente em messages ou attendance.last_customer_message_at
   const lastInboundAt = function (cId, attId) {
     let candidateEpoch = 0
     let candidateIso = ''
@@ -380,6 +345,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   }
 
   // 8. Proteção contra duplo clique / retry (idempotência por request_id se fornecido)
+  let existingPendingMsg = null
   if (requestId) {
     try {
       const existingReqMsg = $app.findRecordsByFilter(
@@ -390,18 +356,26 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
         0,
       )
       if (existingReqMsg && existingReqMsg.length > 0) {
-        console.log(
-          '[WHATSAPP SEND MEDIA] Requisição com request_id duplicado já processada:',
-          requestId,
-        )
-        return e.json(200, {
-          success: true,
-          status: 'sent',
-          whatsapp_message_id: existingReqMsg[0].get('whatsapp_message_id'),
-          message: existingReqMsg[0].publicExport(),
-          client: clientRecord.publicExport(),
-          duplicate_prevented: true,
-        })
+        const found = existingReqMsg[0]
+        const st = String(found.get('status') || '')
+        if (st === 'sent' || st === 'delivered' || st === 'read') {
+          console.log(
+            '[WHATSAPP SEND MEDIA] Requisição com request_id já enviada anteriormente:',
+            requestId,
+          )
+          return e.json(200, {
+            success: true,
+            status: 'sent',
+            whatsapp_message_id: found.get('whatsapp_message_id'),
+            message: found.publicExport(),
+            client: clientRecord.publicExport(),
+            duplicate_prevented: true,
+          })
+        }
+        // Se já existir registro em pending com o mesmo request_id, reaproveitar para não duplicar
+        if (st === 'pending') {
+          existingPendingMsg = found
+        }
       }
     } catch (_) {}
   }
@@ -448,148 +422,100 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     })
   }
 
-  // 10. UPLOAD PARA META: POST https://graph.facebook.com/{VERSION}/{PHONE_NUMBER_ID}/media
-  // multipart/form-data com messaging_product=whatsapp, file=<arquivo>, type=<mime_type>
-  // Authorization: Bearer WHATSAPP_ACCESS_TOKEN
-  const mediaUploadUrl =
-    'https://graph.facebook.com/' + metaApiVersion + '/' + metaPhoneId + '/media'
+  // 10. REQUISITO 1, 2, 3: SALVAR O ARQUIVO LOCALMENTE COM STATUS TEMPORÁRIO 'pending' E GERAR TOKEN
+  // Gerar token criptográfico imprevisível de 32+ caracteres
+  const generateRandomToken = function () {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    let t = ''
+    if (typeof $security !== 'undefined' && typeof $security.randomString === 'function') {
+      t = $security.randomString(48)
+    }
+    if (!t || t.length < 32) {
+      t = ''
+      for (let i = 0; i < 48; i++) {
+        t += chars.charAt(Math.floor(Math.random() * chars.length))
+      }
+    }
+    return t
+  }
 
-  console.log(
-    '[WHATSAPP SEND MEDIA] Fazendo upload de mídia para Meta:',
-    mediaUploadUrl,
-    'Arquivo:',
-    originalFileName,
-    'Mime:',
-    mimeType,
-  )
+  const mediaToken = generateRandomToken()
+  const senderName = auth.get('name') || auth.get('email') || 'Atendente'
+  const userId = auth.id
+  const timestampIso = new Date().toISOString()
+  // Validade de 7 dias para link de mídia (Meta busca de imediato nos primeiros segundos)
+  const expiresAtIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
-  // Inspecionar uploadedFile e garantir nome e reader
-  let fileToMeta = uploadedFile
+  let localMessage = existingPendingMsg
+  const messagesCol = $app.findCollectionByNameOrId('messages')
+
   try {
-    console.log(
-      '[WHATSAPP SEND MEDIA] uploadedFile details:',
-      JSON.stringify({
-        name: uploadedFile.name,
-        originalName: uploadedFile.originalName,
-        size: uploadedFile.size,
-      }),
+    if (!localMessage) {
+      localMessage = new Record(messagesCol)
+    }
+
+    localMessage.set('client_id', clientId)
+    if (attendanceId) {
+      localMessage.set('attendance_id', attendanceId)
+    }
+    localMessage.set('direction', 'outbound')
+    // Guardar caption ou o nome do arquivo + request_id como identificador seguro se houver
+    const storedText = caption || originalFileName
+    localMessage.set(
+      'message_text',
+      requestId ? storedText + ' <!-- req:' + requestId + ' -->' : storedText,
     )
-
-    // Forçar originalName no arquivo para garantir extensão e nome corretos
-    try {
-      uploadedFile.originalName = originalFileName
-    } catch (_) {}
-  } catch (inspErr) {
-    console.log('[WHATSAPP SEND MEDIA] Inspecao err:', inspErr)
-  }
-
-  // Tentar extrair os bytes do arquivo para criar um NewFileFromBytes garantindo que NewFileFromBytes calcule o MIME e extension corretos
-  if (typeof $filesystem !== 'undefined' && typeof $filesystem.fileFromBytes === 'function') {
-    try {
-      let fileBytes = null
-      if (typeof toBytes === 'function') {
-        let r = null
-        if (uploadedFile.reader && typeof uploadedFile.reader.open === 'function') {
-          r = uploadedFile.reader.open()
-        } else if (typeof uploadedFile.open === 'function') {
-          r = uploadedFile.open()
-        }
-        if (r) {
-          try {
-            fileBytes = toBytes(r, 0)
-          } finally {
-            if (r && typeof r.close === 'function') {
-              try {
-                r.close()
-              } catch (_) {}
-            }
-          }
-        }
-      }
-      if (fileBytes && fileBytes.length > 0) {
-        console.log('[WHATSAPP SEND MEDIA] Bytes extraídos com sucesso! Tamanho:', fileBytes.length)
-        const reconstructedFile = $filesystem.fileFromBytes(fileBytes, originalFileName)
-        fileToMeta = reconstructedFile
-      }
-    } catch (reconstructErr) {
-      console.warn('[WHATSAPP SEND MEDIA] Reconstrução com fileFromBytes falhou:', reconstructErr)
+    localMessage.set('sender_name', senderName)
+    if (userId) {
+      localMessage.set('sent_by_user', userId)
     }
-  }
+    // STATUS INICIAL PENDING (Requisito 1: NÃO marcar como sent ainda)
+    localMessage.set('status', 'pending')
 
-  // Construir FormData com messaging_product, type e file
-  const metaFormData = new FormData()
-  metaFormData.append('messaging_product', 'whatsapp')
-  metaFormData.append('type', mimeType)
-  metaFormData.append('file', fileToMeta)
-
-  let uploadResponse = null
-  let uploadNetErr = null
-
-  try {
-    uploadResponse = $http.send({
-      url: mediaUploadUrl,
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + metaToken,
-      },
-      body: metaFormData,
-      timeout: 60,
-    })
-  } catch (netErr) {
-    uploadNetErr = netErr
-    console.error('[WHATSAPP SEND MEDIA] Erro de rede ao fazer upload para Meta:', netErr)
-  }
-
-  const uploadHttpCode = uploadResponse ? uploadResponse.statusCode : 0
-  const uploadRaw = uploadResponse ? uploadResponse.raw : ''
-  let uploadJson = null
-  try {
-    if (uploadResponse && uploadResponse.json) {
-      uploadJson = uploadResponse.json
-    } else if (uploadRaw) {
-      uploadJson = JSON.parse(uploadRaw)
+    // Persistir arquivo no FileField do PocketBase
+    localMessage.set('file', uploadedFile)
+    localMessage.set('file_name', originalFileName)
+    const fSize = Number(uploadedFile.size || body.file_size || body.fileSize || 0)
+    if (fSize > 0) {
+      localMessage.set('file_size', fSize)
     }
-  } catch (_) {}
+    localMessage.set('file_type', mimeType)
+    localMessage.set('public_media_token', mediaToken)
+    localMessage.set('public_media_expires_at', expiresAtIso)
 
-  const mediaId =
-    uploadHttpCode >= 200 && uploadHttpCode < 300 && uploadJson && uploadJson.id
-      ? String(uploadJson.id).trim()
-      : ''
-
-  if (!mediaId) {
-    const errObj = uploadJson && uploadJson.error ? uploadJson.error : {}
-    const errCode = errObj.code || uploadHttpCode || 502
-    const errSubcode = errObj.error_subcode || ''
-    const errMsg =
-      errObj.message || (uploadNetErr ? String(uploadNetErr) : 'Falha no upload de mídia na Meta.')
-
-    // Diagnóstico seguro (nunca expor token)
-    console.error('[WHATSAPP SEND MEDIA] Falha no upload de mídia na Meta Cloud API:', {
-      httpCode: uploadHttpCode,
-      errorCode: errCode,
-      errorSubcode: errSubcode,
-      message: errMsg,
-      type: errObj.type || '',
-    })
-
-    return e.json(uploadHttpCode >= 400 && uploadHttpCode < 600 ? uploadHttpCode : 502, {
+    $app.save(localMessage)
+    console.log(
+      '[WHATSAPP SEND MEDIA] Arquivo salvo localmente em messages com status=pending. ID:',
+      localMessage.id,
+      'Token:',
+      mediaToken.substring(0, 8) + '...',
+    )
+  } catch (saveErr) {
+    console.error('[WHATSAPP SEND MEDIA] Erro ao salvar arquivo local em messages:', saveErr)
+    return e.json(500, {
       success: false,
-      error:
-        'Não foi possível enviar o arquivo: falha ao registrar mídia na Meta Cloud API (' +
-        errMsg +
-        ').',
-      meta_error: {
-        code: errCode,
-        subcode: errSubcode,
-      },
+      error: 'Não foi possível salvar o arquivo localmente no CRM antes do envio.',
     })
   }
 
-  console.log('[WHATSAPP SEND MEDIA] Upload realizado com sucesso! Media ID:', mediaId)
+  // 11. REQUISITO 4: RESOLVER URL ABSOLUTA DO LINK PÚBLICO CONTROLADO
+  // Mesma resolução estrita de SITE_URL usada com sucesso em production_proof_notify e production_status_notify
+  let rawSiteUrl = String($os.getenv('SITE_URL') || '').trim()
+  if (
+    !rawSiteUrl ||
+    rawSiteUrl.includes('--preview.goskip.app') ||
+    rawSiteUrl.includes('internal.goskip.dev')
+  ) {
+    rawSiteUrl = 'https://crm-grafica-whatsapp-7b1a5.goskip.app'
+  }
+  const cleanBaseUrl = rawSiteUrl.replace(/\/+$/, '')
+  const publicMediaUrl = cleanBaseUrl + '/backend/v1/crm/public-whatsapp-media/' + mediaToken
 
-  // 11. ENVIAR MENSAGEM: POST https://graph.facebook.com/{VERSION}/{PHONE_NUMBER_ID}/messages
-  // Para imagem: {"messaging_product":"whatsapp","recipient_type":"individual","to":"<telefone>","type":"image","image":{"id":"<media_id>","caption":"..."}}
-  // Para documento: {"messaging_product":"whatsapp","recipient_type":"individual","to":"<telefone>","type":"document","document":{"id":"<media_id>","filename":"<file_name>","caption":"..."}}
+  console.log('[WHATSAPP SEND MEDIA] URL pública controlada gerada para a Meta:', publicMediaUrl)
+
+  // 12. REQUISITO 5: DISPARAR PARA A META VIA JSON PURO /messages USANDO 'link'
+  // Imagem: {"messaging_product":"whatsapp","to":"<telefone>","type":"image","image":{"link":"<URL_PUBLICA>"}} (+caption)
+  // PDF: {"messaging_product":"whatsapp","to":"<telefone>","type":"document","document":{"link":"<URL_PUBLICA>","filename":"<file_name>"}} (+caption)
   const messagesUrl =
     'https://graph.facebook.com/' + metaApiVersion + '/' + metaPhoneId + '/messages'
 
@@ -601,14 +527,14 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   }
 
   if (mediaCategory === 'image') {
-    const imgObj = { id: mediaId }
+    const imgObj = { link: publicMediaUrl }
     if (caption) {
       imgObj.caption = caption
     }
     messagePayload.image = imgObj
   } else if (mediaCategory === 'document') {
     const docObj = {
-      id: mediaId,
+      link: publicMediaUrl,
       filename: originalFileName,
     }
     if (caption) {
@@ -618,12 +544,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   }
 
   console.log(
-    '[WHATSAPP SEND MEDIA] Enviando mensagem de mídia para ' +
-      phoneNormalized +
-      ' tipo ' +
-      mediaCategory +
-      ' via ' +
-      messagesUrl,
+    '[WHATSAPP SEND MEDIA] Despachando /messages JSON para Meta:',
+    messagesUrl,
+    'destinatário:',
+    phoneNormalized,
+    'categoria:',
+    mediaCategory,
   )
 
   let sendResponse = null
@@ -664,21 +590,30 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     sendJson.messages.length > 0
   const wamid = isMetaSuccess ? sendJson.messages[0].id : ''
 
-  // 12. Se Meta rejeitar envio: NÃO criar mensagem local como sent
+  // 13. REQUISITO 7: TRATAMENTO DE REJEIÇÃO / FALHA DA META
+  // Se a Meta rejeitar -> status 'failed', NÃO mostrar como enviado, NÃO criar registro duplicado
   if (!isMetaSuccess || !wamid) {
     const errObj = sendJson && sendJson.error ? sendJson.error : {}
     const errCode = errObj.code || sendHttpCode || 502
     const errSubcode = errObj.error_subcode || ''
     const errMsg =
-      errObj.message || (sendNetErr ? String(sendNetErr) : 'Falha no envio de mensagem na Meta.')
+      errObj.message || (sendNetErr ? String(sendNetErr) : 'Falha no envio de mídia na Meta.')
 
-    console.error('[WHATSAPP SEND MEDIA] Meta Cloud API rejeitou o envio da mídia:', {
+    console.error('[WHATSAPP SEND MEDIA] Meta Cloud API rejeitou o envio da mídia por link:', {
       httpCode: sendHttpCode,
       errorCode: errCode,
       errorSubcode: errSubcode,
       message: errMsg,
       type: errObj.type || '',
     })
+
+    // Atualizar o registro pendente para 'failed'
+    try {
+      localMessage.set('status', 'failed')
+      $app.save(localMessage)
+    } catch (updFailErr) {
+      console.warn('[WHATSAPP SEND MEDIA] Erro ao atualizar status para failed:', updFailErr)
+    }
 
     return e.json(sendHttpCode >= 400 && sendHttpCode < 600 ? sendHttpCode : 502, {
       success: false,
@@ -687,64 +622,29 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
         code: errCode,
         subcode: errSubcode,
       },
+      message_id: localMessage.id,
     })
   }
 
-  // 13. PERSISTÊNCIA LOCAL: Criar o registro em messages SOMENTE DEPOIS que a Meta aceitou o envio e retornou WAMID
+  // 14. REQUISITO 7: SUCESSO META -> ATUALIZAR O MESMO REGISTRO LOCAL PARA 'sent' COM WAMID
   console.log(
-    '[WHATSAPP SEND MEDIA] Meta aceitou envio! WAMID:',
+    '[WHATSAPP SEND MEDIA] Meta aceitou envio por link! WAMID:',
     wamid,
-    'Persistindo no PocketBase...',
+    'Atualizando registro local para status=sent...',
   )
 
-  const senderName = auth.get('name') || auth.get('email') || 'Atendente'
-  const userId = auth.id
-  const timestampIso = new Date().toISOString()
-
-  let savedMessage = null
   try {
-    const messagesCol = $app.findCollectionByNameOrId('messages')
-    const msgRec = new Record(messagesCol)
-
-    msgRec.set('client_id', clientId)
-    if (attendanceId) {
-      msgRec.set('attendance_id', attendanceId)
-    }
-    msgRec.set('direction', 'outbound')
-    msgRec.set('message_text', caption || originalFileName)
-    msgRec.set('sender_name', senderName)
-    if (userId) {
-      msgRec.set('sent_by_user', userId)
-    }
-    msgRec.set('status', 'sent')
-    msgRec.set('whatsapp_message_id', wamid)
-
-    // Salvar o arquivo no registro do PocketBase para continuar disponível visualmente no CRM
-    // PocketBase v0.23+ espera 'file' ou 'file+' para FileField.
-    // Usamos uploadedFile diretamente.
-    msgRec.set('file', uploadedFile)
-    msgRec.set('file_name', originalFileName)
-    const fSize = Number(uploadedFile.size || body.file_size || body.fileSize || 0)
-    if (fSize > 0) {
-      msgRec.set('file_size', fSize)
-    }
-    msgRec.set('file_type', mimeType)
-
-    $app.save(msgRec)
-    savedMessage = msgRec
-  } catch (saveErr) {
-    console.error('[WHATSAPP SEND MEDIA] Erro ao persistir registro em messages:', saveErr)
-    return e.json(500, {
-      success: false,
-      error:
-        'Mídia enviada para a Meta (WAMID: ' +
-        wamid +
-        '), mas ocorreu um erro ao salvar registro local.',
-      whatsapp_message_id: wamid,
-    })
+    localMessage.set('status', 'sent')
+    localMessage.set('whatsapp_message_id', wamid)
+    $app.save(localMessage)
+  } catch (updSuccessErr) {
+    console.error(
+      '[WHATSAPP SEND MEDIA] Erro ao atualizar mensagem local para sent:',
+      updSuccessErr,
+    )
   }
 
-  // 14. Atualizar metadados do cliente e do atendimento
+  // 15. Atualizar metadados do cliente e do atendimento
   try {
     clientRecord.set('last_message_at', timestampIso)
     clientRecord.set('last_message_direction', 'outbound')
@@ -766,16 +666,23 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     }
   }
 
-  console.log('[WHATSAPP SEND MEDIA] Sucesso completo! WAMID:', wamid, 'RecordId:', savedMessage.id)
+  console.log(
+    '[WHATSAPP SEND MEDIA] Envio por link público concluído com sucesso! WAMID:',
+    wamid,
+    'RecordId:',
+    localMessage.id,
+  )
 
   return e.json(200, {
     success: true,
     status: 'sent',
     whatsapp_message_id: wamid,
-    media_id: mediaId,
-    message: savedMessage.publicExport(),
+    public_url: publicMediaUrl,
+    message: localMessage.publicExport(),
     client: clientRecord.publicExport(),
   })
 })
 
-console.log('[WHATSAPP SEND MEDIA] Hook registered route: POST /backend/v1/crm/whatsapp/send-media')
+console.log(
+  '[WHATSAPP SEND MEDIA] Hook registered route: POST /backend/v1/crm/whatsapp/send-media (link-based)',
+)
