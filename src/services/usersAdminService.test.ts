@@ -80,50 +80,74 @@ describe('usersAdminService password validation and confirmation', () => {
     expect(result.is_active).toBe(true)
   })
 
-  it('rejeita atualização se nova senha for menor que 8 caracteres', async () => {
-    const updateSpy = vi.spyOn(pb.collection('users'), 'update')
-
-    await expect(
-      usersAdminService.update('usr_123', {
-        password: '123',
-        passwordConfirm: '123',
-      }),
-    ).rejects.toThrow('A senha deve ter pelo menos 8 caracteres.')
-
-    expect(updateSpy).not.toHaveBeenCalled()
-  })
-
-  it('rejeita atualização se confirmação não conferir', async () => {
-    const updateSpy = vi.spyOn(pb.collection('users'), 'update')
-
-    await expect(
-      usersAdminService.update('usr_123', {
-        password: 'NovaSenhaForte2025',
-        passwordConfirm: 'OutraSenhaErrada',
-      }),
-    ).rejects.toThrow('A confirmação de senha não confere com a senha informada.')
-
-    expect(updateSpy).not.toHaveBeenCalled()
-  })
-
-  it('permite atualizar dados do usuário sem alterar senha quando o campo senha está vazio', async () => {
+  it('permite atualizar dados do usuário existente mantendo o mesmo ID e SEM enviar password/passwordConfirm/oldPassword', async () => {
     const updateSpy = vi.spyOn(pb.collection('users'), 'update').mockResolvedValueOnce({
       id: 'usr_123',
       name: 'Nome Atualizado',
       email: 'atualizado@empresa.com',
+      phone: '11888887777',
+      role_id: 'role_designer_1',
+      role_slug: 'designer',
+      is_active: true,
+      custom_permissions: { view_dashboard: true },
     } as any)
 
     const res = await usersAdminService.update('usr_123', {
       name: 'Nome Atualizado',
       email: 'atualizado@empresa.com',
       phone: '11888887777',
+      role_id: 'role_designer_1',
+      role_slug: 'designer',
+      is_active: true,
+      custom_permissions: { view_dashboard: true },
     })
 
+    expect(updateSpy).toHaveBeenCalledTimes(1)
     expect(updateSpy).toHaveBeenCalledWith('usr_123', {
       name: 'Nome Atualizado',
       email: 'atualizado@empresa.com',
       phone: '11888887777',
+      role_id: 'role_designer_1',
+      role_slug: 'designer',
+      is_active: true,
+      custom_permissions: { view_dashboard: true },
     })
+
+    // Garante categoricamente que campos de senha não foram enviados no payload
+    const calledPayload = updateSpy.mock.calls[0][1] as any
+    expect(calledPayload).not.toHaveProperty('password')
+    expect(calledPayload).not.toHaveProperty('passwordConfirm')
+    expect(calledPayload).not.toHaveProperty('oldPassword')
+
+    expect(res.id).toBe('usr_123')
     expect(res.name).toBe('Nome Atualizado')
+  })
+
+  it('permite atualizar apenas telefone ou role mantendo ID e sem tocar em senhas', async () => {
+    const updateSpy = vi.spyOn(pb.collection('users'), 'update').mockResolvedValueOnce({
+      id: 'usr_456',
+      name: 'Atendente Existente',
+      email: 'atendente@empresa.com',
+      phone: '11977776666',
+      role_id: 'role_comercial_2',
+      role_slug: 'comercial',
+    } as any)
+
+    const res = await usersAdminService.update('usr_456', {
+      phone: '11977776666',
+      role_id: 'role_comercial_2',
+      role_slug: 'comercial',
+    })
+
+    expect(updateSpy).toHaveBeenCalledWith('usr_456', {
+      phone: '11977776666',
+      role_id: 'role_comercial_2',
+      role_slug: 'comercial',
+    })
+    const payload = updateSpy.mock.calls[0][1] as any
+    expect(payload).not.toHaveProperty('password')
+    expect(payload).not.toHaveProperty('passwordConfirm')
+    expect(payload).not.toHaveProperty('oldPassword')
+    expect(res.id).toBe('usr_456')
   })
 })

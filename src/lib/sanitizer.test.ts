@@ -1,34 +1,8 @@
 import { describe, it, expect } from 'vitest'
 
+import { sanitizeObject, getSanitizedErrorMessage } from './sanitizer'
+
 describe('Users diagnostic error sanitizer', () => {
-  const sanitizeObject = (obj: any, seen = new WeakSet()): any => {
-    if (obj === null || typeof obj !== 'object') return obj
-    if (seen.has(obj)) return '[Circular]'
-    seen.add(obj)
-    if (Array.isArray(obj)) return obj.map((item) => sanitizeObject(item, seen))
-    const clean: Record<string, any> = {}
-    for (const key of Object.keys(obj)) {
-      const val = obj[key]
-      const lowerKey = key.toLowerCase()
-      const isSensitiveKey =
-        lowerKey.includes('password') ||
-        lowerKey.includes('authorization') ||
-        lowerKey.includes('token') ||
-        lowerKey.includes('cookie') ||
-        lowerKey.includes('secret')
-
-      const isValidationDetailObject =
-        val && typeof val === 'object' && !Array.isArray(val) && ('message' in val || 'code' in val)
-
-      if (isSensitiveKey && !isValidationDetailObject) {
-        clean[key] = '[REDACTED]'
-      } else {
-        clean[key] = sanitizeObject(val, seen)
-      }
-    }
-    return clean
-  }
-
   it('mascara senhas e tokens reais nos payloads e headers', () => {
     const raw = {
       password: 'minhasenhasecreta123',
@@ -81,5 +55,27 @@ describe('Users diagnostic error sanitizer', () => {
     const sanitized = sanitizeObject(circularObj)
     expect(sanitized.self).toBe('[Circular]')
     expect(sanitized.name).toBe('Teste')
+  })
+
+  it('extrai mensagens específicas de validação sem fallback genérico enganoso', () => {
+    const errorWithFields = {
+      message: 'Failed to update record.',
+      data: {
+        data: {
+          name: { message: 'Cannot be blank.' },
+          email: { message: 'Must be a valid email address.' },
+        },
+      },
+    }
+    const msg = getSanitizedErrorMessage(errorWithFields)
+    expect(msg).toBe('name: Cannot be blank. | email: Must be a valid email address.')
+    expect(msg).not.toContain('Verifique se o email já está cadastrado')
+  })
+
+  it('extrai mensagem principal quando não há data por campo', () => {
+    const errorSimple = {
+      message: 'PocketBase request failed with status 400',
+    }
+    expect(getSanitizedErrorMessage(errorSimple)).toBe('PocketBase request failed with status 400')
   })
 })

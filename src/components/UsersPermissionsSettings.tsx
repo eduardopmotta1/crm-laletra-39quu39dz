@@ -30,6 +30,7 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { usersAdminService, rolesService, auditLogsService } from '@/services/rolesPermissions'
 import { PERMISSION_MODULES, ALL_PERMISSIONS_KEYS, type ModuleGroup } from '@/types/permissions'
+import { sanitizeObject, getSanitizedErrorMessage } from '@/lib/sanitizer'
 import type { User, Role } from '@/types/crm'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -192,26 +193,6 @@ export default function UsersPermissionsSettings() {
         })
         return
       }
-    } else {
-      // Ao EDITAR: se preenchido, mínimo 8 caracteres
-      if (trimmedPassword) {
-        if (trimmedPassword.length < 8) {
-          toast({
-            title: 'Senha inválida',
-            description: 'A senha deve ter pelo menos 8 caracteres.',
-            variant: 'destructive',
-          })
-          return
-        }
-        if (trimmedPassword !== trimmedConfirm) {
-          toast({
-            title: 'Confirmação incorreta',
-            description: 'A confirmação de senha não confere com a senha informada.',
-            variant: 'destructive',
-          })
-          return
-        }
-      }
     }
 
     try {
@@ -219,26 +200,20 @@ export default function UsersPermissionsSettings() {
       const roleSlug = selectedRole ? selectedRole.slug : userFormData.role_slug
 
       if (userToEdit) {
-        // Update
-        const payload: any = {
+        // Edição normal: NUNCA envia password/passwordConfirm/oldPassword no PATCH
+        await usersAdminService.update(userToEdit.id, {
           name: userFormData.name.trim(),
           email: userFormData.email.trim(),
           phone: userFormData.phone.trim(),
           role_id: userFormData.role_id || undefined,
           role_slug: roleSlug,
           is_active: userFormData.is_active,
-        }
-        if (trimmedPassword) {
-          payload.password = trimmedPassword
-          payload.passwordConfirm = trimmedConfirm
-        }
-
-        await usersAdminService.update(userToEdit.id, payload)
+        })
         toast({
           title: 'Usuário atualizado com sucesso!',
         })
       } else {
-        // Create
+        // Create: preserva fluxo original de criação intacto
         // Preset custom_permissions from role default
         const initialPerms = selectedRole ? { ...selectedRole.permissions } : {}
         await usersAdminService.create({
@@ -267,42 +242,8 @@ export default function UsersPermissionsSettings() {
        * INSTRUMENTAÇÃO TEMPORÁRIA DE DIAGNÓSTICO
        * Captura o erro retornado pelo PocketBase na criação/edição de usuário.
        * Mascarar credenciais sensíveis (password, passwordConfirm, authorization, token, cookie, secret).
-       * PRESERVA mensagens de validação (ex: data.password = { code: '...', message: '...' } ou string de erro),
-       * nunca escondendo a descrição do erro retornado pelo PocketBase.
+       * PRESERVA mensagens de validação, nunca escondendo a descrição real do erro retornado pelo PocketBase.
        * ======================================================================== */
-      const sanitizeObject = (obj: any, seen = new WeakSet()): any => {
-        if (obj === null || typeof obj !== 'object') return obj
-        if (seen.has(obj)) return '[Circular]'
-        seen.add(obj)
-        if (Array.isArray(obj)) return obj.map((item) => sanitizeObject(item, seen))
-        const clean: Record<string, any> = {}
-        for (const key of Object.keys(obj)) {
-          const val = obj[key]
-          const lowerKey = key.toLowerCase()
-          const isSensitiveKey =
-            lowerKey.includes('password') ||
-            lowerKey.includes('authorization') ||
-            lowerKey.includes('token') ||
-            lowerKey.includes('cookie') ||
-            lowerKey.includes('secret')
-
-          // Se for objeto de erro de validação (ex: { code: 'validation_min_length', message: 'Must be at least 8...' })
-          // ou conter mensagem de validação, preservamos o objeto com suas mensagens visíveis
-          const isValidationDetailObject =
-            val &&
-            typeof val === 'object' &&
-            !Array.isArray(val) &&
-            ('message' in val || 'code' in val)
-
-          if (isSensitiveKey && !isValidationDetailObject) {
-            clean[key] = '[REDACTED]'
-          } else {
-            clean[key] = sanitizeObject(val, seen)
-          }
-        }
-        return clean
-      }
-
       const rawStatus = err?.status ?? err?.response?.status ?? err?.statusCode
       const rawMessage = err?.message ?? 'Unknown error'
       const rawData = err?.data ?? err?.response?.data
@@ -321,7 +262,7 @@ export default function UsersPermissionsSettings() {
       })
 
       // 1. Console.error detalhado para diagnóstico
-      console.error('[INSTRUMENTAÇÃO TEMPORÁRIA] Erro completo na criação de usuário:', {
+      console.error('[INSTRUMENTAÇÃO TEMPORÁRIA] Erro completo na operação de usuário:', {
         status: rawStatus,
         message: rawMessage,
         data: sanitizedData,
@@ -339,12 +280,9 @@ export default function UsersPermissionsSettings() {
         fullJson: JSON.stringify(sanitizedData || sanitizedResponse || sanitizedFullError, null, 2),
       })
 
-      const errorMsg =
-        err?.data?.data?.email?.message ||
-        err?.data?.data?.password?.message ||
-        err?.data?.message ||
-        err?.message ||
-        'Verifique se o email já está cadastrado.'
+      // 3. Exibir mensagem real retornada pelo PocketBase devidamente sanitizada,
+      // sem fallback enganoso de "email já cadastrado" para erros gerais.
+      const errorMsg = getSanitizedErrorMessage(err)
       toast({
         title: 'Erro ao salvar usuário',
         description: errorMsg,
@@ -1220,43 +1158,55 @@ export default function UsersPermissionsSettings() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold">
-                  {userToEdit ? 'Alterar Senha (mín. 8 caracteres)' : 'Senha de Acesso *'}
-                </Label>
-                <Input
-                  type="password"
-                  required={!userToEdit}
-                  minLength={8}
-                  value={userFormData.password}
-                  onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
-                  placeholder={userToEdit ? 'Deixe em branco para manter' : 'Mínimo 8 caracteres'}
-                  className="text-xs"
-                />
-              </div>
+            {!userToEdit ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold">Senha de Acesso *</Label>
+                    <Input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={userFormData.password}
+                      onChange={(e) =>
+                        setUserFormData({ ...userFormData, password: e.target.value })
+                      }
+                      placeholder="Mínimo 8 caracteres"
+                      className="text-xs"
+                    />
+                  </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold">
-                  {userToEdit ? 'Confirmar Nova Senha' : 'Confirmar Senha *'}
-                </Label>
-                <Input
-                  type="password"
-                  required={!userToEdit || Boolean(userFormData.password)}
-                  minLength={8}
-                  value={userFormData.passwordConfirm}
-                  onChange={(e) =>
-                    setUserFormData({ ...userFormData, passwordConfirm: e.target.value })
-                  }
-                  placeholder={userToEdit ? 'Repita a nova senha' : 'Repita a senha (mín. 8)'}
-                  className="text-xs"
-                />
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold">Confirmar Senha *</Label>
+                    <Input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={userFormData.passwordConfirm}
+                      onChange={(e) =>
+                        setUserFormData({ ...userFormData, passwordConfirm: e.target.value })
+                      }
+                      placeholder="Repita a senha (mín. 8)"
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  A senha deve ter pelo menos 8 caracteres.
+                </p>
+              </>
+            ) : (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <div className="space-y-0.5">
+                  <p className="font-semibold">Alteração de senha indisponível na edição direta</p>
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    A alteração ou redefinição de senha de colaboradores deve ser feita através do
+                    fluxo próprio de recuperação de senha por email. Dados cadastrais e permissões
+                    continuam sendo atualizados normalmente abaixo.
+                  </p>
+                </div>
               </div>
-            </div>
-            {(!userToEdit || userFormData.password) && (
-              <p className="text-[11px] text-slate-500">
-                A senha deve ter pelo menos 8 caracteres.
-              </p>
             )}
 
             <div className="space-y-1">

@@ -16,8 +16,6 @@ export interface CreateUserData {
 export interface UpdateUserData {
   name?: string
   email?: string
-  password?: string
-  passwordConfirm?: string
   phone?: string
   role_id?: string
   role_slug?: string
@@ -89,7 +87,7 @@ export const usersAdminService = {
   },
 
   async update(id: string, data: UpdateUserData): Promise<User> {
-    const payload: any = {}
+    const payload: Record<string, any> = {}
     if (data.name !== undefined) payload.name = data.name.trim()
     if (data.email !== undefined) payload.email = data.email.trim()
     if (data.phone !== undefined) payload.phone = data.phone.trim()
@@ -98,17 +96,8 @@ export const usersAdminService = {
     if (data.role_slug !== undefined) payload.role_slug = data.role_slug
     if (data.is_active !== undefined) payload.is_active = Boolean(data.is_active)
     if (data.custom_permissions !== undefined) payload.custom_permissions = data.custom_permissions
-    if (data.password) {
-      const finalConfirm = data.passwordConfirm || data.password
-      if (data.password.length < 8) {
-        throw new Error('A senha deve ter pelo menos 8 caracteres.')
-      }
-      if (data.password !== finalConfirm) {
-        throw new Error('A confirmação de senha não confere com a senha informada.')
-      }
-      payload.password = data.password
-      payload.passwordConfirm = finalConfirm
-    }
+
+    // Edição de usuário comum NUNCA deve enviar password/passwordConfirm/oldPassword no PATCH
     return await pb.collection('users').update<User>(id, payload)
   },
 
