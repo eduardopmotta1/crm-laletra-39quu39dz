@@ -4,7 +4,7 @@ import { Message, User, Client } from '@/types/crm'
 export interface SendMessagePayload {
   clientId: string
   attendanceId?: string
-  messageText: string
+  messageText?: string
   senderName?: string
   file?: File | null
 }
@@ -207,53 +207,45 @@ export const whatsappService = {
     }
 
     try {
-      let message: Message
-      let updatedClient: Client | undefined
-
-      // Se houver arquivo anexo (mídia fora do escopo da Etapa 2 de texto da Meta Cloud API),
-      // mantém o upload de arquivos via FormData da collection messages
+      // ENVIO REAL DE IMAGEM / DOCUMENTO VIA META CLOUD API (POST /backend/v1/crm/whatsapp/send-media)
       if (fileToUpload) {
         const formData = new FormData()
         formData.append('client_id', clientId)
         if (attId) formData.append('attendance_id', attId)
-        formData.append('direction', 'outbound')
-        formData.append('message_text', messageText || fileToUpload.name)
-        formData.append('sender_name', senderName)
-        if (authRecord?.id) formData.append('sent_by_user', authRecord.id)
-        formData.append('status', 'sent')
         formData.append('file', fileToUpload)
         formData.append('file_name', fileToUpload.name)
-        formData.append('file_size', String(fileToUpload.size))
         formData.append('file_type', fileToUpload.type || '')
+        if (messageText) {
+          formData.append('caption', messageText)
+        }
+        // Identificador aleatório para prevenção de clique duplo/retry
+        const reqId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+        formData.append('request_id', reqId)
 
-        message = await pb.collection('messages').create<Message>(formData, {
-          expand: 'sent_by_user,sent_by_user.role_id',
+        const mediaRes = await pb.send<{
+          success: boolean
+          status?: string
+          whatsapp_message_id?: string
+          media_id?: string
+          message?: Message
+          client?: Client
+          error?: string
+          configured?: boolean
+          requires_template?: boolean
+          code?: string
+        }>('/backend/v1/crm/whatsapp/send-media', {
+          method: 'POST',
+          body: formData,
         })
 
-        if (attId) {
-          try {
-            await pb.collection('attendances').update(attId, {
-              last_company_message_at: currentTimestampIso,
-            })
-          } catch (err) {
-            console.warn('Error updating attendance message metadata:', err)
-          }
-        }
-
-        try {
-          const snippet = `📎 ${fileToUpload.name}`
-          updatedClient = await pb.collection('clients').update<Client>(clientId, {
-            last_message_at: currentTimestampIso,
-            last_message_text: snippet,
-          })
-        } catch (err) {
-          console.error('Error updating client last message:', err)
+        if (!mediaRes || !mediaRes.success) {
+          throw new Error(mediaRes?.error || 'Não foi possível enviar o arquivo pelo WhatsApp.')
         }
 
         return {
           success: true,
-          message,
-          client: updatedClient,
+          message: mediaRes.message,
+          client: mediaRes.client,
           api_dispatched: true,
         }
       }

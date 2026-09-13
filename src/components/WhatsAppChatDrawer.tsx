@@ -950,6 +950,16 @@ export default function WhatsAppChatDrawer({
     const textToSend = inputMessage.trim()
     if ((!textToSend && !selectedAttachment) || sending) return
 
+    if (selectedAttachment && !within24h) {
+      toast({
+        title: 'Janela de 24h fechada',
+        description:
+          'Não é permitido enviar imagens ou documentos fora da janela de 24h. Envie um Template Oficial ou aguarde o cliente responder.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setSending(true)
     try {
       const res = await whatsappService.sendMessage({
@@ -959,8 +969,8 @@ export default function WhatsAppChatDrawer({
         file: selectedAttachment,
       })
 
-      if (res.error) {
-        throw new Error(res.error)
+      if (!res.success || res.error) {
+        throw new Error(res.error || 'Falha ao despachar mensagem pelo WhatsApp.')
       }
 
       setInputMessage('')
@@ -1002,15 +1012,15 @@ export default function WhatsAppChatDrawer({
 
       if (onClientUpdated) onClientUpdated()
       toast({
-        title: selectedAttachment ? 'Arquivo enviado no chat' : 'Mensagem enviada no CRM',
+        title: selectedAttachment ? 'Mídia enviada via Meta Cloud API' : 'Mensagem enviada no CRM',
         description: res.api_dispatched
           ? 'Mensagem despachada via WhatsApp Cloud API e registrada no histórico.'
           : 'Mensagem registrada no histórico do CRM e status atualizado.',
       })
     } catch (err: any) {
       toast({
-        title: 'Erro ao enviar mensagem',
-        description: err?.message || 'Falha na comunicação com o WhatsApp.',
+        title: selectedAttachment ? 'Erro ao enviar mídia' : 'Erro ao enviar mensagem',
+        description: err?.message || 'Falha na comunicação com o WhatsApp Cloud API.',
         variant: 'destructive',
       })
     } finally {
@@ -1021,18 +1031,54 @@ export default function WhatsAppChatDrawer({
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Validar tipo de arquivo suportado nesta etapa: imagem (PNG/JPG/WEBP) e PDF
+      const fType = (file.type || '').toLowerCase()
+      const fName = (file.name || '').toLowerCase()
+      const isImg =
+        fType === 'image/jpeg' ||
+        fType === 'image/jpg' ||
+        fType === 'image/png' ||
+        fType === 'image/webp' ||
+        /\.(png|jpe?g|webp)$/i.test(fName)
+      const isPdf = fType === 'application/pdf' || /\.pdf$/i.test(fName)
+
+      if (!isImg && !isPdf) {
+        toast({
+          title: 'Tipo de arquivo não suportado',
+          description:
+            'Nesta etapa, o envio direto pelo WhatsApp suporta apenas imagens (PNG, JPEG, WebP) e documentos PDF.',
+          variant: 'destructive',
+        })
+        if (e.target) e.target.value = ''
+        return
+      }
+
       if (file.size > 50 * 1024 * 1024) {
         toast({
           title: 'Arquivo muito grande',
           description: 'O tamanho máximo suportado é de 50MB.',
           variant: 'destructive',
         })
+        if (e.target) e.target.value = ''
         return
       }
+
+      // Validar janela de 24h para envio de arquivos livres
+      if (!within24h) {
+        toast({
+          title: 'Janela de 24h fechada',
+          description:
+            'Não é permitido enviar imagens ou documentos fora da janela de 24h. Envie um Template Oficial ou aguarde o cliente responder.',
+          variant: 'destructive',
+        })
+        if (e.target) e.target.value = ''
+        return
+      }
+
       setSelectedAttachment(file)
       toast({
         title: 'Arquivo anexado',
-        description: `${file.name} pronto para envio.`,
+        description: `${file.name} pronto para envio via WhatsApp Cloud API.`,
       })
     }
   }
