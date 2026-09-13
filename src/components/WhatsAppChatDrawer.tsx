@@ -43,6 +43,7 @@ import {
   Lock,
   Download,
   FileImage,
+  Pencil,
 } from 'lucide-react'
 import type {
   Client,
