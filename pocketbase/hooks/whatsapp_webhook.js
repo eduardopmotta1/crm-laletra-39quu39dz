@@ -250,22 +250,65 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
             profileName = String(contacts[0].profile.name).trim()
           }
 
-          // Apenas mensagens de texto neste estágio
-          if (msgType !== 'text' || !msg.text || !msg.text.body) {
+          // Suporte a mensagens de texto e imagem (inbound)
+          if (msgType !== 'text' && msgType !== 'image') {
             console.log(
               '[WHATSAPP WEBHOOK POST] Mensagem tipo "' +
                 msgType +
-                '" ignorada. Apenas texto é suportado nesta etapa. MetaId: ' +
+                '" ignorada. Apenas texto e imagem são suportados nesta etapa. MetaId: ' +
                 metaMsgId,
             )
             ignoredCount++
             continue
           }
 
-          const msgBodyText = String(msg.text.body).trim()
-          if (!msgBodyText) {
-            ignoredCount++
-            continue
+          let msgBodyText = ''
+          let isImageMsg = false
+          let mediaId = ''
+          let imageMimeType = ''
+          let imageSha256 = ''
+          let imageCaption = ''
+
+          if (msgType === 'text') {
+            if (!msg.text || !msg.text.body) {
+              ignoredCount++
+              continue
+            }
+            msgBodyText = String(msg.text.body).trim()
+            if (!msgBodyText) {
+              ignoredCount++
+              continue
+            }
+          } else if (msgType === 'image') {
+            isImageMsg = true
+            const imgData = msg.image || {}
+            mediaId = String(imgData.id || '').trim()
+            imageMimeType = String(imgData.mime_type || 'image/jpeg')
+              .trim()
+              .toLowerCase()
+            imageSha256 = String(imgData.sha256 || '').trim()
+            imageCaption = String(imgData.caption || '').trim()
+
+            if (!mediaId) {
+              console.warn(
+                '[WHATSAPP WEBHOOK POST] Mensagem image sem image.id (MEDIA_ID). Ignorada. MetaId: ' +
+                  metaMsgId,
+              )
+              ignoredCount++
+              continue
+            }
+
+            console.log(
+              '[WHATSAPP WEBHOOK POST] Mensagem tipo image recebida. MediaId:',
+              mediaId,
+              'MimeType:',
+              imageMimeType,
+              'Caption:',
+              imageCaption ? imageCaption.substring(0, 30) : 'sem legenda',
+            )
+
+            // Texto a ser exibido/salvo caso exista caption ou fallback amigável
+            msgBodyText = imageCaption || ''
           }
 
           // 4. Normalização do telefone no padrão do CRM (com DDI 55, ex: 5521970156756)
@@ -596,7 +639,6 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
               newMsgRecord.set('attendance_id', attendanceId)
             }
             newMsgRecord.set('direction', 'inbound')
-            newMsgRecord.set('message_text', msgBodyText)
             newMsgRecord.set(
               'sender_name',
               profileName ||
@@ -609,6 +651,169 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
               newMsgRecord.set('whatsapp_message_id', metaMsgId)
             }
 
+            let generatedFileName = ''
+            let savedFileObj = null
+            let resolvedFileSize = 0
+            let finalMimeType = imageMimeType || 'image/jpeg'
+
+            // Se for mensagem tipo imagem: obter metadados da Meta e baixar o binário
+            if (isImageMsg && mediaId) {
+              // Gerar nome do arquivo baseado no MIME type e timestamp
+              const nowTs = Date.now()
+              let ext = '.jpg'
+              if (finalMimeType === 'image/png') {
+                ext = '.png'
+              } else if (finalMimeType === 'image/webp') {
+                ext = '.webp'
+              } else if (finalMimeType === 'image/jpeg' || finalMimeType === 'image/jpg') {
+                ext = '.jpg'
+              }
+              generatedFileName = 'whatsapp_' + nowTs + ext
+
+              // Obter credenciais Meta
+              let metaAccessToken = $os.getenv('WHATSAPP_ACCESS_TOKEN') || ''
+              let metaApiVer = $os.getenv('WHATSAPP_GRAPH_API_VERSION') || 'v21.0'
+              if (!metaAccessToken) {
+                try {
+                  const sRec = $app.findFirstRecordByData(
+                    'system_settings',
+                    'setting_key',
+                    'whatsapp_access_token',
+                  )
+                  const sVal = sRec ? sRec.get('setting_value') : ''
+                  if (sVal && !sVal.includes('DEMO_TOKEN') && !sVal.startsWith('demo_')) {
+                    metaAccessToken = sVal
+                  }
+                } catch (_) {}
+              }
+
+              if (!metaAccessToken) {
+                console.error(
+                  '[WHATSAPP WEBHOOK POST] Token da Meta não configurado. Impossível baixar mídia MediaId: ' +
+                    mediaId,
+                )
+              } else {
+                // Passo 3: Consultar dados da mídia na Meta
+                let mediaDownloadUrl = ''
+                try {
+                  const metaMediaInfoUrl =
+                    'https://graph.facebook.com/' + metaApiVer + '/' + mediaId
+                  const metaInfoRes = $http.send({
+                    url: metaMediaInfoUrl,
+                    method: 'GET',
+                    headers: {
+                      Authorization: 'Bearer ' + metaAccessToken,
+                    },
+                    timeout: 30,
+                  })
+
+                  if (
+                    metaInfoRes &&
+                    metaInfoRes.statusCode >= 200 &&
+                    metaInfoRes.statusCode < 300
+                  ) {
+                    const infoJson = metaInfoRes.json || {}
+                    mediaDownloadUrl = String(infoJson.url || '').trim()
+                    if (infoJson.mime_type) {
+                      finalMimeType = String(infoJson.mime_type).toLowerCase()
+                    }
+                    if (infoJson.file_size) {
+                      resolvedFileSize = Number(infoJson.file_size) || 0
+                    }
+                    console.log(
+                      '[WHATSAPP WEBHOOK POST] Metadados da mídia obtidos da Meta com sucesso:',
+                      {
+                        mediaId: mediaId,
+                        mimeType: finalMimeType,
+                        fileSize: resolvedFileSize,
+                        hasUrl: Boolean(mediaDownloadUrl),
+                      },
+                    )
+                  } else {
+                    console.error(
+                      '[WHATSAPP WEBHOOK POST] Falha ao consultar metadados da mídia na Meta. Status: ' +
+                        (metaInfoRes ? metaInfoRes.statusCode : 'sem resposta'),
+                    )
+                  }
+                } catch (metaInfoErr) {
+                  console.error(
+                    '[WHATSAPP WEBHOOK POST] Erro de rede ao consultar metadados da mídia na Meta:',
+                    metaInfoErr,
+                  )
+                }
+
+                // Passo 4: Baixar os bytes da imagem
+                if (mediaDownloadUrl) {
+                  try {
+                    const downloadRes = $http.send({
+                      url: mediaDownloadUrl,
+                      method: 'GET',
+                      headers: {
+                        Authorization: 'Bearer ' + metaAccessToken,
+                      },
+                      timeout: 60,
+                    })
+
+                    if (
+                      downloadRes &&
+                      downloadRes.statusCode >= 200 &&
+                      downloadRes.statusCode < 300
+                    ) {
+                      const rawBytes = downloadRes.body
+                      if (rawBytes && typeof $filesystem !== 'undefined') {
+                        savedFileObj = $filesystem.fileFromBytes(rawBytes, generatedFileName)
+                        if (!resolvedFileSize) {
+                          resolvedFileSize = Array.isArray(rawBytes)
+                            ? rawBytes.length
+                            : typeof rawBytes.length === 'number'
+                              ? rawBytes.length
+                              : 0
+                        }
+                        console.log(
+                          '[WHATSAPP WEBHOOK POST] Imagem baixada e convertida com sucesso:',
+                          generatedFileName,
+                          'tamanho:',
+                          resolvedFileSize,
+                        )
+                      } else {
+                        console.error(
+                          '[WHATSAPP WEBHOOK POST] Corpo da resposta vazio ou $filesystem indisponível.',
+                        )
+                      }
+                    } else {
+                      console.error(
+                        '[WHATSAPP WEBHOOK POST] Falha no download do arquivo da Meta. Status: ' +
+                          (downloadRes ? downloadRes.statusCode : 'sem resposta'),
+                      )
+                    }
+                  } catch (downloadErr) {
+                    console.error(
+                      '[WHATSAPP WEBHOOK POST] Erro de rede ao baixar imagem da Meta:',
+                      downloadErr,
+                    )
+                  }
+                }
+              }
+
+              // Preencher campos de anexo em messages
+              if (savedFileObj) {
+                newMsgRecord.set('file', savedFileObj)
+                newMsgRecord.set('file_name', generatedFileName)
+                newMsgRecord.set('file_type', finalMimeType)
+                if (resolvedFileSize > 0) {
+                  newMsgRecord.set('file_size', resolvedFileSize)
+                }
+              }
+
+              // Se a mensagem tiver caption, usar o caption como message_text.
+              // Se não tiver caption, usar o nome do arquivo para cumprir a obrigatoriedade de message_text.
+              const savedText = imageCaption || generatedFileName
+              newMsgRecord.set('message_text', savedText)
+            } else {
+              // Mensagem normal de texto
+              newMsgRecord.set('message_text', msgBodyText)
+            }
+
             $app.save(newMsgRecord)
             processedCount++
 
@@ -616,6 +821,9 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
             console.log('[WHATSAPP WEBHOOK POST] Mensagem processada e salva com sucesso:', {
               recordId: newMsgRecord.id,
               metaMsgId: metaMsgId,
+              type: msgType,
+              hasFile: Boolean(savedFileObj),
+              fileName: generatedFileName || null,
               phone: normalizedPhoneWithDDI,
               clientId: clientId || null,
               attendanceId: attendanceId || null,
@@ -637,9 +845,14 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
           // 8. Se cliente existir, atualizar last_message_*
           if (foundClient) {
             try {
+              const lastTextSummary = isImageMsg
+                ? imageCaption
+                  ? '📷 ' + imageCaption
+                  : '📷 Imagem'
+                : msgBodyText
               foundClient.set('last_message_at', currentTimestampIso)
               foundClient.set('last_message_direction', 'inbound')
-              foundClient.set('last_message_text', msgBodyText.substring(0, 100))
+              foundClient.set('last_message_text', lastTextSummary.substring(0, 100))
               $app.save(foundClient)
             } catch (cErr) {
               console.warn('[WHATSAPP WEBHOOK POST] Aviso ao atualizar client last_message:', cErr)
