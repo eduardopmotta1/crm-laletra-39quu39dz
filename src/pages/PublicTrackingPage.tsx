@@ -22,6 +22,16 @@ import {
   File,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { formatCurrency, formatDateTime } from '@/lib/sla'
 
 export default function PublicTrackingPage() {
@@ -31,6 +41,17 @@ export default function PublicTrackingPage() {
   const [proofs, setProofs] = useState<ProductionProof[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Decision Modal States
+  const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false)
+  const [isChangeDialogOpen, setIsChangeDialogOpen] = useState(false)
+  const [selectedProof, setSelectedProof] = useState<ProductionProof | null>(null)
+  const [changeComment, setChangeComment] = useState('')
+  const [submittingDecision, setSubmittingDecision] = useState(false)
+  const [decisionFeedback, setDecisionFeedback] = useState<{
+    type: 'approved' | 'changes_requested'
+    message: string
+  } | null>(null)
 
   useEffect(() => {
     if (!token) {
@@ -107,6 +128,135 @@ export default function PublicTrackingPage() {
 
   // Find current stage index in pipeline
   const currentStageIndex = stages.findIndex((st) => st.internal_id === order.stage_internal_id)
+
+  // Determine latest proof awaiting decision
+  // Chronological sort: proofs are sorted by 'created' or version_number
+  const sortedProofs = [...proofs].sort((a, b) => (a.version_number || 0) - (b.version_number || 0))
+  const latestProof = sortedProofs.length > 0 ? sortedProofs[sortedProofs.length - 1] : null
+
+  // Condition to display decision buttons:
+  // - pedido.requires_art_approval = true
+  // - pedido.art_approved != true
+  // - etapa atual compatível com awaiting_approval (ou stage_internal_id === 'awaiting_approval' ou 'art_preparation')
+  // - existe proof aguardando decisão E essa proof é a mais recente
+  const canDecideArt =
+    Boolean(order.requires_art_approval) &&
+    !order.art_approved &&
+    latestProof?.status === 'aguardando_aprovacao' &&
+    (order.stage_internal_id === 'awaiting_approval' ||
+      order.stage_internal_id === 'art_preparation')
+
+  const handleOpenApproveModal = (proof: ProductionProof) => {
+    setSelectedProof(proof)
+    setIsApproveDialogOpen(true)
+  }
+
+  const handleOpenChangeModal = (proof: ProductionProof) => {
+    setSelectedProof(proof)
+    setChangeComment('')
+    setIsChangeDialogOpen(true)
+  }
+
+  const handleConfirmApproval = async () => {
+    if (!token || !selectedProof || submittingDecision) return
+    setSubmittingDecision(true)
+    try {
+      const res = await productionService.submitPublicProofDecision(token, {
+        proofId: selectedProof.id,
+        decision: 'approved',
+      })
+
+      // Update state locally
+      setDecisionFeedback({
+        type: 'approved',
+        message: '✅ Arte aprovada com sucesso! Seu pedido seguirá para a próxima etapa.',
+      })
+
+      setOrder((prev) =>
+        prev
+          ? {
+              ...prev,
+              art_approved: true,
+              art_approved_at: new Date().toISOString().split('T')[0],
+              approved_proof_id: selectedProof.id,
+              stage_internal_id: 'approved',
+              stage_name: res.stage_name || 'Aprovado',
+            }
+          : prev,
+      )
+
+      setProofs((prev) =>
+        prev.map((p) =>
+          p.id === selectedProof.id
+            ? {
+                ...p,
+                status: 'aprovado',
+                approved_at: new Date().toISOString().split('T')[0],
+              }
+            : p,
+        ),
+      )
+
+      setIsApproveDialogOpen(false)
+    } catch (err: any) {
+      alert(err?.message || 'Erro ao aprovar arte. Tente novamente.')
+    } finally {
+      setSubmittingDecision(false)
+    }
+  }
+
+  const handleConfirmChangeRequest = async () => {
+    if (!token || !selectedProof || submittingDecision) return
+    if (!changeComment.trim()) {
+      alert('Por favor, descreva o que precisa ser alterado na arte.')
+      return
+    }
+
+    setSubmittingDecision(true)
+    try {
+      const res = await productionService.submitPublicProofDecision(token, {
+        proofId: selectedProof.id,
+        decision: 'changes_requested',
+        comment: changeComment.trim(),
+      })
+
+      setDecisionFeedback({
+        type: 'changes_requested',
+        message:
+          '✏️ Alteração solicitada! Nossa equipe recebeu sua solicitação e preparará uma nova versão.',
+      })
+
+      setOrder((prev) =>
+        prev
+          ? {
+              ...prev,
+              art_approved: false,
+              approved_proof_id: '',
+              stage_internal_id: 'art_preparation',
+              stage_name: res.stage_name || 'Arte em preparação',
+            }
+          : prev,
+      )
+
+      setProofs((prev) =>
+        prev.map((p) =>
+          p.id === selectedProof.id
+            ? {
+                ...p,
+                status: 'alteracao_solicitada',
+                client_comment: changeComment.trim(),
+              }
+            : p,
+        ),
+      )
+
+      setIsChangeDialogOpen(false)
+    } catch (err: any) {
+      alert(err?.message || 'Erro ao solicitar alteração. Tente novamente.')
+    } finally {
+      setSubmittingDecision(false)
+    }
+  }
 
   const deliveryLabels: Record<string, string> = {
     retirada: '🏬 Retirada no Balcão da Gráfica',
@@ -281,136 +431,347 @@ export default function PublicTrackingPage() {
         {/* Digital Proof section if awaiting approval or approved */}
         {proofs.length > 0 && (
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-200 dark:border-slate-800 space-y-4">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-purple-600" />
-              Provas Digitais & Mockups da Arte
-            </h3>
-            <div className="space-y-3">
-              {proofs.map((prf) => (
-                <div
-                  key={prf.id}
-                  className="p-4 rounded-2xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900 text-xs space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-purple-950 dark:text-purple-200">
-                      Versão #{prf.version_number || 1}
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] bg-white dark:bg-slate-900 text-purple-800 border-purple-300"
-                    >
-                      {prf.status === 'aprovado'
-                        ? '✓ Arte Aprovada'
-                        : prf.status === 'alteracao_solicitada'
-                          ? '⚠️ Ajustes solicitados'
-                          : '⏳ Em conferência'}
-                    </Badge>
-                  </div>
-                  {prf.feedback_notes && <p className="text-slate-600">{prf.feedback_notes}</p>}
-                  {prf.proof_url && (
-                    <a
-                      href={prf.proof_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 font-bold text-purple-700 dark:text-purple-300 underline pt-1"
-                    >
-                      Abrir Layout / Prova Digital em Alta Resolução ↗
-                    </a>
-                  )}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-purple-600" />
+                Provas Digitais & Mockups da Arte
+              </h3>
+              {order.art_approved && (
+                <Badge className="bg-emerald-600 text-white font-bold text-xs py-1 px-3">
+                  ✓ Arte aprovada para produção
+                </Badge>
+              )}
+            </div>
 
-                  {/* Proof Files in Public Tracking */}
-                  {prf.proof_file &&
-                    (Array.isArray(prf.proof_file) ? prf.proof_file : [prf.proof_file]).filter(
-                      Boolean,
-                    ).length > 0 && (
-                      <div className="space-y-1.5 pt-1.5">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 block">
-                          Arquivos Anexos da Prova:
+            {/* Instant feedback notification after client decision */}
+            {decisionFeedback && (
+              <div
+                className={`p-4 rounded-2xl border text-sm font-medium flex items-center justify-between ${
+                  decisionFeedback.type === 'approved'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-800'
+                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-800'
+                }`}
+              >
+                <span>{decisionFeedback.message}</span>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {sortedProofs.map((prf) => {
+                const isLatest = latestProof?.id === prf.id
+                const isAwaiting = prf.status === 'aguardando_aprovacao'
+                const isThisProofApproved = prf.status === 'aprovado'
+                const isChangesRequested = prf.status === 'alteracao_solicitada'
+
+                // Buttons are shown only on the latest proof when it's awaiting approval and the order requires art approval and is not approved yet
+                const showActionButtons =
+                  canDecideArt && isLatest && isAwaiting && !decisionFeedback
+
+                return (
+                  <div
+                    key={prf.id}
+                    className={`p-5 rounded-2xl border transition-all text-xs space-y-3 ${
+                      isLatest && isAwaiting && canDecideArt
+                        ? 'bg-purple-50/70 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800 shadow-sm ring-1 ring-purple-500/20'
+                        : isThisProofApproved
+                          ? 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900'
+                          : 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                          Versão #{prf.version_number || 1}
                         </span>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {(Array.isArray(prf.proof_file) ? prf.proof_file : [prf.proof_file])
-                            .filter(Boolean)
-                            .map((pFileName, pIdx) => {
-                              const pFileUrl = productionService.getProofFileUrl(prf, pFileName)
-                              const pExt = pFileName.split('.').pop()?.toLowerCase() || ''
-                              const pIsImage = [
-                                'png',
-                                'jpg',
-                                'jpeg',
-                                'webp',
-                                'gif',
-                                'svg',
-                              ].includes(pExt)
-                              const pIsPdf = pExt === 'pdf'
+                        {isLatest && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] font-semibold border-purple-300 text-purple-700 dark:text-purple-300"
+                          >
+                            Mais recente
+                          </Badge>
+                        )}
+                      </div>
 
-                              return (
-                                <div
-                                  key={pIdx}
-                                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900 flex items-center justify-between gap-2"
-                                >
-                                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                                    {pIsImage ? (
-                                      <div className="h-9 w-9 rounded-lg border bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
-                                        <img
-                                          src={pFileUrl}
-                                          alt={pFileName}
-                                          className="h-full w-full object-cover"
-                                          loading="lazy"
-                                        />
-                                      </div>
-                                    ) : (
-                                      <div
-                                        className={`h-9 w-9 rounded-lg flex flex-col items-center justify-center shrink-0 border ${
-                                          pIsPdf
-                                            ? 'bg-rose-50 border-rose-200 text-rose-600'
-                                            : 'bg-purple-50 border-purple-200 text-purple-600'
-                                        }`}
+                      <Badge
+                        variant="outline"
+                        className={`text-[11px] font-bold px-2.5 py-0.5 ${
+                          isThisProofApproved
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300'
+                            : isChangesRequested
+                              ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300'
+                              : 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950 dark:text-purple-300'
+                        }`}
+                      >
+                        {isThisProofApproved
+                          ? '✓ Arte Aprovada'
+                          : isChangesRequested
+                            ? '✏️ Alteração solicitada'
+                            : '⏳ Aguardando sua aprovação'}
+                      </Badge>
+                    </div>
+
+                    {prf.feedback_notes && (
+                      <p className="text-slate-600 dark:text-slate-400 bg-white/70 dark:bg-slate-800/70 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                        <strong className="text-slate-800 dark:text-slate-200 block text-[11px] mb-0.5">
+                          Instruções / Notas da Gráfica:
+                        </strong>
+                        {prf.feedback_notes}
+                      </p>
+                    )}
+
+                    {prf.client_comment && (
+                      <p className="text-slate-700 dark:text-slate-300 bg-amber-50/60 dark:bg-amber-950/20 p-2.5 rounded-xl border border-amber-200 dark:border-amber-900">
+                        <strong className="text-amber-900 dark:text-amber-200 block text-[11px] mb-0.5">
+                          Retorno do Cliente:
+                        </strong>
+                        {prf.client_comment}
+                      </p>
+                    )}
+
+                    {prf.proof_url && (
+                      <a
+                        href={prf.proof_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 font-bold text-purple-700 dark:text-purple-300 hover:underline pt-1 text-xs"
+                      >
+                        Abrir Layout / Prova Digital em Alta Resolução ↗
+                      </a>
+                    )}
+
+                    {/* Proof Files in Public Tracking */}
+                    {prf.proof_file &&
+                      (Array.isArray(prf.proof_file) ? prf.proof_file : [prf.proof_file]).filter(
+                        Boolean,
+                      ).length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-purple-900 dark:text-purple-300 block">
+                            Arquivos Anexos da Prova:
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {(Array.isArray(prf.proof_file) ? prf.proof_file : [prf.proof_file])
+                              .filter(Boolean)
+                              .map((pFileName, pIdx) => {
+                                const pFileUrl = productionService.getProofFileUrl(prf, pFileName)
+                                const pExt = pFileName.split('.').pop()?.toLowerCase() || ''
+                                const pIsImage = [
+                                  'png',
+                                  'jpg',
+                                  'jpeg',
+                                  'webp',
+                                  'gif',
+                                  'svg',
+                                ].includes(pExt)
+                                const pIsPdf = pExt === 'pdf'
+
+                                return (
+                                  <div
+                                    key={pIdx}
+                                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900 flex items-center justify-between gap-2 shadow-xs"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      {pIsImage ? (
+                                        <div className="h-9 w-9 rounded-lg border bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                                          <img
+                                            src={pFileUrl}
+                                            alt={pFileName}
+                                            className="h-full w-full object-cover"
+                                            loading="lazy"
+                                          />
+                                        </div>
+                                      ) : (
+                                        <div
+                                          className={`h-9 w-9 rounded-lg flex flex-col items-center justify-center shrink-0 border ${
+                                            pIsPdf
+                                              ? 'bg-rose-50 border-rose-200 text-rose-600'
+                                              : 'bg-purple-50 border-purple-200 text-purple-600'
+                                          }`}
+                                        >
+                                          {pIsPdf ? (
+                                            <FileText className="h-4 w-4" />
+                                          ) : (
+                                            <File className="h-4 w-4" />
+                                          )}
+                                        </div>
+                                      )}
+                                      <span
+                                        className="font-medium text-slate-800 dark:text-slate-200 truncate text-[11px]"
+                                        title={pFileName}
                                       >
-                                        {pIsPdf ? (
-                                          <FileText className="h-4 w-4" />
-                                        ) : (
-                                          <File className="h-4 w-4" />
-                                        )}
-                                      </div>
-                                    )}
-                                    <span
-                                      className="font-medium text-slate-800 dark:text-slate-200 truncate text-[11px]"
-                                      title={pFileName}
-                                    >
-                                      {pFileName}
-                                    </span>
-                                  </div>
+                                        {pFileName}
+                                      </span>
+                                    </div>
 
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <a
-                                      href={pFileUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 hover:text-purple-600 transition-colors"
-                                      title="Visualizar"
-                                    >
-                                      <Eye className="h-3.5 w-3.5" />
-                                    </a>
-                                    <a
-                                      href={`${pFileUrl}?download=1`}
-                                      download
-                                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 hover:text-purple-600 transition-colors"
-                                      title="Baixar"
-                                    >
-                                      <Download className="h-3.5 w-3.5" />
-                                    </a>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <a
+                                        href={pFileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 hover:text-purple-600 transition-colors"
+                                        title="Visualizar"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                      </a>
+                                      <a
+                                        href={`${pFileUrl}?download=1`}
+                                        download
+                                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 hover:text-purple-600 transition-colors"
+                                        title="Baixar"
+                                      >
+                                        <Download className="h-3.5 w-3.5" />
+                                      </a>
+                                    </div>
                                   </div>
-                                </div>
-                              )
-                            })}
+                                )
+                              })}
+                          </div>
                         </div>
+                      )}
+
+                    {/* DECISION BUTTONS: ONLY on latest proof awaiting decision */}
+                    {showActionButtons && (
+                      <div className="pt-3 border-t border-purple-200/80 dark:border-purple-900/80 flex flex-col sm:flex-row items-center justify-end gap-2.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => handleOpenChangeModal(prf)}
+                          disabled={submittingDecision}
+                          className="w-full sm:w-auto text-amber-700 hover:text-amber-800 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-xs font-semibold"
+                        >
+                          Solicitar alteração
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => handleOpenApproveModal(prf)}
+                          disabled={submittingDecision}
+                          className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md"
+                        >
+                          <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                          Aprovar arte
+                        </Button>
                       </div>
                     )}
-                </div>
-              ))}
+
+                    {/* Read-only indicators when not awaiting or when already decided */}
+                    {!showActionButtons && (
+                      <div className="pt-2 text-[11px] text-slate-500 flex items-center justify-between">
+                        {isThisProofApproved ? (
+                          <span className="text-emerald-700 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Arte aprovada
+                            {prf.approved_at
+                              ? ` em ${new Date(prf.approved_at).toLocaleDateString('pt-BR')}`
+                              : ''}
+                          </span>
+                        ) : isChangesRequested ? (
+                          <span className="text-amber-700 dark:text-amber-400 font-semibold flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5" />
+                            Alteração solicitada — aguardando nova versão da equipe
+                          </span>
+                        ) : !isLatest ? (
+                          <span className="text-slate-400">
+                            Versão anterior arquivada no histórico.
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
+
+        {/* Modal: Confirmar Aprovação de Arte */}
+        <Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white text-base">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                Confirmar aprovação desta arte?
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-600 dark:text-slate-400 pt-2 space-y-2">
+                <span className="block font-semibold text-slate-900 dark:text-white">
+                  Versão #{selectedProof?.version_number || 1}
+                </span>
+                <span className="block p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-900 dark:text-amber-200 text-xs">
+                  ⚠️ <strong>Aviso importante:</strong> Ao aprovar, esta versão será considerada a
+                  arte oficial para produção. Verifique textos, ortografia, telefones e dimensões
+                  antes de confirmar.
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="pt-3 flex flex-row items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsApproveDialogOpen(false)}
+                disabled={submittingDecision}
+              >
+                Voltar e revisar
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmApproval}
+                disabled={submittingDecision}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              >
+                {submittingDecision ? 'Aprovando...' : 'Sim, aprovar esta arte'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal: Solicitar Alteração na Arte */}
+        <Dialog open={isChangeDialogOpen} onOpenChange={setIsChangeDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white text-base">
+                <AlertCircle className="h-5 w-5 text-amber-600" />
+                Solicitar alteração na arte
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-500">
+                Informe o que nossa equipe precisa ajustar para preparar a próxima versão.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3 pt-2">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                Descreva o que precisa ser alterado *
+              </label>
+              <Textarea
+                value={changeComment}
+                onChange={(e) => setChangeComment(e.target.value)}
+                placeholder="Ex: Corrigir o telefone para (11) 98888-7777 e clarear um pouco o fundo..."
+                rows={4}
+                className="text-xs resize-none"
+              />
+              <p className="text-[11px] text-slate-400">
+                Campo obrigatório. Seja o mais específico possível para agilizar seu ajuste.
+              </p>
+            </div>
+
+            <DialogFooter className="pt-3 flex flex-row items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsChangeDialogOpen(false)}
+                disabled={submittingDecision}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmChangeRequest}
+                disabled={submittingDecision || !changeComment.trim()}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+              >
+                {submittingDecision ? 'Enviando...' : 'Enviar solicitação de alteração'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Need Help Footer */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 text-center space-y-3">

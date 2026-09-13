@@ -745,6 +745,39 @@ export const productionService = {
     return created
   },
 
+  /**
+   * Submit client proof decision from public tracking page via secure backend endpoint
+   */
+  async submitPublicProofDecision(
+    trackingToken: string,
+    payload: {
+      proofId: string
+      decision: 'approved' | 'changes_requested'
+      comment?: string
+    },
+  ): Promise<{
+    success: boolean
+    already_processed?: boolean
+    decision: 'approved' | 'changes_requested'
+    status: 'aprovado' | 'alteracao_solicitada'
+    version_number: number
+    stage_internal_id?: string
+    stage_name?: string
+    message: string
+  }> {
+    return await pb.send(
+      `/backend/v1/crm/public-production/${encodeURIComponent(trackingToken.trim())}/proof-decision`,
+      {
+        method: 'POST',
+        body: {
+          proof_id: payload.proofId,
+          decision: payload.decision,
+          comment: payload.comment || '',
+        },
+      },
+    )
+  },
+
   async recordProofDecision(
     proofId: string,
     orderId: string,
