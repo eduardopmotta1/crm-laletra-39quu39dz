@@ -162,6 +162,66 @@ export const attendancesService = {
     return this.createForClient(data.client_id, data)
   },
 
+  /**
+   * Localiza ou cria um atendimento aberto para vincular a um orçamento.
+   * Regras:
+   * 1. Buscar atendimento do cliente com:
+   *    is_archived != true AND stage != "Venda fechada" AND stage != "Não fechou"
+   * 2. Se encontrar: reutilizar esse atendimento aberto existente (não duplica atendimento).
+   * 3. Se não encontrar: criar novo atendimento com client_id = clientId, stage = "Em atendimento",
+   *    is_archived = false, source = 'orcamento' (origem pelo módulo de orçamentos).
+   * 4. Retornar o Attendance.
+   */
+  async resolveOrCreateForQuote(clientId: string): Promise<Attendance> {
+    if (!clientId || typeof clientId !== 'string' || clientId.trim() === '') {
+      throw new Error('[attendancesService.resolveOrCreateForQuote] clientId é obrigatório.')
+    }
+
+    const cleanClientId = clientId.trim()
+
+    // 1. Resolver clientId canônico caso tenha sido mesclado/consolidado
+    let targetClientId = cleanClientId
+    try {
+      const client = await pb.collection('clients').getOne(cleanClientId)
+      if (client.notes) {
+        const match = client.notes.match(/\[DUPLICADO_CONSOLIDADO\s*->\s*([a-zA-Z0-9_-]+)\]/i)
+        if (match && match[1]) {
+          targetClientId = match[1]
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[attendancesService.resolveOrCreateForQuote] Client ${cleanClientId} fetch check:`,
+        err,
+      )
+    }
+
+    // 2. Buscar atendimento aberto do cliente
+    try {
+      const openAttendances = await pb.collection('attendances').getFullList<Attendance>({
+        filter: `client_id = "${targetClientId}" && is_archived != true && stage != "Venda fechada" && stage != "Não fechou"`,
+        sort: '-created',
+        requestKey: null,
+      })
+
+      if (openAttendances.length > 0) {
+        return openAttendances[0]
+      }
+    } catch (fetchErr) {
+      console.error(
+        `[attendancesService.resolveOrCreateForQuote] Erro ao buscar atendimentos abertos para o cliente ${targetClientId}:`,
+        fetchErr,
+      )
+    }
+
+    // 3. Se não encontrar, criar novo atendimento aberto com stage "Em atendimento" e source "orcamento"
+    return await this.createForClient(targetClientId, {
+      stage: 'Em atendimento',
+      source: 'orcamento',
+      notes: 'Atendimento iniciado automaticamente pelo Módulo de Orçamentos',
+    })
+  },
+
   async update(id: string, data: Partial<Attendance>): Promise<Attendance> {
     const current = await this.getById(id)
     const oldStage = current?.stage

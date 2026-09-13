@@ -32,6 +32,7 @@ import { materialsService } from '@/services/quoteMaterials'
 import { additionalsService } from '@/services/quoteAdditionals'
 import { clientsService } from '@/services/clients'
 import { quotesService } from '@/services/quotes'
+import { attendancesService } from '@/services/attendances'
 import type {
   Quote,
   QuoteProduct,
@@ -378,6 +379,23 @@ export default function NewQuotePage() {
     setSaving(true)
     setSaveErrorInfo(null)
     try {
+      // 3. Resolver vínculo obrigatório com atendimento (attendance_id)
+      // - Se já vier attendance_id (pela URL/contexto ou já salvo): preservar.
+      // - Se NÃO vier e houver client_id válido: chamar resolveOrCreateForQuote(client_id).
+      let finalAttendanceId = attendanceId.trim()
+      if (!finalAttendanceId && selectedClientId) {
+        try {
+          const resolvedAttendance =
+            await attendancesService.resolveOrCreateForQuote(selectedClientId)
+          if (resolvedAttendance?.id) {
+            finalAttendanceId = resolvedAttendance.id
+            setAttendanceId(resolvedAttendance.id)
+          }
+        } catch (attErr) {
+          console.warn('Erro ao resolver/criar atendimento para o orçamento:', attErr)
+        }
+      }
+
       // Ao salvar alterações de um orçamento existente (a não ser que statusOverride explícito como 'enviado' seja passado),
       // qualquer status ('enviado', 'alteracao_solicitada', 'aprovado', 'recusado') deve ser redefinido para 'rascunho'
       const defaultStatus = 'rascunho'
@@ -400,7 +418,7 @@ export default function NewQuotePage() {
         // - limpar approved_at e rejected_at para exigir nova aprovação do cliente
         const updatePayload: Record<string, any> = {
           client_id: selectedClientId || undefined,
-          attendance_id: attendanceId.trim() || undefined,
+          attendance_id: finalAttendanceId || undefined,
           client_name: finalClientName,
           client_phone: clientPhone.trim(),
           client_email: clientEmail.trim(),
@@ -432,7 +450,7 @@ export default function NewQuotePage() {
         // Rule: Only now generate ORC-YYYY-XXXX
         savedQuote = await quotesService.create({
           client_id: selectedClientId || undefined,
-          attendance_id: attendanceId.trim() || undefined,
+          attendance_id: finalAttendanceId || undefined,
           client_name: finalClientName,
           client_phone: clientPhone.trim(),
           client_email: clientEmail.trim(),
@@ -454,9 +472,13 @@ export default function NewQuotePage() {
       }
 
       // Return to attendance conversation if attendance_id is present
-      const targetAttendanceId = savedQuote?.attendance_id || attendanceId.trim()
+      const targetAttendanceId = savedQuote?.attendance_id || finalAttendanceId
       if (targetAttendanceId) {
-        navigate(`/kanban?attendance_id=${encodeURIComponent(targetAttendanceId)}`)
+        const clientParam = savedQuote?.client_id || selectedClientId
+        const queryParams = new URLSearchParams()
+        queryParams.set('attendance_id', targetAttendanceId)
+        if (clientParam) queryParams.set('client_id', clientParam)
+        navigate(`/kanban?${queryParams.toString()}`)
       } else {
         navigate('/orcamentos')
       }

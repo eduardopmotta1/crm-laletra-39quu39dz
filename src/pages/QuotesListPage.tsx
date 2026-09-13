@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { quotesService } from '@/services/quotes'
 import { productionService } from '@/services/production'
+import { attendancesService } from '@/services/attendances'
 import CreateProductionOrderFromQuoteModal from '@/components/CreateProductionOrderFromQuoteModal'
 import ProductionOrderModal from '@/components/ProductionOrderModal'
 import type { Quote } from '@/types/quotes'
@@ -76,6 +77,9 @@ export default function QuotesListPage() {
   // View Details Modal
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+
+  // Sending Quote state for "Enviar orçamento"
+  const [isSendingQuoteId, setIsSendingQuoteId] = useState<string | null>(null)
 
   // Approve Modal State
   const [quoteToApprove, setQuoteToApprove] = useState<Quote | null>(null)
@@ -341,6 +345,74 @@ export default function QuotesListPage() {
     }
   }
 
+  /**
+   * Trata o clique no botão "Enviar orçamento" / "Reenviar orçamento":
+   * 1. Se quote.attendance_id existir: usar esse atendimento.
+   * 2. Se estiver vazio (orçamento legado):
+   *    - chamar resolveOrCreateForQuote(quote.client_id)
+   *    - atualizar o quote no banco com o attendance_id sob demanda (sem migration em massa)
+   *    - atualizar estado local de quotes
+   * 3. Navegar para /kanban com attendance_id (e client_id), garantindo abertura direta do card/chat drawer
+   */
+  const handleSendQuote = async (q: Quote) => {
+    setIsSendingQuoteId(q.id)
+    try {
+      let finalAttendanceId = q.attendance_id ? q.attendance_id.trim() : ''
+
+      if (!finalAttendanceId) {
+        if (!q.client_id) {
+          toast({
+            title: 'Orçamento sem cliente vinculado',
+            description: 'Edite o orçamento para vincular um cliente antes de enviar.',
+            variant: 'destructive',
+          })
+          setIsSendingQuoteId(null)
+          return
+        }
+
+        // Chamar helper de resolução/criação de atendimento aberto
+        const resolvedAttendance = await attendancesService.resolveOrCreateForQuote(q.client_id)
+        if (!resolvedAttendance?.id) {
+          throw new Error('Não foi possível obter ou criar um atendimento para este cliente.')
+        }
+
+        finalAttendanceId = resolvedAttendance.id
+
+        // Atualizar o orçamento legado com o attendance_id sob demanda
+        try {
+          const updatedQuote = await quotesService.update(q.id, {
+            attendance_id: finalAttendanceId,
+          })
+          setQuotes((prev) => prev.map((item) => (item.id === q.id ? updatedQuote : item)))
+          if (selectedQuote?.id === q.id) {
+            setSelectedQuote(updatedQuote)
+          }
+        } catch (updateErr) {
+          console.warn('Erro ao atualizar quote com attendance_id:', updateErr)
+        }
+      }
+
+      // Disparar evento para manter Kanban e realtime sincronizados
+      window.dispatchEvent(new CustomEvent('crm-client-updated'))
+
+      const queryParams = new URLSearchParams()
+      queryParams.set('attendance_id', finalAttendanceId)
+      if (q.client_id) {
+        queryParams.set('client_id', q.client_id)
+      }
+      navigate(`/kanban?${queryParams.toString()}`)
+    } catch (err: any) {
+      console.error('Erro ao preparar envio do orçamento:', err)
+      toast({
+        title: 'Erro ao abrir atendimento',
+        description: err?.message || 'Não foi possível vincular o atendimento ao orçamento.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSendingQuoteId(null)
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Top Header */}
@@ -601,16 +673,8 @@ export default function QuotesListPage() {
                     <Button
                       type="button"
                       size="sm"
-                      onClick={() => {
-                        const attParam = q.attendance_id
-                          ? `attendance_id=${encodeURIComponent(q.attendance_id)}`
-                          : ''
-                        const clientParam = q.client_id
-                          ? `client_id=${encodeURIComponent(q.client_id)}`
-                          : ''
-                        const params = [attParam, clientParam].filter(Boolean).join('&')
-                        navigate(params ? `/kanban?${params}` : '/kanban')
-                      }}
+                      disabled={isSendingQuoteId === q.id}
+                      onClick={() => handleSendQuote(q)}
                       className="gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold h-8 px-2.5"
                       title={
                         q.status === 'rascunho'
@@ -618,7 +682,16 @@ export default function QuotesListPage() {
                           : `Reenviar orçamento ${q.code}`
                       }
                     >
-                      {q.status === 'rascunho' ? 'Enviar orçamento' : 'Reenviar orçamento'}
+                      {isSendingQuoteId === q.id ? (
+                        <>
+                          <Clock className="h-3.5 w-3.5 animate-spin" />
+                          <span>Abrindo...</span>
+                        </>
+                      ) : q.status === 'rascunho' ? (
+                        'Enviar orçamento'
+                      ) : (
+                        'Reenviar orçamento'
+                      )}
                     </Button>
                   )}
 
@@ -905,22 +978,23 @@ export default function QuotesListPage() {
                     <Button
                       type="button"
                       size="sm"
-                      onClick={() => {
+                      disabled={isSendingQuoteId === selectedQuote.id}
+                      onClick={async () => {
                         setDetailsOpen(false)
-                        const attParam = selectedQuote.attendance_id
-                          ? `attendance_id=${encodeURIComponent(selectedQuote.attendance_id)}`
-                          : ''
-                        const clientParam = selectedQuote.client_id
-                          ? `client_id=${encodeURIComponent(selectedQuote.client_id)}`
-                          : ''
-                        const params = [attParam, clientParam].filter(Boolean).join('&')
-                        navigate(params ? `/kanban?${params}` : '/kanban')
+                        await handleSendQuote(selectedQuote)
                       }}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 font-semibold"
                     >
-                      {selectedQuote.status === 'rascunho'
-                        ? 'Enviar orçamento'
-                        : 'Reenviar orçamento'}
+                      {isSendingQuoteId === selectedQuote.id ? (
+                        <>
+                          <Clock className="h-3.5 w-3.5 animate-spin" />
+                          <span>Abrindo...</span>
+                        </>
+                      ) : selectedQuote.status === 'rascunho' ? (
+                        'Enviar orçamento'
+                      ) : (
+                        'Reenviar orçamento'
+                      )}
                     </Button>
                   )}
 
