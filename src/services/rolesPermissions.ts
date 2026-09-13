@@ -5,6 +5,7 @@ export interface CreateUserData {
   name: string
   email: string
   password?: string
+  passwordConfirm?: string
   phone?: string
   role_id?: string
   role_slug?: string
@@ -16,6 +17,7 @@ export interface UpdateUserData {
   name?: string
   email?: string
   password?: string
+  passwordConfirm?: string
   phone?: string
   role_id?: string
   role_slug?: string
@@ -62,11 +64,21 @@ export const usersAdminService = {
   },
 
   async create(data: CreateUserData): Promise<User> {
+    const finalPassword = data.password || 'Skip@Pass'
+    const finalConfirm = data.passwordConfirm || finalPassword
+
+    if (finalPassword.length < 8) {
+      throw new Error('A senha deve ter pelo menos 8 caracteres.')
+    }
+    if (finalPassword !== finalConfirm) {
+      throw new Error('A confirmação de senha não confere com a senha informada.')
+    }
+
     const payload: any = {
       name: data.name.trim(),
       email: data.email.trim(),
-      password: data.password || 'Skip@Pass',
-      passwordConfirm: data.password || 'Skip@Pass',
+      password: finalPassword,
+      passwordConfirm: finalConfirm,
       phone: data.phone?.trim() || '',
       role_id: data.role_id && data.role_id.trim() ? data.role_id.trim() : null,
       role_slug: data.role_slug || 'custom',
@@ -87,8 +99,15 @@ export const usersAdminService = {
     if (data.is_active !== undefined) payload.is_active = Boolean(data.is_active)
     if (data.custom_permissions !== undefined) payload.custom_permissions = data.custom_permissions
     if (data.password) {
+      const finalConfirm = data.passwordConfirm || data.password
+      if (data.password.length < 8) {
+        throw new Error('A senha deve ter pelo menos 8 caracteres.')
+      }
+      if (data.password !== finalConfirm) {
+        throw new Error('A confirmação de senha não confere com a senha informada.')
+      }
       payload.password = data.password
-      payload.passwordConfirm = data.password
+      payload.passwordConfirm = finalConfirm
     }
     return await pb.collection('users').update<User>(id, payload)
   },

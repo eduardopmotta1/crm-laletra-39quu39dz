@@ -73,6 +73,7 @@ export default function UsersPermissionsSettings() {
     email: '',
     phone: '',
     password: '',
+    passwordConfirm: '',
     role_id: '',
     role_slug: 'comercial',
     is_active: true,
@@ -144,6 +145,7 @@ export default function UsersPermissionsSettings() {
         email: u.email || '',
         phone: u.phone || '',
         password: '',
+        passwordConfirm: '',
         role_id: u.role_id || '',
         role_slug: u.role_slug || 'comercial',
         is_active: u.is_active !== false,
@@ -156,6 +158,7 @@ export default function UsersPermissionsSettings() {
         email: '',
         phone: '',
         password: '',
+        passwordConfirm: '',
         role_id: defaultRole?.id || '',
         role_slug: defaultRole?.slug || 'comercial',
         is_active: true,
@@ -166,6 +169,51 @@ export default function UsersPermissionsSettings() {
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // 1. Validação de senha no frontend
+    const trimmedPassword = userFormData.password
+    const trimmedConfirm = userFormData.passwordConfirm
+
+    if (!userToEdit) {
+      // Ao CRIAR: senha obrigatória, mínimo 8 caracteres
+      if (!trimmedPassword || trimmedPassword.length < 8) {
+        toast({
+          title: 'Senha inválida',
+          description: 'A senha deve ter pelo menos 8 caracteres.',
+          variant: 'destructive',
+        })
+        return
+      }
+      if (trimmedPassword !== trimmedConfirm) {
+        toast({
+          title: 'Confirmação incorreta',
+          description: 'A confirmação de senha não confere com a senha informada.',
+          variant: 'destructive',
+        })
+        return
+      }
+    } else {
+      // Ao EDITAR: se preenchido, mínimo 8 caracteres
+      if (trimmedPassword) {
+        if (trimmedPassword.length < 8) {
+          toast({
+            title: 'Senha inválida',
+            description: 'A senha deve ter pelo menos 8 caracteres.',
+            variant: 'destructive',
+          })
+          return
+        }
+        if (trimmedPassword !== trimmedConfirm) {
+          toast({
+            title: 'Confirmação incorreta',
+            description: 'A confirmação de senha não confere com a senha informada.',
+            variant: 'destructive',
+          })
+          return
+        }
+      }
+    }
+
     try {
       const selectedRole = roles.find((r) => r.id === userFormData.role_id)
       const roleSlug = selectedRole ? selectedRole.slug : userFormData.role_slug
@@ -180,7 +228,10 @@ export default function UsersPermissionsSettings() {
           role_slug: roleSlug,
           is_active: userFormData.is_active,
         }
-        if (userFormData.password) payload.password = userFormData.password
+        if (trimmedPassword) {
+          payload.password = trimmedPassword
+          payload.passwordConfirm = trimmedConfirm
+        }
 
         await usersAdminService.update(userToEdit.id, payload)
         toast({
@@ -194,7 +245,8 @@ export default function UsersPermissionsSettings() {
           name: userFormData.name.trim(),
           email: userFormData.email.trim(),
           phone: userFormData.phone.trim(),
-          password: userFormData.password || 'Skip@Pass',
+          password: trimmedPassword,
+          passwordConfirm: trimmedConfirm,
           role_id: userFormData.role_id || undefined,
           role_slug: roleSlug,
           is_active: userFormData.is_active,
@@ -213,8 +265,10 @@ export default function UsersPermissionsSettings() {
     } catch (err: any) {
       /* ========================================================================
        * INSTRUMENTAÇÃO TEMPORÁRIA DE DIAGNÓSTICO
-       * Captura o erro completo retornado pelo PocketBase na criação/edição de usuário.
-       * Mascarar credenciais sensíveis (password, Authorization, token, cookie).
+       * Captura o erro retornado pelo PocketBase na criação/edição de usuário.
+       * Mascarar credenciais sensíveis (password, passwordConfirm, authorization, token, cookie, secret).
+       * PRESERVA mensagens de validação (ex: data.password = { code: '...', message: '...' } ou string de erro),
+       * nunca escondendo a descrição do erro retornado pelo PocketBase.
        * ======================================================================== */
       const sanitizeObject = (obj: any, seen = new WeakSet()): any => {
         if (obj === null || typeof obj !== 'object') return obj
@@ -223,17 +277,27 @@ export default function UsersPermissionsSettings() {
         if (Array.isArray(obj)) return obj.map((item) => sanitizeObject(item, seen))
         const clean: Record<string, any> = {}
         for (const key of Object.keys(obj)) {
+          const val = obj[key]
           const lowerKey = key.toLowerCase()
-          if (
+          const isSensitiveKey =
             lowerKey.includes('password') ||
             lowerKey.includes('authorization') ||
             lowerKey.includes('token') ||
             lowerKey.includes('cookie') ||
             lowerKey.includes('secret')
-          ) {
+
+          // Se for objeto de erro de validação (ex: { code: 'validation_min_length', message: 'Must be at least 8...' })
+          // ou conter mensagem de validação, preservamos o objeto com suas mensagens visíveis
+          const isValidationDetailObject =
+            val &&
+            typeof val === 'object' &&
+            !Array.isArray(val) &&
+            ('message' in val || 'code' in val)
+
+          if (isSensitiveKey && !isValidationDetailObject) {
             clean[key] = '[REDACTED]'
           } else {
-            clean[key] = sanitizeObject(obj[key], seen)
+            clean[key] = sanitizeObject(val, seen)
           }
         }
         return clean
@@ -1156,19 +1220,44 @@ export default function UsersPermissionsSettings() {
               </div>
             </div>
 
-            <div className="space-y-1">
-              <Label className="text-xs font-semibold">
-                {userToEdit ? 'Alterar Senha (deixe em branco para manter)' : 'Senha de Acesso *'}
-              </Label>
-              <Input
-                type="password"
-                required={!userToEdit}
-                value={userFormData.password}
-                onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
-                placeholder={userToEdit ? '••••••••' : 'Mínimo 8 caracteres'}
-                className="text-xs"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">
+                  {userToEdit ? 'Alterar Senha (mín. 8 caracteres)' : 'Senha de Acesso *'}
+                </Label>
+                <Input
+                  type="password"
+                  required={!userToEdit}
+                  minLength={8}
+                  value={userFormData.password}
+                  onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                  placeholder={userToEdit ? 'Deixe em branco para manter' : 'Mínimo 8 caracteres'}
+                  className="text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">
+                  {userToEdit ? 'Confirmar Nova Senha' : 'Confirmar Senha *'}
+                </Label>
+                <Input
+                  type="password"
+                  required={!userToEdit || Boolean(userFormData.password)}
+                  minLength={8}
+                  value={userFormData.passwordConfirm}
+                  onChange={(e) =>
+                    setUserFormData({ ...userFormData, passwordConfirm: e.target.value })
+                  }
+                  placeholder={userToEdit ? 'Repita a nova senha' : 'Repita a senha (mín. 8)'}
+                  className="text-xs"
+                />
+              </div>
             </div>
+            {(!userToEdit || userFormData.password) && (
+              <p className="text-[11px] text-slate-500">
+                A senha deve ter pelo menos 8 caracteres.
+              </p>
+            )}
 
             <div className="space-y-1">
               <Label className="text-xs font-semibold">Perfil de Acesso Modelo *</Label>
