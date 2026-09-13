@@ -64,51 +64,82 @@ export const evaluationsService = {
 
   /**
    * Get evaluation info by token (for public evaluation page)
+   * Usa a rota backend oficial GET /backend/v1/crm/evaluation?token=...
+   * Usa pb.send com o baseUrl do PocketBase (sem window.location.origin)
    */
   async getByToken(token: string): Promise<{
     valid: boolean
     already_submitted: boolean
     token: string
+    evaluation_id?: string | null
+    client_name?: string | null
     order_number?: string | null
     product_name?: string | null
     overall_rating?: number | null
     service_rating?: number | null
     quality_rating?: number | null
     delivery_rating?: number | null
-    comment?: string
+    comment?: string | null
   }> {
-    const res = await fetch(
-      `${pb.baseUrl}/backend/v1/crm/get-evaluation-token?token=${encodeURIComponent(token)}`,
-      {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      },
-    )
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || 'Link de avaliação inválido ou expirado.')
+    const cleanToken = token ? token.trim() : ''
+    if (!cleanToken) {
+      throw new Error('Link de avaliação não fornecido.')
     }
-    return await res.json()
+
+    try {
+      return await pb.send<{
+        valid: boolean
+        already_submitted: boolean
+        token: string
+        evaluation_id?: string | null
+        client_name?: string | null
+        order_number?: string | null
+        product_name?: string | null
+        overall_rating?: number | null
+        service_rating?: number | null
+        quality_rating?: number | null
+        delivery_rating?: number | null
+        comment?: string | null
+      }>(`/backend/v1/crm/evaluation?token=${encodeURIComponent(cleanToken)}`, {
+        method: 'GET',
+      })
+    } catch (err: any) {
+      const errorMsg =
+        err?.data?.error ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'Link de avaliação inválido ou expirado.'
+      throw new Error(errorMsg)
+    }
   },
 
   /**
    * Submit evaluation from public page
+   * POST /backend/v1/crm/submit-evaluation
+   * Usa pb.send com o baseUrl do PocketBase
    */
   async submitEvaluation(payload: SubmitEvaluationPayload): Promise<{
     success: boolean
     message: string
     is_dissatisfied: boolean
   }> {
-    const res = await fetch(`${pb.baseUrl}/backend/v1/crm/submit-evaluation`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      throw new Error(data.error || 'Erro ao enviar avaliação.')
+    try {
+      return await pb.send<{
+        success: boolean
+        message: string
+        is_dissatisfied: boolean
+      }>('/backend/v1/crm/submit-evaluation', {
+        method: 'POST',
+        body: payload,
+      })
+    } catch (err: any) {
+      const errorMsg =
+        err?.data?.error ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'Não foi possível enviar sua avaliação. Tente novamente.'
+      throw new Error(errorMsg)
     }
-    return data
   },
 
   /**

@@ -33,6 +33,7 @@ export default function PublicEvaluationPage() {
   const [error, setError] = useState<string | null>(null)
   const [alreadySubmitted, setAlreadySubmitted] = useState(false)
   const [submittedSuccess, setSubmittedSuccess] = useState(false)
+  const [clientName, setClientName] = useState<string | null>(null)
   const [orderNumber, setOrderNumber] = useState<string | null>(null)
   const [productName, setProductName] = useState<string | null>(null)
 
@@ -56,11 +57,15 @@ export default function PublicEvaluationPage() {
     const checkToken = async () => {
       try {
         const data = await evaluationsService.getByToken(token)
+        if (data.client_name) setClientName(data.client_name)
         if (data.order_number) setOrderNumber(data.order_number)
         if (data.product_name) setProductName(data.product_name)
         if (data.already_submitted) {
           setAlreadySubmitted(true)
           if (data.overall_rating) setOverallRating(data.overall_rating)
+          if (data.service_rating) setServiceRating(data.service_rating)
+          if (data.quality_rating) setQualityRating(data.quality_rating)
+          if (data.delivery_rating) setDeliveryRating(data.delivery_rating)
           if (data.comment) setComment(data.comment)
         }
       } catch (err: any) {
@@ -245,7 +250,7 @@ export default function PublicEvaluationPage() {
                 Pesquisa de Satisfação
               </span>
               <CardTitle className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-                Como foi sua experiência conosco?
+                Como foi sua experiência conosco{clientName ? `, ${clientName}` : ''}?
               </CardTitle>
               {orderNumber ? (
                 <div className="pt-1">
