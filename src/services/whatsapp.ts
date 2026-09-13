@@ -60,39 +60,13 @@ export const whatsappService = {
   },
 
   async getOrderConversationMessages(
-    productionOrderId: string,
+    _productionOrderId: string,
     fallbackClientId?: string,
   ): Promise<Message[]> {
-    try {
-      const res = await pb.send<{ success: boolean; messages: Message[]; error?: string }>(
-        '/backend/v1/crm/whatsapp/order-conversation',
-        {
-          method: 'POST',
-          body: { production_order_id: productionOrderId },
-        },
-      )
-      if (res && res.success && Array.isArray(res.messages)) {
-        return res.messages
-      }
-      return []
-    } catch (error: any) {
-      // Usar fallback nativo SOMENTE quando a rota custom retornar 404
-      const status = error?.status || error?.response?.status || error?.statusCode
-      if (status === 404 && fallbackClientId) {
-        console.warn(
-          '[whatsappService] Custom order-conversation returned 404. Falling back to native messages collection for client_id:',
-          fallbackClientId,
-        )
-        return await pb.collection('messages').getFullList<Message>({
-          filter: `client_id = "${fallbackClientId}"`,
-          sort: 'created',
-          expand: 'sent_by_user,sent_by_user.role_id',
-          requestKey: null,
-        })
-      }
-      console.error('Error fetching order conversation messages:', error)
-      throw error
+    if (fallbackClientId) {
+      return this.getMessages(fallbackClientId)
     }
+    return []
   },
 
   getFileUrl(message: Message, fileName?: string): string {

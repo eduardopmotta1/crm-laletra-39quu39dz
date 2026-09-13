@@ -425,27 +425,19 @@ export default function WhatsAppChatDrawer({
 
     const pollMessages = async () => {
       try {
-        let incoming: Message[] = []
-        if (orderContext?.id) {
-          incoming = await whatsappService.getOrderConversationMessages(
-            orderContext.id,
-            activeClientId,
-          )
-        } else {
-          // Busca mensagens recentes da conversa atual para merge
-          const targetAttId = activeAttendance?.id
-          const filter = targetAttId
-            ? `attendance_id = "${targetAttId}" || client_id = "${activeClientId}"`
-            : `client_id = "${activeClientId}"`
+        // Busca mensagens recentes da conversa atual para merge
+        const targetAttId = activeAttendance?.id
+        const filter = targetAttId
+          ? `attendance_id = "${targetAttId}" || client_id = "${activeClientId}"`
+          : `client_id = "${activeClientId}"`
 
-          const page = await pb.collection('messages').getList<Message>(1, 50, {
-            filter,
-            sort: '-created',
-            expand: 'sent_by_user,sent_by_user.role_id',
-            requestKey: null,
-          })
-          incoming = page.items
-        }
+        const page = await pb.collection('messages').getList<Message>(1, 50, {
+          filter,
+          sort: '-created',
+          expand: 'sent_by_user,sent_by_user.role_id',
+          requestKey: null,
+        })
+        const incoming = page.items
 
         if (incoming && incoming.length > 0) {
           setMessages((prev) => mergeMessages(prev, incoming))
@@ -460,7 +452,7 @@ export default function WhatsAppChatDrawer({
     return () => {
       clearInterval(intervalId)
     }
-  }, [isOpen, activeClientId, activeAttendance?.id, orderContext?.id, mergeMessages])
+  }, [isOpen, activeClientId, activeAttendance?.id, mergeMessages])
 
   // Real-time listener for incoming/updated messages and client events while drawer is open
   useEffect(() => {
@@ -693,9 +685,7 @@ export default function WhatsAppChatDrawer({
 
       const messagesPromise = options?.skipMessages
         ? Promise.resolve(null)
-        : orderContext?.id
-          ? whatsappService.getOrderConversationMessages(orderContext.id, clientId)
-          : whatsappService.getMessages(clientId)
+        : whatsappService.getMessages(clientId, targetAttId)
 
       const [
         msgList,
