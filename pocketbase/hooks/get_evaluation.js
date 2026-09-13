@@ -5,11 +5,21 @@
  *
  * Busca avaliação em 'evaluations' e complementa com dados de 'post_sales', 'production_orders' e 'clients'
  * se ainda não estiver pré-criada em 'evaluations'.
+ *
+ * Regras:
+ * - Resposta única: se já preenchida (overall_rating > 0 ou status != 'pending_contact'), already_submitted = true
+ * - Expiração: token expira em 30 dias contados a partir da data de agendamento/criação do pós-venda
+ * - Retorno claro de: valid, expired, already_submitted
  */
 routerAdd('GET', '/backend/v1/crm/evaluation', (e) => {
   const token = e.request.url.query().get('token')
   if (!token || !token.trim()) {
-    return e.json(400, { error: 'Token é obrigatório.' })
+    return e.json(400, {
+      valid: false,
+      expired: false,
+      already_submitted: false,
+      error: 'Token é obrigatório.',
+    })
   }
 
   const cleanToken = token.trim()
@@ -24,25 +34,68 @@ routerAdd('GET', '/backend/v1/crm/evaluation', (e) => {
       evaluationRecord = evalRecords[0]
     }
 
-    // 2. Se não encontrar em evaluations, buscar em post_sales por evaluation_token
+    // 2. Buscar também em post_sales por evaluation_token (ou se evaluationRecord tiver dados, para checar agendamento)
     let postSaleRecord = null
-    if (!evaluationRecord) {
-      const psRecords = $app.findRecordsByFilter(
-        'post_sales',
-        'evaluation_token = {:token}',
-        '',
-        1,
-        0,
-        { token: cleanToken },
-      )
-      if (psRecords && psRecords.length > 0) {
-        postSaleRecord = psRecords[0]
-      }
+    const psRecords = $app.findRecordsByFilter(
+      'post_sales',
+      'evaluation_token = {:token}',
+      '',
+      1,
+      0,
+      { token: cleanToken },
+    )
+    if (psRecords && psRecords.length > 0) {
+      postSaleRecord = psRecords[0]
     }
 
     // Se não encontrou nem em evaluations nem em post_sales, token é inválido/inexistente
     if (!evaluationRecord && !postSaleRecord) {
-      return e.json(404, { error: 'Link de avaliação inválido ou expirado.' })
+      return e.json(404, {
+        valid: false,
+        expired: false,
+        already_submitted: false,
+        error: 'Link de avaliação inválido ou inexistente.',
+      })
+    }
+
+    // 3. Checar EXPIRAÇÃO (30 dias)
+    // Validade a partir de scheduled_date ou created do post_sales ou created do evaluations
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+    let referenceDateMs = 0
+
+    if (postSaleRecord) {
+      const scheduledDateStr = postSaleRecord.getString('scheduled_date') || ''
+      const psCreatedStr = postSaleRecord.getString('created') || ''
+      if (scheduledDateStr) {
+        const parsedSched = Date.parse(scheduledDateStr)
+        if (!isNaN(parsedSched)) {
+          referenceDateMs = parsedSched
+        }
+      }
+      if (!referenceDateMs && psCreatedStr) {
+        const parsedCreated = Date.parse(psCreatedStr)
+        if (!isNaN(parsedCreated)) {
+          referenceDateMs = parsedCreated
+        }
+      }
+    }
+
+    if (!referenceDateMs && evaluationRecord) {
+      const evCreatedStr = evaluationRecord.getString('created') || ''
+      if (evCreatedStr) {
+        const parsedEv = Date.parse(evCreatedStr)
+        if (!isNaN(parsedEv)) {
+          referenceDateMs = parsedEv
+        }
+      }
+    }
+
+    let isExpired = false
+    if (referenceDateMs > 0) {
+      const expiresAtMs = referenceDateMs + THIRTY_DAYS_MS
+      if (Date.now() > expiresAtMs) {
+        isExpired = true
+      }
     }
 
     // Identificar order_id, client_id, order_number
@@ -114,13 +167,14 @@ routerAdd('GET', '/backend/v1/crm/evaluation', (e) => {
     }
 
     return e.json(200, {
-      valid: true,
+      valid: !isExpired,
+      expired: isExpired,
+      already_submitted: alreadySubmitted,
       token: cleanToken,
       evaluation_id: evaluationId || null,
       client_name: clientName || null,
       order_number: orderNumber || null,
       product_name: productName || null,
-      already_submitted: alreadySubmitted,
       overall_rating: overallRating || null,
       service_rating: serviceRating || null,
       quality_rating: qualityRating || null,
@@ -129,7 +183,12 @@ routerAdd('GET', '/backend/v1/crm/evaluation', (e) => {
     })
   } catch (err) {
     console.error('[GET EVALUATION] error:', err)
-    return e.json(500, { error: 'Erro ao carregar link de avaliação.' })
+    return e.json(500, {
+      valid: false,
+      expired: false,
+      already_submitted: false,
+      error: 'Erro ao carregar link de avaliação.',
+    })
   }
 })
 
@@ -137,7 +196,12 @@ routerAdd('GET', '/backend/v1/crm/evaluation', (e) => {
 routerAdd('GET', '/backend/v1/crm/get-evaluation-token', (e) => {
   const token = e.request.url.query().get('token')
   if (!token || !token.trim()) {
-    return e.json(400, { error: 'Token é obrigatório.' })
+    return e.json(400, {
+      valid: false,
+      expired: false,
+      already_submitted: false,
+      error: 'Token é obrigatório.',
+    })
   }
 
   const cleanToken = token.trim()
@@ -152,22 +216,63 @@ routerAdd('GET', '/backend/v1/crm/get-evaluation-token', (e) => {
     }
 
     let postSaleRecord = null
-    if (!evaluationRecord) {
-      const psRecords = $app.findRecordsByFilter(
-        'post_sales',
-        'evaluation_token = {:token}',
-        '',
-        1,
-        0,
-        { token: cleanToken },
-      )
-      if (psRecords && psRecords.length > 0) {
-        postSaleRecord = psRecords[0]
-      }
+    const psRecords = $app.findRecordsByFilter(
+      'post_sales',
+      'evaluation_token = {:token}',
+      '',
+      1,
+      0,
+      { token: cleanToken },
+    )
+    if (psRecords && psRecords.length > 0) {
+      postSaleRecord = psRecords[0]
     }
 
     if (!evaluationRecord && !postSaleRecord) {
-      return e.json(404, { error: 'Link de avaliação inválido ou expirado.' })
+      return e.json(404, {
+        valid: false,
+        expired: false,
+        already_submitted: false,
+        error: 'Link de avaliação inválido ou inexistente.',
+      })
+    }
+
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+    let referenceDateMs = 0
+
+    if (postSaleRecord) {
+      const scheduledDateStr = postSaleRecord.getString('scheduled_date') || ''
+      const psCreatedStr = postSaleRecord.getString('created') || ''
+      if (scheduledDateStr) {
+        const parsedSched = Date.parse(scheduledDateStr)
+        if (!isNaN(parsedSched)) {
+          referenceDateMs = parsedSched
+        }
+      }
+      if (!referenceDateMs && psCreatedStr) {
+        const parsedCreated = Date.parse(psCreatedStr)
+        if (!isNaN(parsedCreated)) {
+          referenceDateMs = parsedCreated
+        }
+      }
+    }
+
+    if (!referenceDateMs && evaluationRecord) {
+      const evCreatedStr = evaluationRecord.getString('created') || ''
+      if (evCreatedStr) {
+        const parsedEv = Date.parse(evCreatedStr)
+        if (!isNaN(parsedEv)) {
+          referenceDateMs = parsedEv
+        }
+      }
+    }
+
+    let isExpired = false
+    if (referenceDateMs > 0) {
+      const expiresAtMs = referenceDateMs + THIRTY_DAYS_MS
+      if (Date.now() > expiresAtMs) {
+        isExpired = true
+      }
     }
 
     let orderId = ''
@@ -234,13 +339,14 @@ routerAdd('GET', '/backend/v1/crm/get-evaluation-token', (e) => {
     }
 
     return e.json(200, {
-      valid: true,
+      valid: !isExpired,
+      expired: isExpired,
+      already_submitted: alreadySubmitted,
       token: cleanToken,
       evaluation_id: evaluationId || null,
       client_name: clientName || null,
       order_number: orderNumber || null,
       product_name: productName || null,
-      already_submitted: alreadySubmitted,
       overall_rating: overallRating || null,
       service_rating: serviceRating || null,
       quality_rating: qualityRating || null,
@@ -249,6 +355,11 @@ routerAdd('GET', '/backend/v1/crm/get-evaluation-token', (e) => {
     })
   } catch (err) {
     console.error('[GET EVALUATION TOKEN] error:', err)
-    return e.json(500, { error: 'Erro ao carregar link de avaliação.' })
+    return e.json(500, {
+      valid: false,
+      expired: false,
+      already_submitted: false,
+      error: 'Erro ao carregar link de avaliação.',
+    })
   }
 })

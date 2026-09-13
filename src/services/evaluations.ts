@@ -69,6 +69,7 @@ export const evaluationsService = {
    */
   async getByToken(token: string): Promise<{
     valid: boolean
+    expired: boolean
     already_submitted: boolean
     token: string
     evaluation_id?: string | null
@@ -89,6 +90,7 @@ export const evaluationsService = {
     try {
       return await pb.send<{
         valid: boolean
+        expired: boolean
         already_submitted: boolean
         token: string
         evaluation_id?: string | null

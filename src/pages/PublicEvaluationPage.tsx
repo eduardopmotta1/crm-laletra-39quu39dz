@@ -31,6 +31,7 @@ export default function PublicEvaluationPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isExpired, setIsExpired] = useState(false)
   const [alreadySubmitted, setAlreadySubmitted] = useState(false)
   const [submittedSuccess, setSubmittedSuccess] = useState(false)
   const [clientName, setClientName] = useState<string | null>(null)
@@ -60,7 +61,10 @@ export default function PublicEvaluationPage() {
         if (data.client_name) setClientName(data.client_name)
         if (data.order_number) setOrderNumber(data.order_number)
         if (data.product_name) setProductName(data.product_name)
-        if (data.already_submitted) {
+
+        if (data.expired) {
+          setIsExpired(true)
+        } else if (data.already_submitted) {
           setAlreadySubmitted(true)
           if (data.overall_rating) setOverallRating(data.overall_rating)
           if (data.service_rating) setServiceRating(data.service_rating)
@@ -69,7 +73,14 @@ export default function PublicEvaluationPage() {
           if (data.comment) setComment(data.comment)
         }
       } catch (err: any) {
-        setError(err?.message || 'Link de avaliação não encontrado ou expirado.')
+        const message = err?.message || 'Link de avaliação não encontrado ou expirado.'
+        if (message.toLowerCase().includes('expirou')) {
+          setIsExpired(true)
+        } else if (message.toLowerCase().includes('já foi enviada')) {
+          setAlreadySubmitted(true)
+        } else {
+          setError(message)
+        }
       } finally {
         setLoading(false)
       }
@@ -184,23 +195,65 @@ export default function PublicEvaluationPage() {
               </p>
             </CardContent>
           </Card>
-        ) : error && !alreadySubmitted && !submittedSuccess ? (
-          /* State: Error / Invalid Token */
-          <Card className="border-rose-200 bg-rose-50/40 dark:bg-rose-950/20 shadow-md">
-            <CardHeader className="text-center pb-3">
-              <div className="h-12 w-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-2">
-                <AlertCircle className="h-6 w-6" />
+        ) : isExpired ? (
+          /* State: Token Expired */
+          <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 shadow-md text-center">
+            <CardHeader className="pb-4">
+              <div className="h-14 w-14 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-300 flex items-center justify-center mx-auto mb-2">
+                <Clock className="h-7 w-7" />
               </div>
-              <CardTitle className="text-rose-900 dark:text-rose-200 text-lg">
-                Não foi possível abrir a avaliação
+              <CardTitle className="text-lg font-bold text-slate-900 dark:text-white">
+                Este link de avaliação expirou.
               </CardTitle>
-              <CardDescription className="text-xs text-rose-700 dark:text-rose-300">
-                {error}
+              <CardDescription className="text-xs text-slate-500 max-w-sm mx-auto pt-1">
+                Os links de pesquisa de satisfação possuem validade de 30 dias após o agendamento do
+                pedido. Caso deseje compartilhar sua opinião, entre em contato direto com a nossa
+                equipe.
               </CardDescription>
             </CardHeader>
           </Card>
-        ) : alreadySubmitted || submittedSuccess ? (
-          /* State: Submitted Success */
+        ) : alreadySubmitted ? (
+          /* State: Already Submitted (Resposta Única) */
+          <Card className="border-emerald-200 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-md text-center">
+            <CardHeader className="pb-4">
+              <div className="h-14 w-14 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-300 flex items-center justify-center mx-auto mb-2">
+                <CheckCircle2 className="h-7 w-7" />
+              </div>
+              <CardTitle className="text-lg font-bold text-slate-900 dark:text-white">
+                Esta avaliação já foi enviada. Obrigado pelo seu feedback.
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-500 max-w-sm mx-auto pt-1">
+                Sua resposta já está registrada em nosso sistema e nos ajuda continuamente a
+                melhorar nossos serviços.
+              </CardDescription>
+            </CardHeader>
+            {overallRating > 0 && (
+              <CardContent className="pb-6">
+                <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/40 max-w-sm mx-auto space-y-2">
+                  <div className="flex justify-center">
+                    {renderRatingStars(
+                      overallRating,
+                      () => {},
+                      undefined,
+                      undefined,
+                      undefined,
+                      'h-6 w-6',
+                    )}
+                  </div>
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    {getRatingLabel(overallRating)}
+                  </p>
+                  {comment && (
+                    <p className="text-xs text-slate-500 italic mt-1 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                      "{comment}"
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        ) : submittedSuccess ? (
+          /* State: Submitted Success (Acabou de enviar) */
           <Card className="border-emerald-200 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-lg text-center">
             <CardHeader className="pb-4">
               <div className="h-16 w-16 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 flex items-center justify-center mx-auto mb-3 shadow-inner">
@@ -240,6 +293,21 @@ export default function PublicEvaluationPage() {
                   : 'Ficamos muito felizes com a sua satisfação! Conte conosco para seus próximos impressos.'}
               </p>
             </CardContent>
+          </Card>
+        ) : error ? (
+          /* State: Error / Invalid Token */
+          <Card className="border-rose-200 bg-rose-50/40 dark:bg-rose-950/20 shadow-md">
+            <CardHeader className="text-center pb-3">
+              <div className="h-12 w-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-2">
+                <AlertCircle className="h-6 w-6" />
+              </div>
+              <CardTitle className="text-rose-900 dark:text-rose-200 text-lg">
+                Não foi possível abrir a avaliação
+              </CardTitle>
+              <CardDescription className="text-xs text-rose-700 dark:text-rose-300">
+                {error}
+              </CardDescription>
+            </CardHeader>
           </Card>
         ) : (
           /* State: Evaluation Form */
