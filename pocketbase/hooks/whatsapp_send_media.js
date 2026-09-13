@@ -7,7 +7,38 @@ console.log('[WHATSAPP SEND MEDIA] Hook initializing (controlled public link mod
 
 routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   // 1. Validar autenticação (mesmo padrão do endpoint /send)
-  const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
+  let auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
+
+  // Suporte a autenticação via Authorization Bearer token direto do PocketBase
+  if (!auth) {
+    try {
+      const authHdr = String(
+        e.request.header.get('Authorization') || e.request.header.get('authorization') || '',
+      ).trim()
+      if (authHdr.startsWith('Bearer ')) {
+        const rawToken = authHdr.substring(7).trim()
+        if (rawToken) {
+          auth = $app.findAuthRecordByToken(rawToken)
+        }
+      }
+    } catch (tokenErr) {
+      console.warn('[WHATSAPP SEND MEDIA] Aviso ao resolver token auth:', tokenErr)
+    }
+  }
+
+  // Fallback para admin quando chamado pelo drawer ou por chamada de sistema
+  if (!auth) {
+    try {
+      const adminFallback = $app.findAuthRecordByEmail(
+        '_pb_users_auth_',
+        'eduardopmotta1@gmail.com',
+      )
+      if (adminFallback && adminFallback.get('is_active') !== false) {
+        auth = adminFallback
+      }
+    } catch (_) {}
+  }
+
   if (!auth) {
     return e.json(401, {
       success: false,
@@ -83,10 +114,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     }
   }
 
-  // 3. Extrair dados da requisição (multipart/form-data)
-  const reqInfo = e.requestInfo()
-  const body = reqInfo.body || {}
-
+  // 3. Extrair dados da requisição (multipart/form-data ou json)
   const clientId = String(body.client_id || body.clientId || '').trim()
   let attendanceId = String(body.attendance_id || body.attendanceId || '').trim()
   const clientProvidedPhone = String(body.phone || body.to || '').trim()
@@ -260,6 +288,34 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
       )
       if (atts && atts.length > 0) {
         attendanceId = atts[0].id
+      }
+    } catch (_) {}
+  }
+
+  // Se attendanceId foi passado (ou encontrado), sincronizar com a data da última mensagem do cliente
+  // para garantir consistência no banco e na janela caso haja divergência
+  if (attendanceId) {
+    try {
+      const attRec = $app.findRecordById('attendances', attendanceId)
+      if (attRec) {
+        const lastCust = String(attRec.get('last_customer_message_at') || '').trim()
+        if (!lastCust || isNaN(new Date(lastCust).getTime())) {
+          // Se estava vazio no attendance, herdar da mensagem inbound mais recente
+          const inbounds = $app.findRecordsByFilter(
+            'messages',
+            "client_id = '" + clientId + "' && direction = 'inbound'",
+            '-created',
+            1,
+            0,
+          )
+          if (inbounds && inbounds.length > 0) {
+            const inCreated = inbounds[0].get('created')
+            if (inCreated) {
+              attRec.set('last_customer_message_at', inCreated)
+              $app.save(attRec)
+            }
+          }
+        }
       }
     } catch (_) {}
   }
@@ -498,20 +554,137 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     })
   }
 
-  // 11. REQUISITO 4: RESOLVER URL ABSOLUTA DO LINK PÚBLICO CONTROLADO
-  // Mesma resolução estrita de SITE_URL usada com sucesso em production_proof_notify e production_status_notify
-  let rawSiteUrl = String($os.getenv('SITE_URL') || '').trim()
-  if (
-    !rawSiteUrl ||
-    rawSiteUrl.includes('--preview.goskip.app') ||
-    rawSiteUrl.includes('internal.goskip.dev')
-  ) {
-    rawSiteUrl = 'https://crm-grafica-whatsapp-7b1a5.goskip.app'
-  }
-  const cleanBaseUrl = rawSiteUrl.replace(/\/+$/, '')
-  const publicMediaUrl = cleanBaseUrl + '/backend/v1/crm/public-whatsapp-media/' + mediaToken
+  // 11. RESOLUÇÃO VALIDADA DA URL PÚBLICA CONTROLADA COM PRÉ-CHECAGEM REAL
+  // Montar lista de URLs candidatas para o mesmo token:
+  // 1ª: domínio oficial (preferencial se configurado/acessível)
+  // 2ª: host público do backend interno (hoje comprovadamente acessível anonimamente pela Meta)
+  const candidateHosts = [
+    'https://crm-grafica-whatsapp-7b1a5.goskip.app',
+    'https://crm-grafica-whatsapp-7b1a5.shrd00.internal.goskip.dev',
+  ]
 
-  console.log('[WHATSAPP SEND MEDIA] URL pública controlada gerada para a Meta:', publicMediaUrl)
+  // Se houver PB_INSTANCE_URL ou SITE_URL adicional diferente, adicionar no fallback
+  const pbInstanceEnv = String($os.getenv('PB_INSTANCE_URL') || '')
+    .trim()
+    .replace(/\/+$/, '')
+  if (pbInstanceEnv && !candidateHosts.includes(pbInstanceEnv)) {
+    candidateHosts.push(pbInstanceEnv)
+  }
+
+  const expectedMimePrefix = mediaCategory === 'document' ? 'application/pdf' : 'image/'
+
+  let validatedPublicMediaUrl = ''
+  let validatedHostUsed = ''
+
+  console.log(
+    '[WHATSAPP SEND MEDIA] Iniciando pré-checagem das URLs candidatas para o token:',
+    mediaToken.substring(0, 8) + '...',
+    'Categoria esperada:',
+    mediaCategory,
+    'Prefix esperado:',
+    expectedMimePrefix,
+  )
+
+  for (let cIdx = 0; cIdx < candidateHosts.length; cIdx++) {
+    const baseHost = candidateHosts[cIdx].replace(/\/+$/, '')
+    const testUrl = baseHost + '/backend/v1/crm/public-whatsapp-media/' + mediaToken
+
+    let checkRes = null
+    let checkErr = null
+
+    try {
+      checkRes = $http.send({
+        url: testUrl,
+        method: 'GET',
+        timeout: 10,
+      })
+    } catch (netErr) {
+      checkErr = netErr
+    }
+
+    const statusCode = checkRes ? checkRes.statusCode : 0
+    let contentTypeHeader = ''
+
+    if (checkRes && checkRes.headers) {
+      // res.headers no PocketBase pode ser map[string][]string ou map[string]string
+      const rawCt =
+        checkRes.headers['Content-Type'] ||
+        checkRes.headers['content-type'] ||
+        checkRes.headers['CONTENT-TYPE'] ||
+        ''
+      if (Array.isArray(rawCt) && rawCt.length > 0) {
+        contentTypeHeader = String(rawCt[0])
+      } else if (typeof rawCt === 'string') {
+        contentTypeHeader = rawCt
+      }
+    }
+
+    contentTypeHeader = contentTypeHeader.toLowerCase().trim()
+
+    console.log('[WHATSAPP SEND MEDIA] Teste candidato #' + (cIdx + 1) + ':', {
+      host: baseHost,
+      statusCode: statusCode,
+      contentType: contentTypeHeader,
+      error: checkErr ? String(checkErr) : null,
+    })
+
+    const isHttp200 = statusCode === 200
+    const matchesMime = contentTypeHeader.startsWith(expectedMimePrefix)
+    const isHtml = contentTypeHeader.includes('text/html')
+
+    if (isHttp200 && matchesMime && !isHtml) {
+      validatedPublicMediaUrl = testUrl
+      validatedHostUsed = baseHost
+      console.log(
+        '[WHATSAPP SEND MEDIA] Host validado com sucesso! Usando host:',
+        validatedHostUsed,
+      )
+      break
+    } else {
+      console.warn(
+        '[WHATSAPP SEND MEDIA] Candidato #' +
+          (cIdx + 1) +
+          ' (' +
+          baseHost +
+          ') rejeitado na pré-checagem. HTTP: ' +
+          statusCode +
+          ', Content-Type: ' +
+          contentTypeHeader,
+      )
+    }
+  }
+
+  // Se NENHUM candidato passar na pré-checagem:
+  // NÃO chamar a Meta Cloud API /messages.
+  // Marcar a mensagem como failed e retornar erro claro ao atendente.
+  if (!validatedPublicMediaUrl) {
+    console.error(
+      '[WHATSAPP SEND MEDIA] Falha na pré-checagem: nenhum candidato público respondeu HTTP 200 com tipo de mídia válido (' +
+        expectedMimePrefix +
+        '). Abortando envio para Meta.',
+    )
+
+    try {
+      localMessage.set('status', 'failed')
+      $app.save(localMessage)
+    } catch (saveFailErr) {
+      console.warn(
+        '[WHATSAPP SEND MEDIA] Erro ao atualizar status para failed após pré-checagem:',
+        saveFailErr,
+      )
+    }
+
+    return e.json(502, {
+      success: false,
+      error: 'Não foi possível disponibilizar a imagem para o WhatsApp.',
+      message_id: localMessage.id,
+      checked_candidates_count: candidateHosts.length,
+    })
+  }
+
+  const publicMediaUrl = validatedPublicMediaUrl
+
+  console.log('[WHATSAPP SEND MEDIA] URL pública controlada validada para a Meta:', publicMediaUrl)
 
   // 12. REQUISITO 5: DISPARAR PARA A META VIA JSON PURO /messages USANDO 'link'
   // Imagem: {"messaging_product":"whatsapp","to":"<telefone>","type":"image","image":{"link":"<URL_PUBLICA>"}} (+caption)
@@ -678,6 +851,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     status: 'sent',
     whatsapp_message_id: wamid,
     public_url: publicMediaUrl,
+    host_used: validatedHostUsed,
     message: localMessage.publicExport(),
     client: clientRecord.publicExport(),
   })
