@@ -115,6 +115,8 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   }
 
   // 3. Extrair dados da requisição (multipart/form-data ou json)
+  const body =
+    (e.requestInfo && typeof e.requestInfo === 'function' ? e.requestInfo().body : null) || {}
   const clientId = String(body.client_id || body.clientId || '').trim()
   let attendanceId = String(body.attendance_id || body.attendanceId || '').trim()
   const clientProvidedPhone = String(body.phone || body.to || '').trim()
@@ -596,6 +598,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
       checkRes = $http.send({
         url: testUrl,
         method: 'GET',
+        headers: {},
         timeout: 10,
       })
     } catch (netErr) {
