@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { productionService } from '@/services/production'
-import { productionStagesService } from '@/services/productionStages'
 import type { ProductionOrder, ProductionStage, ProductionProof } from '@/types/crm'
 import {
   Package,
@@ -41,6 +40,7 @@ export default function PublicTrackingPage() {
   const [proofs, setProofs] = useState<ProductionProof[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isNetworkError, setIsNetworkError] = useState(false)
 
   // Decision Modal States
   const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false)
@@ -53,37 +53,48 @@ export default function PublicTrackingPage() {
     message: string
   } | null>(null)
 
+  const loadTrackingData = async (trackingToken: string) => {
+    try {
+      setIsNetworkError(false)
+      const data = await productionService.getPublicTracking(trackingToken)
+      if (!data || !data.order) {
+        setError('Pedido não localizado para este link de acompanhamento.')
+        return
+      }
+
+      setOrder(data.order as unknown as ProductionOrder)
+      if (data.stages && Array.isArray(data.stages)) {
+        setStages(data.stages as unknown as ProductionStage[])
+      }
+      if (data.proofs && Array.isArray(data.proofs)) {
+        setProofs(data.proofs as unknown as ProductionProof[])
+      }
+      setError(null)
+    } catch (err: any) {
+      console.error('Erro ao consultar acompanhamento público:', err)
+      const status = err?.status || err?.statusCode || err?.response?.status
+      if (status === 404) {
+        setError('Pedido não localizado para este link de acompanhamento.')
+        setIsNetworkError(false)
+      } else {
+        setIsNetworkError(true)
+        setError('Não foi possível carregar o acompanhamento. Tente novamente.')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!token) {
       setError('Token de acompanhamento inválido ou não informado.')
+      setIsNetworkError(false)
       setLoading(false)
       return
     }
 
-    Promise.all([productionService.getByTrackingToken(token), productionStagesService.getVisible()])
-      .then(async ([foundOrder, stageList]) => {
-        if (!foundOrder) {
-          setError('Pedido não encontrado ou link expirado.')
-          return
-        }
-        setOrder(foundOrder)
-        setStages(stageList)
-
-        // If proof exists, load proofs
-        try {
-          const proofList = await productionService.getProofs(foundOrder.id)
-          setProofs(proofList)
-        } catch {
-          // ignore
-        }
-      })
-      .catch((err) => {
-        console.error('Error fetching public order tracking:', err)
-        setError('Erro ao carregar dados do pedido.')
-      })
-      .finally(() => {
-        setLoading(false)
-      })
+    setLoading(true)
+    loadTrackingData(token)
   }, [token])
 
   if (loading) {
@@ -101,16 +112,35 @@ export default function PublicTrackingPage() {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4">
         <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 border border-slate-200 dark:border-slate-800 text-center space-y-4">
-          <div className="h-16 w-16 bg-rose-100 dark:bg-rose-950/60 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+          <div
+            className={`h-16 w-16 ${
+              isNetworkError
+                ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600'
+                : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600'
+            } rounded-full flex items-center justify-center mx-auto`}
+          >
             <AlertCircle className="h-8 w-8" />
           </div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-            Pedido Não Localizado
+            {isNetworkError ? 'Erro ao carregar acompanhamento' : 'Pedido não localizado'}
           </h2>
           <p className="text-sm text-slate-500">
-            {error || 'Não encontramos nenhum pedido associado a este código de rastreamento.'}
+            {error || 'Não encontramos nenhum pedido associado a este link de acompanhamento.'}
           </p>
-          <div className="pt-2">
+          <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
+            {isNetworkError && token && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setLoading(true)
+                  loadTrackingData(token)
+                }}
+                className="inline-flex items-center justify-center gap-2"
+              >
+                Tentar novamente
+              </Button>
+            )}
             <a
               href="https://wa.me/5511999999999"
               target="_blank"
@@ -198,6 +228,8 @@ export default function PublicTrackingPage() {
       )
 
       setIsApproveDialogOpen(false)
+      // Recarregar os dados atualizados via endpoint público
+      loadTrackingData(token)
     } catch (err: any) {
       alert(err?.message || 'Erro ao aprovar arte. Tente novamente.')
     } finally {
@@ -251,6 +283,8 @@ export default function PublicTrackingPage() {
       )
 
       setIsChangeDialogOpen(false)
+      // Recarregar os dados atualizados via endpoint público
+      loadTrackingData(token)
     } catch (err: any) {
       alert(err?.message || 'Erro ao solicitar alteração. Tente novamente.')
     } finally {

@@ -671,22 +671,44 @@ export interface EfficiencyMetrics {
 /**
  * Checks if an interaction is within the Meta 24-hour service window.
  * Business Rule:
- * - Reference is the last customer inbound message timestamp (attendance.last_customer_message_at).
- * - Outbound replies from the company do NOT alter or close the 24-hour customer window.
- * - If last_customer_message_at is provided, direction is implicitly inbound.
- * - Fallback: uses client lastMessageAt and lastMessageDirection when attendance timestamp is absent.
+ * - Fonte final de verdade: a última mensagem INBOUND real do cliente (em `messages` ou attendance.last_customer_message_at).
+ * - Mensagens OUTBOUND da equipe NUNCA fecham, reiniciam ou invalidam a janela de 24 horas.
+ * - client.last_message_at NUNCA deve ser usado como fonte de inbound quando lastMessageDirection === 'outbound'.
+ * - Se options.lastCustomerMessageAt for fornecido, ele é comparado com client.last_message_at (quando este for inbound),
+ *   escolhendo-se o timestamp mais recente.
+ * - Janela válida: 0 <= (now - lastInboundAt) <= 24h.
+ *
+ * Espelho da lógica backend em pocketbase/hooks/production_status_notify.js e src/services/whatsappWindow.ts.
  */
 export function isWithin24HourWindow(
   lastMessageAt?: string,
   lastMessageDirection?: 'inbound' | 'outbound',
   options?: {
-    lastCustomerMessageAt?: string
+    lastCustomerMessageAt?: string | null
     referenceTime?: string | number | Date
   },
 ): boolean {
-  const customerTimestamp =
-    options?.lastCustomerMessageAt ||
-    (lastMessageDirection === 'inbound' ? lastMessageAt : undefined)
+  let bestEpoch = -Infinity
+  let customerTimestamp: string | undefined = undefined
+
+  // Candidato 1: options.lastCustomerMessageAt (se fornecido e válido)
+  if (options?.lastCustomerMessageAt) {
+    const epoch = new Date(options.lastCustomerMessageAt).getTime()
+    if (!isNaN(epoch) && epoch > 0 && epoch > bestEpoch) {
+      bestEpoch = epoch
+      customerTimestamp = options.lastCustomerMessageAt
+    }
+  }
+
+  // Candidato 2: lastMessageAt SOMENTE quando direction for explicitamente 'inbound'
+  // (outbound NUNCA é usado como inbound)
+  if (lastMessageDirection === 'inbound' && lastMessageAt) {
+    const epoch = new Date(lastMessageAt).getTime()
+    if (!isNaN(epoch) && epoch > 0 && epoch > bestEpoch) {
+      bestEpoch = epoch
+      customerTimestamp = lastMessageAt
+    }
+  }
 
   if (!customerTimestamp) {
     return false
@@ -703,7 +725,7 @@ export function isWithin24HourWindow(
   }
 
   const diffMs = refTime - messageTime
-  // Janela válida se a mensagem foi no passado recente (até 24 horas) ou mesmo timestamp futuro por drift pequeno de relógio (>= 0)
+  // Janela válida: 0 <= (now - lastInboundAt) <= 24h
   const diffHours = diffMs / (1000 * 60 * 60)
 
   return diffHours >= 0 && diffHours <= 24

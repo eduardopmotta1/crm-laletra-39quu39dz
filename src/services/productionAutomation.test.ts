@@ -217,23 +217,39 @@ function runProductionStatusNotifyHook(options: RunHookOptions): HookExecutionRe
     }
 
     // 6. Janela de 24h
-    let lastCustomerMessageAt = ''
-    if (attendanceRecord) {
-      lastCustomerMessageAt = String(attendanceRecord.get('last_customer_message_at') || '').trim()
-    }
+    // Helper lastInboundAt espelho do hook real production_status_notify.js
+    let candidateEpoch = 0
+    let candidateIso = ''
 
-    const check24hWindow = (clientRec: MockRecord, lastCustMsgAt: string) => {
-      let custTimestamp = lastCustMsgAt || ''
-      if (!custTimestamp) {
-        const dir = String(clientRec.get('last_message_direction') || '').trim()
-        if (dir === 'inbound') {
-          custTimestamp = String(clientRec.get('last_message_at') || '').trim()
+    if (attendanceRecord) {
+      const rawCustAt = String(attendanceRecord.get('last_customer_message_at') || '').trim()
+      if (rawCustAt) {
+        const t = new Date(rawCustAt).getTime()
+        if (!isNaN(t) && t > 0) {
+          candidateEpoch = t
+          candidateIso = rawCustAt
         }
       }
-      if (!custTimestamp) {
+    }
+
+    // Se client tiver direction = inbound no registro
+    const clientDir = String(clientRecord.get('last_message_direction') || '').trim()
+    if (clientDir === 'inbound') {
+      const clientMsgAt = String(clientRecord.get('last_message_at') || '').trim()
+      if (clientMsgAt) {
+        const t = new Date(clientMsgAt).getTime()
+        if (!isNaN(t) && t > candidateEpoch) {
+          candidateEpoch = t
+          candidateIso = clientMsgAt
+        }
+      }
+    }
+
+    const check24hWindow = (inboundIso: string) => {
+      if (!inboundIso) {
         return false
       }
-      const msgTime = new Date(custTimestamp).getTime()
+      const msgTime = new Date(inboundIso).getTime()
       if (isNaN(msgTime) || msgTime <= 0) {
         return false
       }
@@ -242,7 +258,7 @@ function runProductionStatusNotifyHook(options: RunHookOptions): HookExecutionRe
       return diffHours >= 0 && diffHours <= 24
     }
 
-    const isInside24h = check24hWindow(clientRecord, lastCustomerMessageAt)
+    const isInside24h = check24hWindow(candidateIso)
 
     // 7. Renderizar template
     const resolvedClientName = clientName || clientRecord.get('name') || 'Cliente'

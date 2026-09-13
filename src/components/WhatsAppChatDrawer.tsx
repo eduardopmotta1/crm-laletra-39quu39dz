@@ -898,12 +898,27 @@ export default function WhatsAppChatDrawer({
 
   if (!isOpen || !client) return null
 
+  // Resolver a inbound mais recente das mensagens carregadas no chat (fonte de verdade em messages)
+  const latestInboundFromChat = messages
+    ? messages
+        .filter((m) => m.direction === 'inbound')
+        .reduce<string | null>((latest, m) => {
+          if (!latest) return m.created
+          return new Date(m.created).getTime() > new Date(latest).getTime() ? m.created : latest
+        }, null)
+    : null
+
+  const effectiveCustomerTimestamp =
+    latestInboundFromChat ||
+    displayAttendance?.last_customer_message_at ||
+    activeAttendance?.last_customer_message_at ||
+    (displayClient.last_message_direction === 'inbound' ? displayClient.last_message_at : undefined)
+
   const within24h = isWithin24HourWindow(
     displayClient.last_message_at,
     displayClient.last_message_direction,
     {
-      lastCustomerMessageAt:
-        displayAttendance?.last_customer_message_at || activeAttendance?.last_customer_message_at,
+      lastCustomerMessageAt: effectiveCustomerTimestamp,
     },
   )
 

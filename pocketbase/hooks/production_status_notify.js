@@ -112,13 +112,10 @@ onRecordAfterUpdateSuccess((e) => {
     }
 
     // 4. Proteção contra duplo disparo na MESMA transição concreta (Idempotência)
-    // e COORDENAÇÃO ANTI-DUPLICIDADE com evento de nova prova (production_proof_notify):
-    // Se o pedido está mudando para awaiting_approval e uma prova acabou de ser criada para este pedido,
-    // o evento da prova (production_proof_notify) já realiza a notificação da versão específica.
-    // O hook de transição de etapa suprime o envio para garantir EXATAMENTE UMA notificação.
+    // Uma mesma transição não pode gerar dois envios.
+    // Usamos production_logs: verifica se já existe log para order_id + to_stage_id com notes contendo o hash/updated desta transição
+    // OU se já existe log recente com envio ou requires_template criado exatamente nos últimos 30 segundos para esta transição.
     const transitionMarker = '[tx:' + orderId + ':' + nextStage + ':' + orderUpdatedIso + ']'
-    const proofCoordinationMarker = '[proof_notify_order:' + orderId + ':awaiting_approval]'
-
     try {
       const existingLogs = $app.findRecordsByFilter(
         'production_logs',
@@ -139,30 +136,6 @@ onRecordAfterUpdateSuccess((e) => {
             transitionMarker,
         )
         return e.next()
-      }
-
-      // Se a etapa de destino for 'awaiting_approval', checa se houve notificação de prova recente (últimos 3 minutos)
-      if (nextStage === 'awaiting_approval') {
-        const recentProofLogs = $app.findRecordsByFilter(
-          'production_logs',
-          "order_id = '" + orderId + "' && notes ~ '" + proofCoordinationMarker + "'",
-          '-created',
-          1,
-          0,
-        )
-        if (recentProofLogs && recentProofLogs.length > 0) {
-          const proofLogCreated = new Date(recentProofLogs[0].get('created') || 0).getTime()
-          const nowMs = Date.now()
-          // Se ocorreu nos últimos 180 segundos (3 minutos), o evento da prova já cuidou da notificação
-          if (nowMs - proofLogCreated < 180000) {
-            console.log(
-              '[PROD NOTIFY] Notificação de awaiting_approval suprimida por coordenação: prova já notificada pelo evento de prova (' +
-                proofCoordinationMarker +
-                ')',
-            )
-            return e.next()
-          }
-        }
       }
     } catch (checkLogErr) {
       console.warn('[PROD NOTIFY] Aviso ao verificar idempotência de logs:', checkLogErr)
@@ -208,23 +181,16 @@ onRecordAfterUpdateSuccess((e) => {
       return e.next()
     }
 
-    // 6. Avaliar Regra Oficial da Janela de 24h
-    // isWithin24HourWindow oficial:
-    // - Referência prioritária: last_customer_message_at do atendimento ativo do cliente
-    // - Fallback: client.last_message_at quando client.last_message_direction === 'inbound'
-    // - Janela válida: diff em horas >= 0 e <= 24
-    let lastCustomerMessageAt = ''
+    // 6. Avaliar Regra Oficial da Janela de 24h WhatsApp
+    // Fonte final de verdade: a última mensagem INBOUND real do cliente em `messages`,
+    // mesmo que esteja num atendimento arquivado/anterior e mesmo que client.last_message_direction seja 'outbound'.
+    // Outbound da equipe nunca fecha, reinicia ou invalida a janela de 24h.
+    // Espelho backend de `lastInboundAt(clientId, attendanceId)` e `isWithin24HourWindow` em src/types/crm.ts e src/services/whatsappWindow.ts.
     let attendanceId = String(record.get('attendance_id') || '').trim()
 
-    try {
-      // Se não temos attendance_id direto no pedido, busca o atendimento ativo mais recente do cliente
-      if (attendanceId) {
-        const attRec = $app.findRecordById('attendances', attendanceId)
-        if (attRec) {
-          lastCustomerMessageAt = String(attRec.get('last_customer_message_at') || '').trim()
-        }
-      }
-      if (!lastCustomerMessageAt) {
+    // Resolver attendanceId se não fornecido diretamente na ordem
+    if (!attendanceId) {
+      try {
         const activeAtts = $app.findRecordsByFilter(
           'attendances',
           "client_id = '" + clientId + "' && is_archived != true",
@@ -233,38 +199,89 @@ onRecordAfterUpdateSuccess((e) => {
           0,
         )
         if (activeAtts && activeAtts.length > 0) {
-          if (!attendanceId) {
-            attendanceId = activeAtts[0].id
-          }
-          lastCustomerMessageAt = String(activeAtts[0].get('last_customer_message_at') || '').trim()
+          attendanceId = activeAtts[0].id
         }
+      } catch (attErr) {
+        console.warn('[PROD NOTIFY] Aviso ao buscar atendimento ativo:', attErr)
       }
-    } catch (attErr) {
-      console.warn('[PROD NOTIFY] Aviso ao consultar atendimentos para janela 24h:', attErr)
     }
 
-    const check24hWindow = function (clientRec, lastCustMsgAt) {
-      let custTimestamp = lastCustMsgAt || ''
-      if (!custTimestamp) {
-        const dir = String(clientRec.get('last_message_direction') || '').trim()
-        if (dir === 'inbound') {
-          custTimestamp = String(clientRec.get('last_message_at') || '').trim()
+    // Helper backend: resolve a data da última mensagem inbound real do cliente
+    const lastInboundAt = function (cId, attId) {
+      let candidateEpoch = 0
+      let candidateIso = ''
+
+      // (a) Candidato 1: attendance.last_customer_message_at (se existir e for válido)
+      if (attId) {
+        try {
+          const attRec = $app.findRecordById('attendances', attId)
+          if (attRec) {
+            const rawCustAt = String(attRec.get('last_customer_message_at') || '').trim()
+            if (rawCustAt) {
+              const t = new Date(rawCustAt).getTime()
+              if (!isNaN(t) && t > 0) {
+                candidateEpoch = t
+                candidateIso = rawCustAt
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // (b) Candidato 2: buscar em messages a última inbound do mesmo client_id SEM filtrar por attendance
+      // direction = 'inbound', sort '-created'
+      if (cId) {
+        try {
+          const inbounds = $app.findRecordsByFilter(
+            'messages',
+            "client_id = '" + cId + "' && direction = 'inbound'",
+            '-created',
+            1,
+            0,
+          )
+          if (inbounds && inbounds.length > 0) {
+            const msgRec = inbounds[0]
+            const msgCreated = String(msgRec.get('created') || '').trim()
+            if (msgCreated) {
+              const msgEpoch = new Date(msgCreated).getTime()
+              if (!isNaN(msgEpoch) && msgEpoch > candidateEpoch) {
+                candidateEpoch = msgEpoch
+                candidateIso = msgCreated
+              }
+            }
+          }
+        } catch (msgErr) {
+          console.warn('[PROD NOTIFY] Aviso ao consultar messages para inbound:', msgErr)
         }
       }
-      if (!custTimestamp) {
+
+      // Retorna o timestamp ISO mais recente entre os dois (ou null se inexistente)
+      return candidateIso || null
+    }
+
+    // Helper backend: verifica se a janela de 24h está aberta
+    // Janela válida: 0 <= (now - lastInbound) <= 24h
+    // Outbound NUNCA fecha ou invalida a janela.
+    // client.last_message_at NUNCA é usado quando last_message_direction === 'outbound'.
+    const check24hWindow = function (cId, attId, referenceTime) {
+      const resolvedInboundIso = lastInboundAt(cId, attId)
+      if (!resolvedInboundIso) {
         return false
       }
-      const msgTime = new Date(custTimestamp).getTime()
+      const msgTime = new Date(resolvedInboundIso).getTime()
       if (isNaN(msgTime) || msgTime <= 0) {
         return false
       }
-      const nowMs = Date.now()
+      const nowMs = referenceTime ? new Date(referenceTime).getTime() : Date.now()
+      if (isNaN(nowMs)) {
+        return false
+      }
       const diffMs = nowMs - msgTime
       const diffHours = diffMs / (1000 * 60 * 60)
       return diffHours >= 0 && diffHours <= 24
     }
 
-    const isInside24h = check24hWindow(clientRecord, lastCustomerMessageAt)
+    const isInside24h = check24hWindow(clientId, attendanceId)
 
     // 7. Renderizar variáveis do template da etapa
     // Variáveis suportadas: {{nome}}, {{pedido}}, {{link_acompanhamento}}, {{codigo_rastreio}}

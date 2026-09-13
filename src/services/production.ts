@@ -107,18 +107,76 @@ export const productionService = {
   },
 
   /**
-   * Get single order by secure tracking token (Public tracking page)
+   * Obter dados do acompanhamento público de forma segura via backend endpoint.
+   * Não consulta production_orders diretamente pelo SDK PocketBase no navegador.
+   */
+  async getPublicTracking(token: string): Promise<{
+    order: {
+      id: string
+      order_number: string
+      tracking_token: string
+      client_name: string
+      product: string
+      description: string
+      delivery_type: 'retirada' | 'envio' | 'entrega_propria'
+      tracking_code?: string
+      expected_date?: string
+      promised_deadline?: string
+      estimated_delivery_date?: string
+      stage_internal_id: ProductionStageInternalId
+      stage_name: string
+      requires_art_approval: boolean
+      art_approved: boolean
+      art_approved_at?: string
+      approved_proof_id?: string
+      is_completed: boolean
+      created: string
+    }
+    stages: Array<{
+      id: string
+      internal_id: string
+      name: string
+      description: string
+      order_index: number
+      color: string
+    }>
+    proofs: Array<{
+      id: string
+      version_number: number
+      status: 'aguardando_aprovacao' | 'aprovado' | 'alteracao_solicitada'
+      proof_file?: string | string[]
+      files?: Array<{ name: string; url: string }>
+      proof_url?: string
+      feedback_notes?: string
+      client_comment?: string
+      created: string
+      sent_at?: string
+      approved_at?: string
+      decision_at?: string
+    }>
+  }> {
+    const res = await pb.send<{
+      success: boolean
+      data: {
+        order: any
+        stages: any[]
+        proofs: any[]
+      }
+    }>(`/backend/v1/crm/public-production/${encodeURIComponent(token.trim())}`, {
+      method: 'GET',
+    })
+    return res.data
+  },
+
+  /**
+   * @deprecated Usar getPublicTracking. Mantido como compatibilidade interna.
    */
   async getByTrackingToken(token: string): Promise<ProductionOrder | null> {
     try {
-      return await pb
-        .collection('production_orders')
-        .getFirstListItem<ProductionOrder>(`tracking_token = "${token}"`, {
-          expand: 'stage_id,approved_proof_id',
-          requestKey: null,
-        })
+      const data = await this.getPublicTracking(token)
+      return (data?.order as unknown as ProductionOrder) || null
     } catch (error) {
-      console.error('Error fetching order by tracking token:', error)
+      console.error('Error fetching order by tracking token via public endpoint:', error)
       return null
     }
   },
@@ -694,9 +752,15 @@ export const productionService = {
   /**
    * Get file URL for production proof file
    */
-  getProofFileUrl(proof: ProductionProof, fileName: string): string {
+  getProofFileUrl(
+    proof: ProductionProof | { id: string; [key: string]: any },
+    fileName: string,
+  ): string {
     if (!proof || !fileName) return ''
-    return pb.files.getURL(proof, fileName)
+    if ('collectionId' in proof && proof.collectionId) {
+      return pb.files.getURL(proof as ProductionProof, fileName)
+    }
+    return `/api/files/production_proofs/${proof.id}/${fileName}`
   },
 
   async getProofs(orderId: string): Promise<ProductionProof[]> {

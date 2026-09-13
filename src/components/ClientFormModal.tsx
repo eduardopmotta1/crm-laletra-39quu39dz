@@ -447,11 +447,15 @@ export default function ClientFormModal({
 
   const check24hWindowForTarget = (targetClient: Client | null) => {
     if (!targetClient) return false
+    // Fonte final de verdade: a última mensagem INBOUND do cliente
+    // Outbound nunca fecha ou invalida a janela
     return isWithin24HourWindow(targetClient.last_message_at, targetClient.last_message_direction, {
       lastCustomerMessageAt:
         phoneMatch?.activeAttendance?.last_customer_message_at ||
         (targetClient as any).last_customer_message_at ||
-        undefined,
+        (targetClient.last_message_direction === 'inbound'
+          ? targetClient.last_message_at
+          : undefined),
     })
   }
 
