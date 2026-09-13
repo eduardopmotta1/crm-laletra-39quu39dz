@@ -250,12 +250,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
             profileName = String(contacts[0].profile.name).trim()
           }
 
-          // Suporte a mensagens de texto e imagem (inbound)
-          if (msgType !== 'text' && msgType !== 'image') {
+          // Suporte a mensagens de texto, imagem e documento/PDF (inbound)
+          if (msgType !== 'text' && msgType !== 'image' && msgType !== 'document') {
             console.log(
               '[WHATSAPP WEBHOOK POST] Mensagem tipo "' +
                 msgType +
-                '" ignorada. Apenas texto e imagem são suportados nesta etapa. MetaId: ' +
+                '" ignorada. Apenas texto, imagem e documento são suportados nesta etapa. MetaId: ' +
                 metaMsgId,
             )
             ignoredCount++
@@ -264,10 +264,15 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
 
           let msgBodyText = ''
           let isImageMsg = false
+          let isDocumentMsg = false
           let mediaId = ''
           let imageMimeType = ''
           let imageSha256 = ''
           let imageCaption = ''
+          let docMimeType = ''
+          let docFilename = ''
+          let docSha256 = ''
+          let docCaption = ''
 
           if (msgType === 'text') {
             if (!msg.text || !msg.text.body) {
@@ -309,6 +314,38 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
 
             // Texto a ser exibido/salvo caso exista caption ou fallback amigável
             msgBodyText = imageCaption || ''
+          } else if (msgType === 'document') {
+            isDocumentMsg = true
+            const docData = msg.document || {}
+            mediaId = String(docData.id || '').trim()
+            docMimeType = String(docData.mime_type || 'application/pdf')
+              .trim()
+              .toLowerCase()
+            docFilename = String(docData.filename || '').trim()
+            docSha256 = String(docData.sha256 || '').trim()
+            docCaption = String(docData.caption || '').trim()
+
+            if (!mediaId) {
+              console.warn(
+                '[WHATSAPP WEBHOOK POST] Mensagem document sem document.id (MEDIA_ID). Ignorada. MetaId: ' +
+                  metaMsgId,
+              )
+              ignoredCount++
+              continue
+            }
+
+            console.log(
+              '[WHATSAPP WEBHOOK POST] Mensagem tipo document recebida. MediaId:',
+              mediaId,
+              'MimeType:',
+              docMimeType,
+              'Filename:',
+              docFilename || 'sem nome',
+              'Caption:',
+              docCaption ? docCaption.substring(0, 30) : 'sem legenda',
+            )
+
+            msgBodyText = docCaption || ''
           }
 
           // 4. Normalização do telefone no padrão do CRM (com DDI 55, ex: 5521970156756)
@@ -654,21 +691,31 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
             let generatedFileName = ''
             let savedFileObj = null
             let resolvedFileSize = 0
-            let finalMimeType = imageMimeType || 'image/jpeg'
+            let finalMimeType = isDocumentMsg
+              ? docMimeType || 'application/pdf'
+              : imageMimeType || 'image/jpeg'
 
-            // Se for mensagem tipo imagem: obter metadados da Meta e baixar o binário
-            if (isImageMsg && mediaId) {
-              // Gerar nome do arquivo baseado no MIME type e timestamp
+            // Se for mensagem de imagem ou documento: obter metadados da Meta e baixar o binário
+            if ((isImageMsg || isDocumentMsg) && mediaId) {
               const nowTs = Date.now()
-              let ext = '.jpg'
-              if (finalMimeType === 'image/png') {
-                ext = '.png'
-              } else if (finalMimeType === 'image/webp') {
-                ext = '.webp'
-              } else if (finalMimeType === 'image/jpeg' || finalMimeType === 'image/jpg') {
-                ext = '.jpg'
+              if (isDocumentMsg) {
+                if (docFilename) {
+                  generatedFileName = docFilename
+                } else {
+                  generatedFileName = 'documento_whatsapp_' + nowTs + '.pdf'
+                }
+              } else {
+                // Imagem: gerar nome baseado no MIME type e timestamp
+                let ext = '.jpg'
+                if (finalMimeType === 'image/png') {
+                  ext = '.png'
+                } else if (finalMimeType === 'image/webp') {
+                  ext = '.webp'
+                } else if (finalMimeType === 'image/jpeg' || finalMimeType === 'image/jpg') {
+                  ext = '.jpg'
+                }
+                generatedFileName = 'whatsapp_' + nowTs + ext
               }
-              generatedFileName = 'whatsapp_' + nowTs + ext
 
               // Obter credenciais Meta
               let metaAccessToken = $os.getenv('WHATSAPP_ACCESS_TOKEN') || ''
@@ -727,6 +774,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                         mimeType: finalMimeType,
                         fileSize: resolvedFileSize,
                         hasUrl: Boolean(mediaDownloadUrl),
+                        isDocument: isDocumentMsg,
                       },
                     )
                   } else {
@@ -742,7 +790,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                   )
                 }
 
-                // Passo 4: Baixar os bytes da imagem
+                // Passo 4: Baixar os bytes da mídia (imagem ou documento)
                 if (mediaDownloadUrl) {
                   try {
                     const downloadRes = $http.send({
@@ -770,7 +818,9 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                               : 0
                         }
                         console.log(
-                          '[WHATSAPP WEBHOOK POST] Imagem baixada e convertida com sucesso:',
+                          '[WHATSAPP WEBHOOK POST] Mídia (' +
+                            (isDocumentMsg ? 'documento' : 'imagem') +
+                            ') baixada e convertida com sucesso:',
                           generatedFileName,
                           'tamanho:',
                           resolvedFileSize,
@@ -788,7 +838,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                     }
                   } catch (downloadErr) {
                     console.error(
-                      '[WHATSAPP WEBHOOK POST] Erro de rede ao baixar imagem da Meta:',
+                      '[WHATSAPP WEBHOOK POST] Erro de rede ao baixar mídia da Meta:',
                       downloadErr,
                     )
                   }
@@ -807,7 +857,8 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
 
               // Se a mensagem tiver caption, usar o caption como message_text.
               // Se não tiver caption, usar o nome do arquivo para cumprir a obrigatoriedade de message_text.
-              const savedText = imageCaption || generatedFileName
+              const activeCaption = isDocumentMsg ? docCaption : imageCaption
+              const savedText = activeCaption || generatedFileName
               newMsgRecord.set('message_text', savedText)
             } else {
               // Mensagem normal de texto
@@ -845,11 +896,14 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
           // 8. Se cliente existir, atualizar last_message_*
           if (foundClient) {
             try {
-              const lastTextSummary = isImageMsg
-                ? imageCaption
-                  ? '📷 ' + imageCaption
-                  : '📷 Imagem'
-                : msgBodyText
+              let lastTextSummary = msgBodyText
+              if (isImageMsg) {
+                lastTextSummary = imageCaption ? '📷 ' + imageCaption : '📷 Imagem'
+              } else if (isDocumentMsg) {
+                lastTextSummary = docCaption
+                  ? '📄 ' + docCaption
+                  : '📄 ' + (docFilename || 'Documento PDF')
+              }
               foundClient.set('last_message_at', currentTimestampIso)
               foundClient.set('last_message_direction', 'inbound')
               foundClient.set('last_message_text', lastTextSummary.substring(0, 100))

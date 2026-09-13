@@ -1119,7 +1119,9 @@ export default function WhatsAppChatDrawer({
   }
 
   const isPdfFile = (filename?: string, fileType?: string) => {
-    if (fileType === 'application/pdf') return true
+    if (fileType && (fileType === 'application/pdf' || fileType.startsWith('application/pdf'))) {
+      return true
+    }
     if (!filename) return false
     return /\.pdf$/i.test(filename)
   }
