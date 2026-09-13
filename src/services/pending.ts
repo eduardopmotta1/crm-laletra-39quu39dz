@@ -765,9 +765,8 @@ export const pendingService = {
   async rescheduleItem(item: PendingItem, newDueDate: string, reason?: string): Promise<boolean> {
     if (item.id.startsWith('task_')) {
       const taskId = item.id.replace('task_', '')
-      const pureDate = newDueDate.split('T')[0]
       await pb.collection('tasks').update(taskId, {
-        due_date: pureDate,
+        due_date: newDueDate,
         description: reason ? `${reason}` : undefined,
       })
     }

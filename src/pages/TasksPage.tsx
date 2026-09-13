@@ -15,7 +15,11 @@ import { tasksService } from '@/services/tasks'
 import { clientsService } from '@/services/clients'
 import { usersService } from '@/services/whatsapp'
 import { useAuth } from '@/context/AuthContext'
-import { formatDateTime } from '@/lib/sla'
+import {
+  formatFollowUpDateTime,
+  parseTaskDueDate,
+  combineDateAndTimeForStorage,
+} from '@/lib/taskDateUtils'
 import type { Task, Client, User as CrmUser } from '@/types/crm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
+import { Pencil } from 'lucide-react'
 
 export default function TasksPage() {
   const { user } = useAuth()
@@ -48,6 +53,7 @@ export default function TasksPage() {
 
   // Modal create/edit
   const [modalOpen, setModalOpen] = useState(false)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [taskForm, setTaskForm] = useState<{
     title: string
@@ -55,6 +61,7 @@ export default function TasksPage() {
     client_id: string
     assigned_to: string
     due_date: string
+    due_time: string
     priority: 'baixa' | 'media' | 'alta'
   }>({
     title: '',
@@ -62,6 +69,7 @@ export default function TasksPage() {
     client_id: '',
     assigned_to: user?.id || '',
     due_date: new Date().toISOString().split('T')[0],
+    due_time: '10:00',
     priority: 'alta',
   })
 
@@ -117,7 +125,36 @@ export default function TasksPage() {
     }
   }
 
-  const handleCreateTask = async (e: React.FormEvent) => {
+  const handleOpenCreateModal = () => {
+    setEditingTaskId(null)
+    setTaskForm({
+      title: '',
+      description: '',
+      client_id: '',
+      assigned_to: user?.id || '',
+      due_date: new Date().toISOString().split('T')[0],
+      due_time: '10:00',
+      priority: 'alta',
+    })
+    setModalOpen(true)
+  }
+
+  const handleOpenEditModal = (task: Task) => {
+    setEditingTaskId(task.id)
+    const parsed = parseTaskDueDate(task.due_date)
+    setTaskForm({
+      title: task.title,
+      description: task.description || '',
+      client_id: task.client_id,
+      assigned_to: task.assigned_to || '',
+      due_date: parsed.date || new Date().toISOString().split('T')[0],
+      due_time: parsed.time || '10:00',
+      priority: task.priority || 'alta',
+    })
+    setModalOpen(true)
+  }
+
+  const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!taskForm.title.trim() || !taskForm.client_id) {
       toast({
@@ -128,37 +165,55 @@ export default function TasksPage() {
       return
     }
 
+    if (!taskForm.due_date || !taskForm.due_time) {
+      toast({
+        title: 'Data e Hora obrigatórias',
+        description: 'Informe tanto a data quanto o horário do follow-up.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const combinedDateTime = combineDateAndTimeForStorage(taskForm.due_date, taskForm.due_time)
+
     setSaving(true)
     try {
-      const created = await tasksService.create({
-        title: taskForm.title.trim(),
-        description: taskForm.description.trim() || undefined,
-        client_id: taskForm.client_id,
-        assigned_to: taskForm.assigned_to || undefined,
-        due_date: taskForm.due_date
-          ? taskForm.due_date.split('T')[0]
-          : new Date().toISOString().split('T')[0],
-        status: 'pendente',
-        priority: taskForm.priority,
-      })
-      setTasks([created, ...tasks])
+      if (editingTaskId) {
+        const updated = await tasksService.update(editingTaskId, {
+          title: taskForm.title.trim(),
+          description: taskForm.description.trim() || undefined,
+          client_id: taskForm.client_id,
+          assigned_to: taskForm.assigned_to || undefined,
+          due_date: combinedDateTime,
+          priority: taskForm.priority,
+        })
+        setTasks(tasks.map((t) => (t.id === editingTaskId ? updated : t)))
+        toast({
+          title: 'Tarefa atualizada com sucesso!',
+          description: 'Follow-up atualizado com nova data e hora.',
+        })
+      } else {
+        const created = await tasksService.create({
+          title: taskForm.title.trim(),
+          description: taskForm.description.trim() || undefined,
+          client_id: taskForm.client_id,
+          assigned_to: taskForm.assigned_to || undefined,
+          due_date: combinedDateTime,
+          status: 'pendente',
+          priority: taskForm.priority,
+        })
+        setTasks([created, ...tasks])
+        toast({
+          title: 'Tarefa criada com sucesso!',
+          description: 'Follow-up agendado no CRM.',
+        })
+      }
       setModalOpen(false)
-      setTaskForm({
-        title: '',
-        description: '',
-        client_id: '',
-        assigned_to: user?.id || '',
-        due_date: new Date().toISOString().split('T')[0],
-        priority: 'alta',
-      })
-      toast({
-        title: 'Tarefa criada com sucesso!',
-        description: 'Follow-up agendado no CRM.',
-      })
+      setEditingTaskId(null)
       loadData()
     } catch (err: any) {
       toast({
-        title: 'Erro ao criar',
+        title: editingTaskId ? 'Erro ao atualizar' : 'Erro ao criar',
         description: err?.message || 'Falha ao salvar tarefa.',
         variant: 'destructive',
       })
@@ -193,7 +248,7 @@ export default function TasksPage() {
           </p>
         </div>
         <Button
-          onClick={() => setModalOpen(true)}
+          onClick={handleOpenCreateModal}
           className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs shadow-sm"
         >
           <Plus className="h-4 w-4 mr-1.5" />
@@ -300,7 +355,7 @@ export default function TasksPage() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3.5 w-3.5" />
-                        Vencimento: {formatDateTime(task.due_date)}
+                        Vencimento: {formatFollowUpDateTime(task.due_date)}
                       </span>
                       {task.expand?.assigned_to && (
                         <span className="flex items-center gap-1">
@@ -316,8 +371,18 @@ export default function TasksPage() {
                   <Button
                     size="sm"
                     variant="ghost"
+                    onClick={() => handleOpenEditModal(task)}
+                    className="h-8 w-8 p-0 text-slate-400 hover:text-emerald-600"
+                    title="Editar Tarefa"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => handleDeleteTask(task.id)}
                     className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600"
+                    title="Excluir Tarefa"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -328,17 +393,17 @@ export default function TasksPage() {
         )}
       </div>
 
-      {/* Modal Create Task */}
+      {/* Modal Create / Edit Task */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckSquare className="h-5 w-5 text-emerald-600" />
-              Nova Tarefa de Follow-up
+              {editingTaskId ? 'Editar Tarefa de Follow-up' : 'Nova Tarefa de Follow-up'}
             </DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleCreateTask} className="space-y-4 pt-2">
+          <form onSubmit={handleSaveTask} className="space-y-4 pt-2">
             <div>
               <label className="text-xs font-semibold text-slate-700">Cliente Relacionado *</label>
               <Select
@@ -371,7 +436,7 @@ export default function TasksPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-slate-700">Data de Vencimento</label>
+                <label className="text-xs font-semibold text-slate-700">Data de Vencimento *</label>
                 <Input
                   type="date"
                   value={taskForm.due_date}
@@ -381,6 +446,19 @@ export default function TasksPage() {
                 />
               </div>
 
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Horário *</label>
+                <Input
+                  type="time"
+                  value={taskForm.due_time}
+                  onChange={(e) => setTaskForm({ ...taskForm, due_time: e.target.value })}
+                  required
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-slate-700">Prioridade</label>
                 <Select
@@ -397,25 +475,25 @@ export default function TasksPage() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Atribuído para</label>
-              <Select
-                value={taskForm.assigned_to}
-                onValueChange={(val) => setTaskForm({ ...taskForm, assigned_to: val })}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Selecione o atendente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.name || u.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Atribuído para</label>
+                <Select
+                  value={taskForm.assigned_to}
+                  onValueChange={(val) => setTaskForm({ ...taskForm, assigned_to: val })}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Selecione o atendente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.name || u.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div>
@@ -438,7 +516,7 @@ export default function TasksPage() {
                 disabled={saving}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                {saving ? 'Salvando...' : 'Criar Tarefa'}
+                {saving ? 'Salvando...' : editingTaskId ? 'Salvar Alterações' : 'Criar Tarefa'}
               </Button>
             </DialogFooter>
           </form>

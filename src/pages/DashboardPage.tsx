@@ -20,7 +20,8 @@ import { attendancesService } from '@/services/attendances'
 import { tasksService } from '@/services/tasks'
 import { settingsService } from '@/services/settings'
 import { evaluationsService } from '@/services/evaluations'
-import { calculateWaitingSlaInfo, formatCurrency, formatDateTime } from '@/lib/sla'
+import { calculateWaitingSlaInfo, formatCurrency } from '@/lib/sla'
+import { formatFollowUpDateTime, parseTaskDueDate } from '@/lib/taskDateUtils'
 import type { Client, Attendance, Task, SlaConfig, Evaluation } from '@/types/crm'
 import { ShieldAlert } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -574,7 +575,7 @@ export default function DashboardPage() {
                   </h4>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-200/50 dark:border-slate-700/50">
-                  <span>Vence: {formatDateTime(task.due_date)}</span>
+                  <span>Vence: {formatFollowUpDateTime(task.due_date)}</span>
                 </div>
               </div>
             ))}

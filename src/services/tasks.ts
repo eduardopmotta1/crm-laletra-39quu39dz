@@ -32,9 +32,6 @@ export const tasksService = {
 
   async create(data: Partial<Task>): Promise<Task> {
     const sanitized = { ...data }
-    if (typeof sanitized.due_date === 'string' && sanitized.due_date.includes('T')) {
-      sanitized.due_date = sanitized.due_date.split('T')[0]
-    }
 
     // Se attendance_id NÃO foi informado mas client_id existe, NÃO usar '-created' para adivinhar.
     // SOMENTE vincular automaticamente se existir EXATAMENTE UM atendimento ativo (100% não ambíguo).
@@ -58,9 +55,6 @@ export const tasksService = {
 
   async update(id: string, data: Partial<Task>): Promise<Task> {
     const sanitized = { ...data }
-    if (typeof sanitized.due_date === 'string' && sanitized.due_date.includes('T')) {
-      sanitized.due_date = sanitized.due_date.split('T')[0]
-    }
     return await pb.collection('tasks').update<Task>(id, sanitized)
   },
 

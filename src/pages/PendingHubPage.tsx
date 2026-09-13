@@ -58,6 +58,11 @@ import type {
 import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/context/AuthContext'
 import { formatCurrency, formatDateTime, getWhatsAppDirectUrl } from '@/lib/sla'
+import {
+  combineDateAndTimeForStorage,
+  parseTaskDueDate,
+  formatFollowUpDateTime,
+} from '@/lib/taskDateUtils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -129,6 +134,7 @@ export default function PendingHubPage() {
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false)
   const [itemToReschedule, setItemToReschedule] = useState<PendingItem | null>(null)
   const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduleTime, setRescheduleTime] = useState('')
 
   // Assign Responsible Dialog
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
@@ -311,9 +317,28 @@ export default function PendingHubPage() {
     e.preventDefault()
     if (!itemToReschedule || !rescheduleDate) return
 
+    const isTask = itemToReschedule.id.startsWith('task_')
+    if (isTask && !rescheduleTime) {
+      toast({
+        title: 'Hora obrigatória',
+        description: 'Informe o horário para o reagendamento do follow-up.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     try {
-      const ok = await pendingService.rescheduleItem(itemToReschedule, rescheduleDate)
+      const finalDateTime = isTask
+        ? combineDateAndTimeForStorage(rescheduleDate, rescheduleTime)
+        : rescheduleDate
+
+      const ok = await pendingService.rescheduleItem(itemToReschedule, finalDateTime)
       if (ok) {
+        const displayLabel =
+          isTask && rescheduleTime
+            ? `${formatFollowUpDateTime(finalDateTime)}`
+            : new Date(rescheduleDate).toLocaleDateString('pt-BR')
+
         await pendingService.logResolution({
           category: itemToReschedule.category,
           itemId: itemToReschedule.id,
@@ -321,12 +346,12 @@ export default function PendingHubPage() {
           clientId: itemToReschedule.clientId,
           clientName: itemToReschedule.clientName,
           assignedTo: itemToReschedule.assignedToId,
-          actionTaken: `Reagendado para ${new Date(rescheduleDate).toLocaleDateString('pt-BR')}`,
+          actionTaken: `Reagendado para ${displayLabel}`,
           waitingMinutes: itemToReschedule.waitingTimeMinutes,
         })
         toast({
           title: 'Prazo reagendado!',
-          description: `Nova data programada: ${new Date(rescheduleDate).toLocaleDateString('pt-BR')}`,
+          description: `Nova programação: ${displayLabel}`,
         })
         setRescheduleDialogOpen(false)
         loadAllData(false)
@@ -892,10 +917,12 @@ export default function PendingHubPage() {
                           <DropdownMenuItem
                             onClick={() => {
                               setItemToReschedule(item)
+                              const rawDate = item.dueDate || item.referenceDate || ''
+                              const parsed = parseTaskDueDate(rawDate)
                               setRescheduleDate(
-                                item.referenceDate?.split('T')[0] ||
-                                  new Date().toISOString().split('T')[0],
+                                parsed.date || new Date().toISOString().split('T')[0],
                               )
+                              setRescheduleTime(parsed.time || '10:00')
                               setRescheduleDialogOpen(true)
                             }}
                           >
@@ -1260,14 +1287,27 @@ export default function PendingHubPage() {
           </DialogHeader>
 
           <form onSubmit={handleConfirmReschedule} className="space-y-4 pt-2 text-xs">
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Nova Data:</label>
-              <Input
-                type="date"
-                value={rescheduleDate}
-                onChange={(e) => setRescheduleDate(e.target.value)}
-                required
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Nova Data *</label>
+                <Input
+                  type="date"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  Novo Horário {itemToReschedule?.id.startsWith('task_') ? '*' : ''}
+                </label>
+                <Input
+                  type="time"
+                  value={rescheduleTime}
+                  onChange={(e) => setRescheduleTime(e.target.value)}
+                  required={itemToReschedule?.id.startsWith('task_')}
+                />
+              </div>
             </div>
 
             <DialogFooter className="pt-2">

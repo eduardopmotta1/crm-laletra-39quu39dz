@@ -81,6 +81,11 @@ import {
   formatQuoteWhatsAppMessage,
   getWhatsAppDirectUrl,
 } from '@/lib/sla'
+import {
+  formatFollowUpDateTime,
+  parseTaskDueDate,
+  combineDateAndTimeForStorage,
+} from '@/lib/taskDateUtils'
 import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
 import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
@@ -224,9 +229,11 @@ export default function WhatsAppChatDrawer({
   const [confirmAddFileDialogOpen, setConfirmAddFileDialogOpen] = useState(false)
   const [isAddingFileToOrder, setIsAddingFileToOrder] = useState(false)
 
-  // New task inline
+  // New task inline & edit task inline
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDueDate, setNewTaskDueDate] = useState('')
+  const [newTaskDueTime, setNewTaskDueTime] = useState('')
+  const [editingTaskInDrawerId, setEditingTaskInDrawerId] = useState<string | null>(null)
   const [isAddingTask, setIsAddingTask] = useState(false)
 
   // Modals state
@@ -1116,12 +1123,28 @@ export default function WhatsAppChatDrawer({
     return /\.pdf$/i.test(filename)
   }
 
-  const handleCreateTask = async (e: React.FormEvent) => {
+  const handleCreateOrUpdateTask = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newTaskTitle.trim()) return
+    if (!newTaskTitle.trim()) {
+      toast({
+        title: 'Título obrigatório',
+        description: 'Informe o título do follow-up.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!newTaskDueDate || !newTaskDueTime) {
+      toast({
+        title: 'Data e Hora obrigatórias',
+        description: 'Informe a data e o horário para o follow-up.',
+        variant: 'destructive',
+      })
+      return
+    }
 
     const targetAtt = effectiveAttendance || activeAttendance
-    if (!targetAtt) {
+    if (!targetAtt && !editingTaskInDrawerId) {
       toast({
         title: 'Atendimento não encontrado',
         description: 'Não há atendimento ativo vinculado para associar esta tarefa comercial.',
@@ -1130,28 +1153,59 @@ export default function WhatsAppChatDrawer({
       return
     }
 
+    const combinedDueDate = combineDateAndTimeForStorage(newTaskDueDate, newTaskDueTime)
+
     try {
-      await tasksService.create({
-        title: newTaskTitle.trim(),
-        client_id: displayClient.id,
-        attendance_id: targetAtt.id,
-        assigned_to: user?.id,
-        due_date: newTaskDueDate || new Date().toISOString().split('T')[0],
-        status: 'pendente',
-        priority: 'media',
-      })
+      if (editingTaskInDrawerId) {
+        await tasksService.update(editingTaskInDrawerId, {
+          title: newTaskTitle.trim(),
+          due_date: combinedDueDate,
+        })
+        toast({ title: 'Tarefa atualizada' })
+      } else {
+        await tasksService.create({
+          title: newTaskTitle.trim(),
+          client_id: displayClient.id,
+          attendance_id: targetAtt?.id,
+          assigned_to: user?.id,
+          due_date: combinedDueDate,
+          status: 'pendente',
+          priority: 'media',
+        })
+        toast({ title: 'Tarefa adicionada' })
+      }
+
       setNewTaskTitle('')
       setNewTaskDueDate('')
+      setNewTaskDueTime('')
+      setEditingTaskInDrawerId(null)
       setIsAddingTask(false)
       const updatedTasks = await tasksService.getByClientId(displayClient.id)
       setTasks(updatedTasks)
-      toast({ title: 'Tarefa adicionada' })
-    } catch (err) {
+    } catch (err: any) {
       toast({
-        title: 'Erro ao criar tarefa',
+        title: editingTaskInDrawerId ? 'Erro ao atualizar tarefa' : 'Erro ao criar tarefa',
+        description: err?.message,
         variant: 'destructive',
       })
     }
+  }
+
+  const handleStartEditTaskInDrawer = (task: Task) => {
+    setEditingTaskInDrawerId(task.id)
+    setNewTaskTitle(task.title)
+    const parsed = parseTaskDueDate(task.due_date)
+    setNewTaskDueDate(parsed.date || new Date().toISOString().split('T')[0])
+    setNewTaskDueTime(parsed.time || '10:00')
+    setIsAddingTask(true)
+  }
+
+  const handleCancelTaskFormInDrawer = () => {
+    setIsAddingTask(false)
+    setEditingTaskInDrawerId(null)
+    setNewTaskTitle('')
+    setNewTaskDueDate('')
+    setNewTaskDueTime('')
   }
 
   const handleOpenApproveQuote = (quote: Quote) => {
@@ -2636,10 +2690,10 @@ export default function WhatsAppChatDrawer({
                       </Button>
                     </div>
 
-                    {/* Inline Add Task Form */}
+                    {/* Inline Add / Edit Task Form */}
                     {isAddingTask && (
                       <form
-                        onSubmit={handleCreateTask}
+                        onSubmit={handleCreateOrUpdateTask}
                         className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2.5 text-xs"
                       >
                         <div>
@@ -2654,16 +2708,31 @@ export default function WhatsAppChatDrawer({
                             required
                           />
                         </div>
-                        <div>
-                          <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                            Data Limite
-                          </label>
-                          <Input
-                            type="date"
-                            value={newTaskDueDate}
-                            onChange={(e) => setNewTaskDueDate(e.target.value)}
-                            className="text-xs h-8 bg-white dark:bg-slate-900"
-                          />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                              Data *
+                            </label>
+                            <Input
+                              type="date"
+                              value={newTaskDueDate}
+                              onChange={(e) => setNewTaskDueDate(e.target.value)}
+                              className="text-xs h-8 bg-white dark:bg-slate-900"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                              Hora *
+                            </label>
+                            <Input
+                              type="time"
+                              value={newTaskDueTime}
+                              onChange={(e) => setNewTaskDueTime(e.target.value)}
+                              className="text-xs h-8 bg-white dark:bg-slate-900"
+                              required
+                            />
+                          </div>
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -2671,13 +2740,13 @@ export default function WhatsAppChatDrawer({
                             size="sm"
                             className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 flex-1"
                           >
-                            Salvar Tarefa
+                            {editingTaskInDrawerId ? 'Salvar Alterações' : 'Salvar Tarefa'}
                           </Button>
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => setIsAddingTask(false)}
+                            onClick={handleCancelTaskFormInDrawer}
                             className="text-xs h-8"
                           >
                             Cancelar
@@ -2696,15 +2765,15 @@ export default function WhatsAppChatDrawer({
                         tasks.map((t) => (
                           <div
                             key={t.id}
-                            onClick={() => handleToggleTask(t.id, t.status)}
-                            className={`p-2.5 rounded-xl border text-xs flex items-start gap-2.5 cursor-pointer transition-colors ${
+                            className={`p-2.5 rounded-xl border text-xs flex items-start gap-2.5 transition-colors ${
                               t.status === 'concluida'
                                 ? 'bg-slate-50/60 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 line-through text-slate-400'
                                 : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
                             }`}
                           >
                             <div
-                              className={`h-4 w-4 rounded mt-0.5 border flex items-center justify-center shrink-0 ${
+                              onClick={() => handleToggleTask(t.id, t.status)}
+                              className={`h-4 w-4 rounded mt-0.5 border flex items-center justify-center shrink-0 cursor-pointer ${
                                 t.status === 'concluida'
                                   ? 'bg-emerald-600 border-emerald-600 text-white'
                                   : 'border-slate-300 dark:border-slate-600'
@@ -2712,16 +2781,33 @@ export default function WhatsAppChatDrawer({
                             >
                               {t.status === 'concluida' && <Check className="h-3 w-3 stroke-[3]" />}
                             </div>
-                            <div className="min-w-0 flex-1">
+                            <div
+                              className="min-w-0 flex-1 cursor-pointer"
+                              onClick={() => handleToggleTask(t.id, t.status)}
+                            >
                               <p className="font-medium text-slate-900 dark:text-white leading-tight">
                                 {t.title}
                               </p>
                               {t.due_date && (
                                 <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-1">
                                   <Calendar className="h-3 w-3" />
-                                  {new Date(t.due_date).toLocaleDateString('pt-BR')}
+                                  {formatFollowUpDateTime(t.due_date)}
                                 </span>
                               )}
+                            </div>
+                            <div className="shrink-0 flex items-center">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleStartEditTaskInDrawer(t)
+                                }}
+                                className="h-6 w-6 p-0 text-slate-400 hover:text-emerald-600"
+                                title="Editar Follow-up"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
                             </div>
                           </div>
                         ))
