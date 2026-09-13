@@ -363,6 +363,8 @@ export const productionService = {
       notes?: string
       changeType?: 'manual' | 'automatic'
       trackingCode?: string
+      proofId?: string
+      versionNumber?: number
     },
   ): Promise<ProductionOrder> {
     const currentOrder = await this.getById(orderId)
@@ -737,9 +739,11 @@ export const productionService = {
 
     const created = await pb.collection('production_proofs').create<ProductionProof>(formData)
 
-    // Move order to awaiting_approval
+    // Move order to awaiting_approval (se já não estiver, ou garante o estado atualizado)
     await this.updateStage(orderId, 'awaiting_approval', {
       notes: `Prova digital (V${versionNumber}) enviada para aprovação do cliente.`,
+      proofId: created.id,
+      versionNumber: versionNumber,
     })
 
     return created

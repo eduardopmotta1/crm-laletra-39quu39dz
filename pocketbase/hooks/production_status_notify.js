@@ -112,10 +112,13 @@ onRecordAfterUpdateSuccess((e) => {
     }
 
     // 4. Proteção contra duplo disparo na MESMA transição concreta (Idempotência)
-    // Uma mesma transição não pode gerar dois envios.
-    // Usamos production_logs: verifica se já existe log para order_id + to_stage_id com notes contendo o hash/updated desta transição
-    // OU se já existe log recente com envio ou requires_template criado exatamente nos últimos 30 segundos para esta transição.
+    // e COORDENAÇÃO ANTI-DUPLICIDADE com evento de nova prova (production_proof_notify):
+    // Se o pedido está mudando para awaiting_approval e uma prova acabou de ser criada para este pedido,
+    // o evento da prova (production_proof_notify) já realiza a notificação da versão específica.
+    // O hook de transição de etapa suprime o envio para garantir EXATAMENTE UMA notificação.
     const transitionMarker = '[tx:' + orderId + ':' + nextStage + ':' + orderUpdatedIso + ']'
+    const proofCoordinationMarker = '[proof_notify_order:' + orderId + ':awaiting_approval]'
+
     try {
       const existingLogs = $app.findRecordsByFilter(
         'production_logs',
@@ -136,6 +139,30 @@ onRecordAfterUpdateSuccess((e) => {
             transitionMarker,
         )
         return e.next()
+      }
+
+      // Se a etapa de destino for 'awaiting_approval', checa se houve notificação de prova recente (últimos 3 minutos)
+      if (nextStage === 'awaiting_approval') {
+        const recentProofLogs = $app.findRecordsByFilter(
+          'production_logs',
+          "order_id = '" + orderId + "' && notes ~ '" + proofCoordinationMarker + "'",
+          '-created',
+          1,
+          0,
+        )
+        if (recentProofLogs && recentProofLogs.length > 0) {
+          const proofLogCreated = new Date(recentProofLogs[0].get('created') || 0).getTime()
+          const nowMs = Date.now()
+          // Se ocorreu nos últimos 180 segundos (3 minutos), o evento da prova já cuidou da notificação
+          if (nowMs - proofLogCreated < 180000) {
+            console.log(
+              '[PROD NOTIFY] Notificação de awaiting_approval suprimida por coordenação: prova já notificada pelo evento de prova (' +
+                proofCoordinationMarker +
+                ')',
+            )
+            return e.next()
+          }
+        }
       }
     } catch (checkLogErr) {
       console.warn('[PROD NOTIFY] Aviso ao verificar idempotência de logs:', checkLogErr)
