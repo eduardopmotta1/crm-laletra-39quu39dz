@@ -328,7 +328,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
       name: 'pedido_enviado_retirada',
       category: 'UTILITY',
       language: 'pt_BR',
-      text: 'Olá {{1}}! O pedido {{2}} foi atualizado para enviado/aguardando retirada. Código de rastreio ou referência: {{3}} Acompanhe aqui: {{4}}',
+      text: 'Olá {{1}}! O pedido {{2}} foi atualizado para enviado/aguardando retirada. Código de rastreio ou referência: {{3}}. Acompanhe aqui: {{4}}',
       examples: [
         'João',
         'ORC-2026-0017',
@@ -358,7 +358,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-submit-templates', (e) => {
   // Carregar templates locais existentes para reutilizar lógica de match e evitar duplicidade
   let localTemplates = []
   try {
-    localTemplates = $app.findRecordsByFilter('whatsapp_templates', '1=1', 'name', 500, 0)
+    localTemplates = $app.findRecordsByFilter('whatsapp_templates', 'id != ""', 'name', 500, 0)
   } catch (findErr) {
     console.error('[WHATSAPP TEMPLATES SUBMIT] Erro ao carregar templates locais:', findErr)
   }

@@ -451,7 +451,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-sync-templates', (e) => {
   // Carregar todos os templates locais existentes
   let localTemplates = []
   try {
-    localTemplates = $app.findRecordsByFilter('whatsapp_templates', '1=1', 'name', 500, 0)
+    localTemplates = $app.findRecordsByFilter('whatsapp_templates', 'id != ""', 'name', 500, 0)
   } catch (findErr) {
     console.error('[WHATSAPP TEMPLATES SYNC] Erro ao carregar templates locais:', findErr)
   }
