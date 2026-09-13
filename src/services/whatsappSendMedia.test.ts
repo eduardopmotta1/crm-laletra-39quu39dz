@@ -51,6 +51,62 @@ describe('whatsappService.sendMessage with media', () => {
     expect(result.success).toBe(true)
     expect(result.api_dispatched).toBe(true)
     expect(result.message?.whatsapp_message_id).toBe('wamid.TEST_MEDIA_123')
+
+    const formDataSent = sendSpy.mock.calls[0][1]?.body as FormData
+    expect(formDataSent.get('file_type')).toBe('image/png')
+    expect(formDataSent.get('file_name')).toBe('arte.png')
+  })
+
+  it('deve inferir e corrigir file_type quando File vier com application/octet-stream ou vazio', async () => {
+    const sendSpy = vi.spyOn(pb, 'send').mockResolvedValueOnce({
+      success: true,
+      status: 'sent',
+      whatsapp_message_id: 'wamid.TEST_OCTET_CORRECTED',
+      message: {
+        id: 'msg_999',
+        file_name: 'foto.PNG',
+        file_type: 'image/png',
+      } as any,
+    })
+
+    const octetPngFile = new File(['png-data'], 'foto.PNG', { type: 'application/octet-stream' })
+
+    const result = await whatsappService.sendMessage({
+      clientId: 'c_test',
+      file: octetPngFile,
+    })
+
+    expect(result.success).toBe(true)
+    const formDataSent = sendSpy.mock.calls[0][1]?.body as FormData
+    expect(formDataSent.get('file_type')).toBe('image/png')
+    const sentFile = formDataSent.get('file') as File
+    expect(sentFile.type).toBe('image/png')
+  })
+
+  it('deve preservar mime application/pdf para documentos PDF mesmo se o browser mandar octet-stream', async () => {
+    const sendSpy = vi.spyOn(pb, 'send').mockResolvedValueOnce({
+      success: true,
+      status: 'sent',
+      whatsapp_message_id: 'wamid.TEST_PDF_CORRECTED',
+      message: {
+        id: 'msg_pdf',
+        file_name: 'contrato.pdf',
+        file_type: 'application/pdf',
+      } as any,
+    })
+
+    const octetPdfFile = new File(['pdf-data'], 'contrato.pdf', { type: '' })
+
+    const result = await whatsappService.sendMessage({
+      clientId: 'c_test',
+      file: octetPdfFile,
+    })
+
+    expect(result.success).toBe(true)
+    const formDataSent = sendSpy.mock.calls[0][1]?.body as FormData
+    expect(formDataSent.get('file_type')).toBe('application/pdf')
+    const sentFile = formDataSent.get('file') as File
+    expect(sentFile.type).toBe('application/pdf')
   })
 
   it('deve retornar erro controlado e não propagar mensagem se o backend send-media falhar', async () => {

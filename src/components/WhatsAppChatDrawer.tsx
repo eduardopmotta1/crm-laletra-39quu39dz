@@ -1032,8 +1032,22 @@ export default function WhatsAppChatDrawer({
     const file = e.target.files?.[0]
     if (file) {
       // Validar tipo de arquivo suportado nesta etapa: imagem (PNG/JPG/WEBP) e PDF
-      const fType = (file.type || '').toLowerCase()
+      let fType = (file.type || '').toLowerCase()
       const fName = (file.name || '').toLowerCase()
+
+      // Inferir MIME type da extensão caso o SO/navegador tenha enviado vazio ou octet-stream
+      if (!fType || fType === 'application/octet-stream') {
+        if (fName.endsWith('.png')) {
+          fType = 'image/png'
+        } else if (fName.endsWith('.jpg') || fName.endsWith('.jpeg')) {
+          fType = 'image/jpeg'
+        } else if (fName.endsWith('.webp')) {
+          fType = 'image/webp'
+        } else if (fName.endsWith('.pdf')) {
+          fType = 'application/pdf'
+        }
+      }
+
       const isImg =
         fType === 'image/jpeg' ||
         fType === 'image/jpg' ||

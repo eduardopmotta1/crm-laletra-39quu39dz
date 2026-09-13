@@ -146,21 +146,53 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
 
   const uploadedFile = uploadedFiles[0]
   // uploadedFile é um filesystem.File do PocketBase
-  const originalFileName = String(
+  // Priorizar body.file_name enviado pelo cliente, caso contrário usar name do arquivo
+  let rawFileName = String(
     body.file_name ||
       body.fileName ||
-      (uploadedFile.originalName || uploadedFile.name
-        ? uploadedFile.originalName || uploadedFile.name
+      (uploadedFile.name || uploadedFile.originalName
+        ? uploadedFile.name || uploadedFile.originalName
         : '') ||
       'arquivo',
   ).trim()
+
+  // Se veio gerado do PocketBase como ex: "captura_de_tela_2026_01_23_145058_dppqren75n.png" ou sem extensão
+  let originalFileName = rawFileName
+
   let mimeType = String(
     body.file_type || body.fileType || (uploadedFile.type ? uploadedFile.type : ''),
   )
     .toLowerCase()
     .trim()
 
-  // Inferência defensiva de mimeType por extensão se ausente ou genérico (ex: application/octet-stream)
+  // Inspecionar leitor e cabeçalhos do uploadedFile
+  try {
+    let readerType = 'unknown'
+    let mhHeader = null
+    if (uploadedFile.reader) {
+      readerType = typeof uploadedFile.reader
+      if (uploadedFile.reader.header) {
+        mhHeader = uploadedFile.reader.header
+      }
+    }
+    console.log(
+      '[WHATSAPP SEND MEDIA] uploadedFile initial inspect:',
+      JSON.stringify({
+        name: uploadedFile.name,
+        originalName: uploadedFile.originalName,
+        size: uploadedFile.size,
+        readerType: readerType,
+        hasMhHeader: !!mhHeader,
+        mhHeaderContentType:
+          mhHeader && mhHeader.header ? mhHeader.header.get('Content-Type') : null,
+        mhFilename: mhHeader ? mhHeader.filename : null,
+      }),
+    )
+  } catch (initErr) {
+    console.log('[WHATSAPP SEND MEDIA] Initial inspect error:', initErr)
+  }
+
+  // Inferência defensiva e estrita de mimeType por extensão se ausente ou genérico (ex: application/octet-stream)
   const lowerName = originalFileName.toLowerCase()
   if (!mimeType || mimeType === 'application/octet-stream') {
     if (lowerName.endsWith('.pdf')) {
@@ -174,17 +206,37 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     }
   }
 
+  // Normalizar variações como image/jpg para image/jpeg
+  if (mimeType === 'image/jpg') {
+    mimeType = 'image/jpeg'
+  }
+
+  // Garantir que a extensão do originalFileName corresponda ao mimeType
+  const expectedExt =
+    mimeType === 'image/png'
+      ? '.png'
+      : mimeType === 'image/jpeg'
+        ? '.jpg'
+        : mimeType === 'image/webp'
+          ? '.webp'
+          : mimeType === 'application/pdf'
+            ? '.pdf'
+            : ''
+
+  if (expectedExt && !originalFileName.toLowerCase().endsWith(expectedExt)) {
+    // Se não tem a extensão certa, anexar ou corrigir extensão
+    const hasKnownExt = /\.(png|jpe?g|webp|pdf)$/i.test(originalFileName)
+    if (!hasKnownExt) {
+      originalFileName = originalFileName + expectedExt
+    }
+  }
+
   // 5. Validar tipos suportados nesta etapa:
   // Imagem: image/jpeg, image/png, image/webp
   // Documento: application/pdf
   // Bloquear áudio, vídeo, sticker e outros
   let mediaCategory = '' // 'image' ou 'document'
-  if (
-    mimeType === 'image/jpeg' ||
-    mimeType === 'image/jpg' ||
-    mimeType === 'image/png' ||
-    mimeType === 'image/webp'
-  ) {
+  if (mimeType === 'image/jpeg' || mimeType === 'image/png' || mimeType === 'image/webp') {
     mediaCategory = 'image'
   } else if (mimeType === 'application/pdf') {
     mediaCategory = 'document'
@@ -411,10 +463,64 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     mimeType,
   )
 
+  // Inspecionar uploadedFile e garantir nome e reader
+  let fileToMeta = uploadedFile
+  try {
+    console.log(
+      '[WHATSAPP SEND MEDIA] uploadedFile details:',
+      JSON.stringify({
+        name: uploadedFile.name,
+        originalName: uploadedFile.originalName,
+        size: uploadedFile.size,
+      }),
+    )
+
+    // Forçar originalName no arquivo para garantir extensão e nome corretos
+    try {
+      uploadedFile.originalName = originalFileName
+    } catch (_) {}
+  } catch (inspErr) {
+    console.log('[WHATSAPP SEND MEDIA] Inspecao err:', inspErr)
+  }
+
+  // Tentar extrair os bytes do arquivo para criar um NewFileFromBytes garantindo que NewFileFromBytes calcule o MIME e extension corretos
+  if (typeof $filesystem !== 'undefined' && typeof $filesystem.fileFromBytes === 'function') {
+    try {
+      let fileBytes = null
+      if (typeof toBytes === 'function') {
+        let r = null
+        if (uploadedFile.reader && typeof uploadedFile.reader.open === 'function') {
+          r = uploadedFile.reader.open()
+        } else if (typeof uploadedFile.open === 'function') {
+          r = uploadedFile.open()
+        }
+        if (r) {
+          try {
+            fileBytes = toBytes(r, 0)
+          } finally {
+            if (r && typeof r.close === 'function') {
+              try {
+                r.close()
+              } catch (_) {}
+            }
+          }
+        }
+      }
+      if (fileBytes && fileBytes.length > 0) {
+        console.log('[WHATSAPP SEND MEDIA] Bytes extraídos com sucesso! Tamanho:', fileBytes.length)
+        const reconstructedFile = $filesystem.fileFromBytes(fileBytes, originalFileName)
+        fileToMeta = reconstructedFile
+      }
+    } catch (reconstructErr) {
+      console.warn('[WHATSAPP SEND MEDIA] Reconstrução com fileFromBytes falhou:', reconstructErr)
+    }
+  }
+
+  // Construir FormData com messaging_product, type e file
   const metaFormData = new FormData()
   metaFormData.append('messaging_product', 'whatsapp')
   metaFormData.append('type', mimeType)
-  metaFormData.append('file', uploadedFile)
+  metaFormData.append('file', fileToMeta)
 
   let uploadResponse = null
   let uploadNetErr = null

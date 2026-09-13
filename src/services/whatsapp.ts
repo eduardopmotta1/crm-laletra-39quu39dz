@@ -209,12 +209,47 @@ export const whatsappService = {
     try {
       // ENVIO REAL DE IMAGEM / DOCUMENTO VIA META CLOUD API (POST /backend/v1/crm/whatsapp/send-media)
       if (fileToUpload) {
+        // Resolver MIME type seguro e preciso no frontend antes de anexar
+        let resolvedMime = (fileToUpload.type || '').trim().toLowerCase()
+        const lowerFileName = fileToUpload.name.toLowerCase()
+        if (!resolvedMime || resolvedMime === 'application/octet-stream') {
+          if (lowerFileName.endsWith('.png')) {
+            resolvedMime = 'image/png'
+          } else if (lowerFileName.endsWith('.jpg') || lowerFileName.endsWith('.jpeg')) {
+            resolvedMime = 'image/jpeg'
+          } else if (lowerFileName.endsWith('.webp')) {
+            resolvedMime = 'image/webp'
+          } else if (lowerFileName.endsWith('.pdf')) {
+            resolvedMime = 'application/pdf'
+          }
+        }
+        if (resolvedMime === 'image/jpg') {
+          resolvedMime = 'image/jpeg'
+        }
+
+        // Se o File do navegador estiver sem MIME type ou com octet-stream, reconstruir o File com o MIME type explícito
+        let explicitFile = fileToUpload
+        if (
+          (!fileToUpload.type || fileToUpload.type === 'application/octet-stream') &&
+          resolvedMime &&
+          typeof File !== 'undefined'
+        ) {
+          try {
+            explicitFile = new File([fileToUpload], fileToUpload.name, {
+              type: resolvedMime,
+              lastModified: fileToUpload.lastModified,
+            })
+          } catch (_) {
+            explicitFile = fileToUpload
+          }
+        }
+
         const formData = new FormData()
         formData.append('client_id', clientId)
         if (attId) formData.append('attendance_id', attId)
-        formData.append('file', fileToUpload)
+        formData.append('file', explicitFile, fileToUpload.name)
         formData.append('file_name', fileToUpload.name)
-        formData.append('file_type', fileToUpload.type || '')
+        formData.append('file_type', resolvedMime)
         if (messageText) {
           formData.append('caption', messageText)
         }
