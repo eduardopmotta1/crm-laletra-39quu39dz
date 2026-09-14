@@ -75,6 +75,7 @@ export const usersAdminService = {
     const payload: any = {
       name: data.name.trim(),
       email: data.email.trim(),
+      emailVisibility: true,
       password: finalPassword,
       passwordConfirm: finalConfirm,
       phone: data.phone?.trim() || '',
@@ -178,6 +179,38 @@ export const usersAdminService = {
     return await pb.collection('users').update<User>(id, {
       is_active: isActive,
     })
+  },
+
+  /**
+   * Sincroniza visibilidade de emails para usuários existentes (apenas admin)
+   */
+  async syncEmailVisibility(): Promise<{
+    success: boolean
+    already_visible?: number
+    updated_count?: number
+    failed_count?: number
+    total_users?: number
+    error?: string
+    message?: string
+  }> {
+    try {
+      return await pb.send<{
+        success: boolean
+        already_visible?: number
+        updated_count?: number
+        failed_count?: number
+        total_users?: number
+        message?: string
+      }>('/backend/v1/crm/fix-users-email-visibility', {
+        method: 'POST',
+      })
+    } catch (err: any) {
+      console.error('Error syncing email visibility:', err)
+      return {
+        success: false,
+        error: err?.data?.error || err?.message || 'Falha ao sincronizar visibilidade de e-mails',
+      }
+    }
   },
 }
 

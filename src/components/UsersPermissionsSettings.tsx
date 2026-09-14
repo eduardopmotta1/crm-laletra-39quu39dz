@@ -113,10 +113,39 @@ export default function UsersPermissionsSettings() {
   // Matrix edit state: changes map userId -> { permKey: boolean }
   const [matrixChanges, setMatrixChanges] = useState<Record<string, Record<string, boolean>>>({})
   const [savingMatrix, setSavingMatrix] = useState(false)
+  const [syncingEmails, setSyncingEmails] = useState(false)
 
   useEffect(() => {
     loadData()
   }, [])
+
+  const handleSyncEmailVisibility = async () => {
+    setSyncingEmails(true)
+    try {
+      const res = await usersAdminService.syncEmailVisibility()
+      if (res.success) {
+        toast({
+          title: 'Visibilidade de e-mails atualizada!',
+          description: `${res.updated_count || 0} usuário(s) atualizados, ${res.already_visible || 0} já estavam visíveis.`,
+        })
+        loadData()
+      } else {
+        toast({
+          title: 'Erro na sincronização',
+          description: res.error || 'Não foi possível atualizar a visibilidade dos e-mails.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro inesperado',
+        description: err?.message || 'Falha ao sincronizar visibilidade de e-mails.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSyncingEmails(false)
+    }
+  }
 
   const loadData = async () => {
     setLoading(true)
@@ -665,13 +694,28 @@ export default function UsersPermissionsSettings() {
               />
             </div>
             {isAdmin && (
-              <Button
-                onClick={() => handleOpenUserModal()}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 font-semibold"
-              >
-                <Plus className="h-4 w-4 mr-1.5" />
-                Novo Usuário
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSyncEmailVisibility}
+                  disabled={syncingEmails}
+                  className="text-xs h-9 border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200"
+                  title="Garante que administradores consigam visualizar os emails de todos os usuários"
+                >
+                  <Mail
+                    className={`h-3.5 w-3.5 mr-1.5 text-emerald-600 ${syncingEmails ? 'animate-spin' : ''}`}
+                  />
+                  {syncingEmails ? 'Sincronizando...' : 'Ativar visibilidade de e-mails'}
+                </Button>
+                <Button
+                  onClick={() => handleOpenUserModal()}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 font-semibold"
+                >
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  Novo Usuário
+                </Button>
+              </div>
             )}
           </div>
 

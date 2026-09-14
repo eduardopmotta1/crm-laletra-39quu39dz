@@ -67,6 +67,7 @@ describe('usersAdminService password validation and confirmation', () => {
     expect(createSpy).toHaveBeenCalledWith({
       name: 'Novo Atendente',
       email: 'atendente@empresa.com',
+      emailVisibility: true,
       phone: '11999998888',
       password: 'SenhaSegura10Plus!',
       passwordConfirm: 'SenhaSegura10Plus!',
@@ -215,5 +216,25 @@ describe('usersAdminService password validation and confirmation', () => {
       role_slug: 'comercial',
       is_active: true,
     })
+  })
+
+  it('usersAdminService.syncEmailVisibility dispara POST para o endpoint protegido /backend/v1/crm/fix-users-email-visibility', async () => {
+    const sendSpy = vi.spyOn(pb, 'send').mockResolvedValueOnce({
+      success: true,
+      already_visible: 2,
+      updated_count: 3,
+      failed_count: 0,
+      total_users: 5,
+      message: 'Sincronização de visibilidade de e-mails concluída com sucesso.',
+    } as any)
+
+    const res = await usersAdminService.syncEmailVisibility()
+
+    expect(sendSpy).toHaveBeenCalledWith('/backend/v1/crm/fix-users-email-visibility', {
+      method: 'POST',
+    })
+    expect(res.success).toBe(true)
+    expect(res.updated_count).toBe(3)
+    expect(res.already_visible).toBe(2)
   })
 })
