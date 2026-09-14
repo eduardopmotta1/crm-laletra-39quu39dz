@@ -137,10 +137,11 @@ export default function UsersPermissionsSettings() {
   }
 
   // --- USER HANDLERS ---
-  const handleOpenUserModal = (u?: User) => {
+  const handleOpenUserModal = async (u?: User) => {
     setUserDiagnosticError(null)
     if (u) {
       setUserToEdit(u)
+      // Inicialização imediata com os dados já presentes no objeto selecionado
       setUserFormData({
         name: u.name || '',
         email: u.email || '',
@@ -151,6 +152,29 @@ export default function UsersPermissionsSettings() {
         role_slug: u.role_slug || 'comercial',
         is_active: u.is_active !== false,
       })
+      setUserModalOpen(true)
+
+      // Busca registro fresco e completo diretamente da collection users por id
+      // para garantir que email, phone e demais campos estejam 100% populados
+      // mesmo que a listagem em cache ou expand não os contenha
+      try {
+        const fullUser = await usersAdminService.getById(u.id)
+        if (fullUser) {
+          setUserToEdit((current) => (current && current.id === fullUser.id ? fullUser : current))
+          setUserFormData((prev) => ({
+            ...prev,
+            name: fullUser.name || prev.name,
+            email: fullUser.email || prev.email,
+            phone:
+              fullUser.phone !== undefined && fullUser.phone !== null ? fullUser.phone : prev.phone,
+            role_id: fullUser.role_id || prev.role_id,
+            role_slug: fullUser.role_slug || prev.role_slug,
+            is_active: fullUser.is_active !== false,
+          }))
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar dados detalhados do usuário:', err)
+      }
     } else {
       setUserToEdit(null)
       const defaultRole = roles.find((r) => r.slug === 'comercial') || roles[0]
@@ -164,8 +188,8 @@ export default function UsersPermissionsSettings() {
         role_slug: defaultRole?.slug || 'comercial',
         is_active: true,
       })
+      setUserModalOpen(true)
     }
-    setUserModalOpen(true)
   }
 
   const handleSaveUser = async (e: React.FormEvent) => {

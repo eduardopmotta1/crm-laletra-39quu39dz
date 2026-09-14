@@ -150,4 +150,70 @@ describe('usersAdminService password validation and confirmation', () => {
     expect(payload).not.toHaveProperty('oldPassword')
     expect(res.id).toBe('usr_456')
   })
+
+  it('permite buscar usuário completo por ID via usersAdminService.getById', async () => {
+    const mockUser = {
+      id: 'usr_get_999',
+      name: 'Colaborador Detalhes',
+      email: 'detalhes@grafica.com',
+      phone: '+55 11 98888-7777',
+      role_id: 'role_prod_1',
+      role_slug: 'producao',
+      is_active: true,
+    }
+    const getOneSpy = vi
+      .spyOn(pb.collection('users'), 'getOne')
+      .mockResolvedValueOnce(mockUser as any)
+
+    const user = await usersAdminService.getById('usr_get_999')
+
+    expect(getOneSpy).toHaveBeenCalledWith('usr_get_999', {
+      expand: 'role_id',
+      requestKey: null,
+    })
+    expect(user).toEqual(mockUser)
+    expect(user?.email).toBe('detalhes@grafica.com')
+    expect(user?.phone).toBe('+55 11 98888-7777')
+  })
+
+  it('preserva valores existentes ao salvar sem alterar email ou telefone', async () => {
+    const updateSpy = vi.spyOn(pb.collection('users'), 'update').mockResolvedValueOnce({
+      id: 'usr_unchanged',
+      name: 'Nome Modificado',
+      email: 'original@grafica.com',
+      phone: '+55 11 91234-5678',
+      role_id: 'role_1',
+      role_slug: 'comercial',
+      is_active: true,
+    } as any)
+
+    const existingUser = {
+      id: 'usr_unchanged',
+      name: 'Nome Antigo',
+      email: 'original@grafica.com',
+      phone: '+55 11 91234-5678',
+      role_id: 'role_1',
+      role_slug: 'comercial',
+      is_active: true,
+    }
+
+    // Ao salvar sem alterar email ou phone, os valores de userFormData enviados são os mesmos existentes
+    await usersAdminService.update(existingUser.id, {
+      name: 'Nome Modificado',
+      email: existingUser.email,
+      phone: existingUser.phone,
+      role_id: existingUser.role_id,
+      role_slug: existingUser.role_slug,
+      is_active: existingUser.is_active,
+    })
+
+    expect(updateSpy).toHaveBeenCalledWith('usr_unchanged', {
+      name: 'Nome Modificado',
+      email: 'original@grafica.com',
+      phone: '+55 11 91234-5678',
+      role_id: 'role_1',
+      role_slug: 'comercial',
+      is_active: true,
+    })
+  })
 })
