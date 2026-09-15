@@ -1,9 +1,17 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import type { Attendance, Client, KanbanColumn, KanbanStage, SlaConfig } from '@/types/crm'
+import type {
+  Attendance,
+  Client,
+  KanbanColumn,
+  KanbanStage,
+  SlaConfig,
+  ProductionOrder,
+} from '@/types/crm'
 import { attendancesService } from '@/services/attendances'
 import { clientsService } from '@/services/clients'
 import { columnsService } from '@/services/columns'
 import { quotesService } from '@/services/quotes'
+import { productionService } from '@/services/production'
 import { settingsService } from '@/services/settings'
 import { useRealtime } from '@/hooks/use-realtime'
 import {
@@ -19,6 +27,14 @@ import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 import ClientFormModal from '@/components/ClientFormModal'
 import EditColumnModal from '@/components/EditColumnModal'
 import CompleteAndArchiveModal from '@/components/CompleteAndArchiveModal'
+import ProductionOrderModal from '@/components/ProductionOrderModal'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +48,9 @@ import {
   Archive,
   RotateCcw,
   SlidersHorizontal,
+  Factory,
+  MessageSquare as MsgIcon,
+  ChevronRight,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -79,12 +98,24 @@ export default function KanbanPage() {
   const [draggedAttendanceId, setDraggedAttendanceId] = useState<string | null>(null)
   const [dragOverStageName, setDragOverStageName] = useState<string | null>(null)
 
+  // Cache de pedidos de produção por attendance_id (mapa de attendanceId -> ProductionOrder[])
+  const [attendanceOrdersMap, setAttendanceOrdersMap] = useState<Record<string, ProductionOrder[]>>(
+    {},
+  )
+
   // Modals state
   const [selectedClientForChat, setSelectedClientForChat] = useState<Client | null>(null)
   const [selectedAttendanceForChat, setSelectedAttendanceForChat] = useState<Attendance | null>(
     null,
   )
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
+  // Production Order Modal & Selector state
+  const [productionOrderModalOpen, setProductionOrderModalOpen] = useState(false)
+  const [selectedOrderForModal, setSelectedOrderForModal] = useState<ProductionOrder | null>(null)
+  const [productionOrdersSelectorOpen, setProductionOrdersSelectorOpen] = useState(false)
+  const [selectorOrdersList, setSelectorOrdersList] = useState<ProductionOrder[]>([])
+  const [selectorClientName, setSelectorClientName] = useState<string>('')
+  const [loadingProductionOrders, setLoadingProductionOrders] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
   const [newClientStage, setNewClientStage] = useState<string>('Novo contato')
@@ -110,6 +141,21 @@ export default function KanbanPage() {
   // Ref to track pendingInboundCountMap for lookup in realtime callbacks
   const pendingInboundCountRef = useRef<Record<string, number>>({})
   pendingInboundCountRef.current = pendingInboundCountMap
+
+  // Carrega e atualiza os pedidos de produção vinculados a um atendimento
+  const updateAttendanceProductionOrders = useCallback(async (attendanceId: string) => {
+    try {
+      const orders = await productionService.getByAttendanceId(attendanceId)
+      setAttendanceOrdersMap((prev) => ({
+        ...prev,
+        [attendanceId]: orders,
+      }))
+      return orders
+    } catch (err) {
+      console.error('Error fetching production orders for attendance:', err)
+      return []
+    }
+  }, [])
 
   // Helper para buscar firstUnansweredInbound e pendingInboundCount de um atendimento de forma otimizada
   const refreshAttendanceSlaStart = useCallback(
@@ -211,6 +257,23 @@ export default function KanbanPage() {
 
     return enriched
   }, [])
+
+  // Real-time subscription to 'production_orders' collection
+  useRealtime(
+    'production_orders',
+    useCallback(
+      (data: any) => {
+        const rec = data.record as ProductionOrder | undefined
+        if (!rec) return
+        const attId = rec.attendance_id
+        if (attId) {
+          updateAttendanceProductionOrders(attId)
+        }
+      },
+      [updateAttendanceProductionOrders],
+    ),
+    true,
+  )
 
   // Real-time subscription to 'attendances' collection
   useRealtime(
@@ -512,6 +575,21 @@ export default function KanbanPage() {
       setUnansweredInboundMap(slaMap)
       setPendingInboundCountMap(countMap)
 
+      // Carregar pedidos de produção vinculados aos atendimentos da etapa "Em produção" ou de todos os ativos
+      const prodOrdersMap: Record<string, ProductionOrder[]> = {}
+      const prodPromises = atts.map(async (att) => {
+        try {
+          const orders = await productionService.getByAttendanceId(att.id)
+          if (orders.length > 0) {
+            prodOrdersMap[att.id] = orders
+          }
+        } catch {
+          // Non-fatal
+        }
+      })
+      await Promise.all(prodPromises)
+      setAttendanceOrdersMap(prodOrdersMap)
+
       // BLOCO 41A: Mapear quotes em aberto por attendance_id
       // Considerar apenas status NÃO 'recusado' e NÃO 'expirado'
       // Se múltiplos, pegar o mais recente (ordenado por updated DESC)
@@ -570,6 +648,55 @@ export default function KanbanPage() {
       window.removeEventListener('quotes-updated', handleUpdate)
     }
   }, [])
+
+  // Manipulador para abrir o pedido de produção e o chat interno a partir do card "Em produção"
+  const handleOpenProductionForAttendance = async (attendance: Attendance) => {
+    setLoadingProductionOrders(true)
+    const clientName = attendance.expand?.client_id?.name || 'Cliente'
+    setSelectorClientName(clientName)
+
+    try {
+      // Buscar lista atualizada de pedidos deste atendimento
+      let orders = attendanceOrdersMap[attendance.id]
+      if (!orders || orders.length === 0) {
+        orders = await productionService.getByAttendanceId(attendance.id)
+        if (orders.length > 0) {
+          setAttendanceOrdersMap((prev) => ({
+            ...prev,
+            [attendance.id]: orders,
+          }))
+        }
+      }
+
+      if (orders.length === 0) {
+        toast({
+          title: 'Nenhum pedido de produção encontrado',
+          description: `Não há pedido de produção vinculado ao atendimento de "${clientName}".`,
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (orders.length === 1) {
+        // Exatamente 1 pedido: abre direto no ProductionOrderModal na aba de chat interno
+        setSelectedOrderForModal(orders[0])
+        setProductionOrderModalOpen(true)
+      } else {
+        // 1 ATTENDANCE -> N PEDIDOS: abre o seletor modal com a lista de pedidos para o vendedor escolher
+        setSelectorOrdersList(orders)
+        setProductionOrdersSelectorOpen(true)
+      }
+    } catch (err: any) {
+      console.error('Error opening production for attendance:', err)
+      toast({
+        title: 'Erro ao carregar produção',
+        description: err?.message || 'Não foi possível carregar os pedidos de produção.',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoadingProductionOrders(false)
+    }
+  }
 
   // Auto-open attendance chat drawer if attendance_id / attendanceId query param is present
   useEffect(() => {
@@ -984,6 +1111,7 @@ export default function KanbanPage() {
                     stageItems.map((att) => {
                       const clientObj = getClientFromAttendance(att)
                       const quoteInfo = attendanceQuotesMap[att.id]
+                      const linkedOrders = attendanceOrdersMap[att.id] || []
                       return (
                         <KanbanCard
                           key={att.id}
@@ -994,12 +1122,17 @@ export default function KanbanPage() {
                           column={column}
                           realQuote={quoteInfo?.latestQuote || null}
                           openQuotesCount={quoteInfo?.count || 0}
+                          linkedOrdersCount={linkedOrders.length}
                           slaConfig={slaConfig}
                           now={now}
                           onDragStart={(e) => handleDragStart(e, att.id)}
                           onClick={() => {
                             setClientToEdit(clientObj)
                             setEditModalOpen(true)
+                          }}
+                          onOpenProduction={(e) => {
+                            e.stopPropagation()
+                            handleOpenProductionForAttendance(att)
                           }}
                           onOpenChat={(e) => {
                             e.stopPropagation()
@@ -1101,6 +1234,94 @@ export default function KanbanPage() {
         attendanceId={attendanceToArchive?.id}
         onSuccess={() => loadData()}
       />
+
+      {/* Production Orders Selector Modal (1 Attendance -> N Pedidos) */}
+      <Dialog
+        open={productionOrdersSelectorOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setProductionOrdersSelectorOpen(false)
+            setSelectorOrdersList([])
+          }
+        }}
+      >
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Factory className="h-5 w-5 text-indigo-600" />
+              <span>Pedidos de Produção ({selectorOrdersList.length})</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              O atendimento de <strong>{selectorClientName}</strong> possui múltiplos pedidos de
+              produção. Selecione o pedido para abrir os detalhes e acessar o Chat Interno
+              exclusivo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 mt-2 max-h-[360px] overflow-y-auto">
+            {selectorOrdersList.map((order) => (
+              <div
+                key={order.id}
+                onClick={() => {
+                  setProductionOrdersSelectorOpen(false)
+                  setSelectedOrderForModal(order)
+                  setProductionOrderModalOpen(true)
+                }}
+                className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 cursor-pointer transition-all flex items-center justify-between gap-3 group"
+              >
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-indigo-600 transition-colors">
+                      {order.order_number}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    >
+                      {order.stage_name || 'Em produção'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 font-medium truncate">
+                    {order.product}
+                  </p>
+                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                    {order.total_value ? <span>{formatCurrency(order.total_value)}</span> : null}
+                    {order.promised_deadline && (
+                      <span>
+                        Prazo: {new Date(order.promised_deadline).toLocaleDateString('pt-BR')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 shrink-0">
+                  <span className="text-xs font-semibold flex items-center gap-1 group-hover:underline">
+                    <MsgIcon className="h-3.5 w-3.5" />
+                    Chat
+                  </span>
+                  <ChevronRight className="h-4 w-4" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Production Order Modal com Chat Interno (reutilização direta sem duplicação) */}
+      {selectedOrderForModal && (
+        <ProductionOrderModal
+          isOpen={productionOrderModalOpen}
+          onClose={() => {
+            setProductionOrderModalOpen(false)
+            setSelectedOrderForModal(null)
+          }}
+          orderToEdit={selectedOrderForModal}
+          initialTab="chat"
+          onSaved={() => {
+            loadData()
+          }}
+        />
+      )}
     </div>
   )
 }

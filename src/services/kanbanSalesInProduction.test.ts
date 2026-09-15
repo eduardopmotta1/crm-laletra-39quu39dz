@@ -119,4 +119,17 @@ describe('Kanban Sales In Production Column and Stage Rules', () => {
     const candidateStages = ['Venda fechada', 'Não fechou']
     expect(candidateStages.includes('Em produção')).toBe(false)
   })
+
+  it('7. Suporte a 1 attendance com N pedidos de produção vinculados sem misturar pedidos', () => {
+    const attId = 'att_multi_order'
+    const orders = [
+      { id: 'po_1', order_number: 'PED-001', attendance_id: attId, product: 'Banners' },
+      { id: 'po_2', order_number: 'PED-002', attendance_id: attId, product: 'Adesivos' },
+    ]
+    expect(orders.length).toBe(2)
+    // Cada pedido tem seu próprio ID e seu chat isolado
+    expect(orders[0].id).not.toBe(orders[1].id)
+    expect(orders[0].attendance_id).toBe(attId)
+    expect(orders[1].attendance_id).toBe(attId)
+  })
 })

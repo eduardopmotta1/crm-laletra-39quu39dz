@@ -57,6 +57,7 @@ import type {
   Client,
   Priority,
   ProductionDeliveryType,
+  ProductionOrderChatMessage,
 } from '@/types/crm'
 import type { Quote } from '@/types/quotes'
 import { productionService } from '@/services/production'
