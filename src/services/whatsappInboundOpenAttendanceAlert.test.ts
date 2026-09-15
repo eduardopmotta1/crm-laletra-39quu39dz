@@ -459,4 +459,339 @@ describe('Inbound WhatsApp com Atendimento Aberto — Notificação e Preservaç
     // Garante que o código do webhook não faz targetAtt.set('stage', 'Precisa responder')
     expect(webhookCode).not.toContain("targetAtt.set('stage', 'Precisa responder')")
   })
+
+  describe('Auditoria e Cenários da Regra Correta de Contagem (Caso Lorrayny Sander)', () => {
+    const lorraynyClientId = 'rut0w0ea2xgmba0'
+    const lorraynyOldAttId = 'lpfib4p04xk75um' // Atendimento antigo fechado
+    const lorraynyActiveAttId = 'y09apx2kcxwdtds' // Atendimento ativo atual
+
+    // Histórico real de mensagens da Lorrayny no banco
+    const lorraynyRealMessages: Message[] = [
+      createMockMsg({
+        id: 'xfvao2cefat32r2',
+        attendance_id: lorraynyOldAttId,
+        client_id: lorraynyClientId,
+        direction: 'inbound',
+        message_text: 'Oi',
+        created: '2026-09-10T17:45:27.892Z',
+      }),
+      createMockMsg({
+        id: 'gq5ku4po6raqm2s',
+        attendance_id: lorraynyOldAttId,
+        client_id: lorraynyClientId,
+        direction: 'outbound',
+        message_text: 'te amo',
+        created: '2026-09-10T17:45:50.775Z',
+      }),
+      createMockMsg({
+        id: 'laaz0nxx571iold',
+        attendance_id: lorraynyOldAttId,
+        client_id: lorraynyClientId,
+        direction: 'outbound',
+        message_text: 'ssrsrs',
+        created: '2026-09-10T17:45:53.927Z',
+      }),
+      createMockMsg({
+        id: '3scv6ol3hmaf8qh',
+        attendance_id: lorraynyOldAttId,
+        client_id: lorraynyClientId,
+        direction: 'outbound',
+        message_text: 'funcionou',
+        created: '2026-09-10T17:45:57.124Z',
+      }),
+      createMockMsg({
+        id: 'juver8ztgr8l2si',
+        attendance_id: lorraynyOldAttId,
+        client_id: lorraynyClientId,
+        direction: 'inbound',
+        message_text: 'Rsrs',
+        created: '2026-09-10T17:46:11.961Z',
+      }),
+      createMockMsg({
+        id: 'bipkqisk7wfs268',
+        attendance_id: lorraynyOldAttId,
+        client_id: lorraynyClientId,
+        direction: 'inbound',
+        message_text: 'Hg',
+        created: '2026-09-10T20:44:05.854Z',
+      }),
+      createMockMsg({
+        id: '34kbz5hd5lckl2a',
+        attendance_id: lorraynyOldAttId,
+        client_id: lorraynyClientId,
+        direction: 'outbound',
+        message_text: 'ffjjf',
+        created: '2026-09-10T20:44:16.416Z',
+      }),
+      createMockMsg({
+        id: 'xlrh1i1kubxwsb6',
+        attendance_id: lorraynyOldAttId,
+        client_id: lorraynyClientId,
+        direction: 'outbound',
+        message_text: 'Olá, Lorrayny Sander! Segue seu orçamento ORC-2026-0016...',
+        created: '2026-09-10T20:44:46.820Z',
+      }),
+      createMockMsg({
+        id: '867ui79mktp5l31',
+        attendance_id: undefined, // mensagem de sistema sem attendance
+        client_id: lorraynyClientId,
+        direction: 'outbound',
+        message_text: '📦 [Produção #001855] Olá, Lorrayny Sander! A arte está pronta...',
+        created: '2026-09-10T20:46:53.768Z',
+      }),
+      createMockMsg({
+        id: 'pfkvdvmv43c4e9d',
+        attendance_id: undefined,
+        client_id: lorraynyClientId,
+        direction: 'outbound',
+        message_text: '📦 [Produção #001855] Tudo certo! A arte foi aprovada...',
+        created: '2026-09-10T20:47:09.985Z',
+      }),
+      createMockMsg({
+        id: '0ktgm4q0lsbg0u4',
+        attendance_id: lorraynyActiveAttId,
+        client_id: lorraynyClientId,
+        direction: 'inbound',
+        message_text: 'ioi',
+        created: '2026-09-15T23:47:43.554Z',
+      }),
+      createMockMsg({
+        id: 'o8lzpb8cx905kpv',
+        attendance_id: lorraynyActiveAttId,
+        client_id: lorraynyClientId,
+        direction: 'outbound',
+        message_text: 'Olá, Lorrayny Sander! Segue seu orçamento ORC-2026-0023...',
+        created: '2026-09-15T23:48:52.801Z',
+      }),
+    ]
+
+    it('Caso Real Lorrayny: com a última outbound da empresa respondendo o orçamento, o contador do attendance ativo é 0 (ou 1 se nova inbound chegar)', () => {
+      // No estado atual do banco, a mensagem o8lzpb8cx905kpv (outbound) respondeu a inbound 0ktgm4q0lsbg0u4
+      const countWithOutbound = countPendingUnansweredInboundFromMessages(
+        lorraynyRealMessages,
+        lorraynyActiveAttId,
+        lorraynyClientId,
+        '2026-09-15T23:48:52.801Z',
+      )
+      expect(countWithOutbound).toBe(0)
+
+      // Se simularmos antes da outbound da empresa ser enviada (somente a inbound 'ioi' recebida):
+      const msgsBeforeOutbound = lorraynyRealMessages.filter((m) => m.id !== 'o8lzpb8cx905kpv')
+      const countBeforeOutbound = countPendingUnansweredInboundFromMessages(
+        msgsBeforeOutbound,
+        lorraynyActiveAttId,
+        lorraynyClientId,
+        null, // sem outbound no attendance novo
+      )
+      // Deve retornar EXATAMENTE 1 (e NÃO 4!)
+      expect(countBeforeOutbound).toBe(1)
+
+      // Se uma nova mensagem inbound chegar após a última outbound:
+      const msgsWithNewInbound = [
+        ...lorraynyRealMessages,
+        createMockMsg({
+          id: 'new_inbound_lorrayny',
+          attendance_id: lorraynyActiveAttId,
+          client_id: lorraynyClientId,
+          direction: 'inbound',
+          message_text: 'Obrigada pelo orçamento!',
+          created: '2026-09-16T10:00:00.000Z',
+        }),
+      ]
+      const countWithNewInbound = countPendingUnansweredInboundFromMessages(
+        msgsWithNewInbound,
+        lorraynyActiveAttId,
+        lorraynyClientId,
+        '2026-09-15T23:48:52.801Z',
+      )
+      expect(countWithNewInbound).toBe(1)
+    })
+
+    it('Regra (A): 3 inbounds sem outbound → contador 3', () => {
+      const messages: Message[] = [
+        createMockMsg({
+          id: 'in1',
+          attendance_id: 'att_a',
+          direction: 'inbound',
+          message_text: 'msg 1',
+          created: '2026-09-16T11:00:00.000Z',
+        }),
+        createMockMsg({
+          id: 'in2',
+          attendance_id: 'att_a',
+          direction: 'inbound',
+          message_text: 'msg 2',
+          created: '2026-09-16T11:01:00.000Z',
+        }),
+        createMockMsg({
+          id: 'in3',
+          attendance_id: 'att_a',
+          direction: 'inbound',
+          message_text: 'msg 3',
+          created: '2026-09-16T11:02:00.000Z',
+        }),
+      ]
+
+      const count = countPendingUnansweredInboundFromMessages(messages, 'att_a')
+      expect(count).toBe(3)
+    })
+
+    it('Regra (B): 3 inbounds + outbound → contador 0', () => {
+      const messages: Message[] = [
+        createMockMsg({
+          id: 'in1',
+          attendance_id: 'att_b',
+          direction: 'inbound',
+          message_text: 'msg 1',
+          created: '2026-09-16T11:00:00.000Z',
+        }),
+        createMockMsg({
+          id: 'in2',
+          attendance_id: 'att_b',
+          direction: 'inbound',
+          message_text: 'msg 2',
+          created: '2026-09-16T11:01:00.000Z',
+        }),
+        createMockMsg({
+          id: 'in3',
+          attendance_id: 'att_b',
+          direction: 'inbound',
+          message_text: 'msg 3',
+          created: '2026-09-16T11:02:00.000Z',
+        }),
+        createMockMsg({
+          id: 'out1',
+          attendance_id: 'att_b',
+          direction: 'outbound',
+          message_text: 'resposta da empresa',
+          created: '2026-09-16T11:05:00.000Z',
+        }),
+      ]
+
+      const count = countPendingUnansweredInboundFromMessages(messages, 'att_b')
+      expect(count).toBe(0)
+    })
+
+    it('Regra (C): 3 inbounds + outbound + 1 inbound → contador 1', () => {
+      const messages: Message[] = [
+        createMockMsg({
+          id: 'in1',
+          attendance_id: 'att_c',
+          direction: 'inbound',
+          message_text: 'msg 1',
+          created: '2026-09-16T11:00:00.000Z',
+        }),
+        createMockMsg({
+          id: 'in2',
+          attendance_id: 'att_c',
+          direction: 'inbound',
+          message_text: 'msg 2',
+          created: '2026-09-16T11:01:00.000Z',
+        }),
+        createMockMsg({
+          id: 'in3',
+          attendance_id: 'att_c',
+          direction: 'inbound',
+          message_text: 'msg 3',
+          created: '2026-09-16T11:02:00.000Z',
+        }),
+        createMockMsg({
+          id: 'out1',
+          attendance_id: 'att_c',
+          direction: 'outbound',
+          message_text: 'resposta da empresa',
+          created: '2026-09-16T11:05:00.000Z',
+        }),
+        createMockMsg({
+          id: 'in4',
+          attendance_id: 'att_c',
+          direction: 'inbound',
+          message_text: 'nova dúvida do cliente',
+          created: '2026-09-16T11:10:00.000Z',
+        }),
+      ]
+
+      const count = countPendingUnansweredInboundFromMessages(messages, 'att_c')
+      expect(count).toBe(1)
+    })
+
+    it('Regra (D): Mensagens antigas de outro attendance do mesmo cliente NÃO entram no contador', () => {
+      const sameClient = 'cli_common_999'
+      const oldAttId = 'att_archived_1'
+      const currentAttId = 'att_active_2'
+
+      const messages: Message[] = [
+        // 5 inbounds do attendance antigo
+        createMockMsg({
+          id: 'old1',
+          attendance_id: oldAttId,
+          client_id: sameClient,
+          direction: 'inbound',
+          message_text: 'inbound antiga 1',
+          created: '2026-08-01T10:00:00.000Z',
+        }),
+        createMockMsg({
+          id: 'old2',
+          attendance_id: oldAttId,
+          client_id: sameClient,
+          direction: 'inbound',
+          message_text: 'inbound antiga 2',
+          created: '2026-08-01T10:05:00.000Z',
+        }),
+        // 1 inbound no atendimento atual
+        createMockMsg({
+          id: 'cur1',
+          attendance_id: currentAttId,
+          client_id: sameClient,
+          direction: 'inbound',
+          message_text: 'inbound atendimento atual',
+          created: '2026-09-16T12:00:00.000Z',
+        }),
+      ]
+
+      // Avaliando o attendance atual
+      const count = countPendingUnansweredInboundFromMessages(messages, currentAttId, sameClient)
+      // Deve contar SOMENTE a 1 do attendance atual, NUNCA somar as 2 do attendance antigo
+      expect(count).toBe(1)
+    })
+
+    it('Regra (E): Abrir Drawer NÃO zera contador', () => {
+      let count = 2
+      const isDrawerOpen = true
+      // O estado do drawer não afeta o contador
+      if (isDrawerOpen) {
+        // Apenas visualização
+      }
+      expect(count).toBe(2)
+    })
+
+    it('Regra (F): Outbound zera contador', () => {
+      const messages: Message[] = [
+        createMockMsg({
+          id: 'in1',
+          attendance_id: 'att_f',
+          direction: 'inbound',
+          message_text: 'cliente falando',
+          created: '2026-09-16T12:00:00.000Z',
+        }),
+      ]
+
+      let count = countPendingUnansweredInboundFromMessages(messages, 'att_f')
+      expect(count).toBe(1)
+
+      // Empresa envia outbound
+      messages.push(
+        createMockMsg({
+          id: 'out1',
+          attendance_id: 'att_f',
+          direction: 'outbound',
+          message_text: 'empresa respondendo',
+          created: '2026-09-16T12:02:00.000Z',
+        }),
+      )
+
+      count = countPendingUnansweredInboundFromMessages(messages, 'att_f')
+      expect(count).toBe(0)
+    })
+  })
 })

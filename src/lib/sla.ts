@@ -389,17 +389,41 @@ export async function fetchFirstUnansweredInbound(
   if (!attendanceId && !clientId) return null
 
   try {
+    let resolvedLastCompanyAt = lastCompanyMessageAt || null
+
+    // Se attendanceId estiver presente, o attendance é a fronteira estrita.
+    // Primeiro buscar se existe outbound registrada nas mensagens do atendimento mais recente que lastCompanyMessageAt
+    if (attendanceId) {
+      try {
+        const lastOutboundRes = await pb.collection<Message>('messages').getList(1, 1, {
+          filter: `attendance_id = "${attendanceId}" && direction = "outbound"`,
+          sort: '-created',
+          requestKey: null,
+          fields: 'created',
+        })
+        if (lastOutboundRes.items.length > 0) {
+          const latestOutboundCreated = lastOutboundRes.items[0].created
+          if (
+            !resolvedLastCompanyAt ||
+            new Date(latestOutboundCreated).getTime() > new Date(resolvedLastCompanyAt).getTime()
+          ) {
+            resolvedLastCompanyAt = latestOutboundCreated
+          }
+        }
+      } catch {
+        // Fallback para resolvedLastCompanyAt
+      }
+    }
+
     const filters: string[] = ['direction = "inbound"']
-    if (attendanceId && clientId) {
-      filters.push(`(attendance_id = "${attendanceId}" || client_id = "${clientId}")`)
-    } else if (attendanceId) {
+    if (attendanceId) {
       filters.push(`attendance_id = "${attendanceId}"`)
     } else if (clientId) {
       filters.push(`client_id = "${clientId}"`)
     }
 
-    if (lastCompanyMessageAt) {
-      filters.push(`created > "${lastCompanyMessageAt}"`)
+    if (resolvedLastCompanyAt) {
+      filters.push(`created > "${resolvedLastCompanyAt}"`)
     }
 
     const res = await pb.collection<Message>('messages').getList(1, 1, {
@@ -421,6 +445,8 @@ export async function fetchFirstUnansweredInbound(
 
 /**
  * Helper para calcular firstUnansweredInbound a partir de uma lista local de mensagens já carregadas.
+ * ATTENDANCE É A FRONTEIRA: quando attendanceId é fornecido, avalia estritamente mensagens
+ * pertencentes àquele attendance (m.attendance_id === attendanceId).
  */
 export function resolveFirstUnansweredInboundFromMessages(
   messages: Message[],
@@ -430,10 +456,11 @@ export function resolveFirstUnansweredInboundFromMessages(
 ): string | null {
   if (!messages || messages.length === 0) return null
 
-  // Filtrar mensagens relacionadas a este atendimento/cliente
+  // ATTENDANCE É A FRONTEIRA: se attendanceId estiver presente, filtrar estritamente por ele.
+  // Somente se attendanceId NÃO estiver presente usa clientId como fallback.
   const relevant = messages.filter((m) => {
-    if (attendanceId && m.attendance_id === attendanceId) return true
-    if (clientId && m.client_id === clientId) return true
+    if (attendanceId) return m.attendance_id === attendanceId
+    if (clientId) return m.client_id === clientId
     return false
   })
 
@@ -472,13 +499,19 @@ export function resolveFirstUnansweredInboundFromMessages(
 /**
  * CÁLCULO DERIVADO DE MENSAGENS INBOUND PENDENTES:
  * Conta quantas mensagens inbound do cliente estão aguardando resposta da empresa
- * naquele attendance (ou cliente como fallback se attendance_id ainda não foi atribuído).
+ * naquele attendance.
+ *
+ * ATTENDANCE É A FRONTEIRA:
+ * Quando attendanceId é informado, a contagem é estritamente do attendance.
+ * NÃO soma mensagens de outros attendances do mesmo cliente nem mensagens órfãs.
+ * Somente quando attendanceId não existe (ex: cliente sem attendance criado ainda), usa clientId como fallback.
  *
  * Regras de contagem:
- * - Mensagens INBOUND posteriores à última mensagem OUTBOUND da empresa no atendimento/cliente.
- * - Se não houver nenhuma outbound ainda: conta todas as mensagens INBOUND do atendimento (primeiro ciclo).
- * - Se houver outbound mais recente que todas as inbounds: retorna 0 (cliente respondido).
- * - A contagem NÃO é zerada pela simples abertura do Drawer; somente o envio de outbound encerra o ciclo.
+ * - Localiza a última mensagem OUTBOUND daquele attendance (ou lastCompanyMessageAt).
+ * - Conta SOMENTE mensagens INBOUND daquele attendance onde created > created da última outbound.
+ * - Se não houver outbound no attendance: conta todas as mensagens INBOUND daquele attendance.
+ * - Se houver outbound mais recente que todas as inbounds: retorna 0 (empresa respondeu).
+ * - A contagem NÃO é zerada pela simples abertura do Drawer; somente nova outbound encerra o ciclo.
  */
 export function countPendingUnansweredInboundFromMessages(
   messages: Message[],
@@ -488,9 +521,11 @@ export function countPendingUnansweredInboundFromMessages(
 ): number {
   if (!messages || messages.length === 0) return 0
 
+  // ATTENDANCE É A FRONTEIRA: se attendanceId estiver presente, filtrar estritamente por ele.
+  // Somente usa clientId se attendanceId não for especificado.
   const relevant = messages.filter((m) => {
-    if (attendanceId && m.attendance_id === attendanceId) return true
-    if (clientId && m.client_id === clientId) return true
+    if (attendanceId) return m.attendance_id === attendanceId
+    if (clientId) return m.client_id === clientId
     return false
   })
 
@@ -521,9 +556,10 @@ export function countPendingUnansweredInboundFromMessages(
 }
 
 /**
- * Consulta no backend a quantidade de mensagens inbound não respondidas para um attendance.
- * Se lastCompanyMessageAt for fornecido e lastCompanyMessageAt >= lastCustomerMessageAt, retorna 0 de imediato.
- * Caso contrário, conta as mensagens inbound criadas após lastCompanyMessageAt.
+ * Consulta no backend a quantidade de mensagens inbound não respondidas para um attendance aberto.
+ * ATTENDANCE É A FRONTEIRA:
+ * - Filtra estritamente por attendance_id quando attendanceId é fornecido (não soma outros attendances do client_id).
+ * - Identifica a última outbound daquele attendance e conta apenas inbounds criadas posteriormente.
  */
 export async function fetchPendingInboundCount(
   attendanceId: string,
@@ -533,17 +569,42 @@ export async function fetchPendingInboundCount(
   if (!attendanceId && !clientId) return 0
 
   try {
+    let resolvedLastCompanyAt = lastCompanyMessageAt || null
+
+    // Se attendanceId estiver presente, buscar se existe outbound no banco para este attendance
+    // para garantir o corte exato mesmo se lastCompanyMessageAt estiver desatualizado ou nulo
+    if (attendanceId) {
+      try {
+        const lastOutboundRes = await pb.collection<Message>('messages').getList(1, 1, {
+          filter: `attendance_id = "${attendanceId}" && direction = "outbound"`,
+          sort: '-created',
+          requestKey: null,
+          fields: 'created',
+        })
+        if (lastOutboundRes.items.length > 0) {
+          const latestOutboundCreated = lastOutboundRes.items[0].created
+          if (
+            !resolvedLastCompanyAt ||
+            new Date(latestOutboundCreated).getTime() > new Date(resolvedLastCompanyAt).getTime()
+          ) {
+            resolvedLastCompanyAt = latestOutboundCreated
+          }
+        }
+      } catch {
+        // Fallback para resolvedLastCompanyAt
+      }
+    }
+
     const filters: string[] = ['direction = "inbound"']
-    if (attendanceId && clientId) {
-      filters.push(`(attendance_id = "${attendanceId}" || client_id = "${clientId}")`)
-    } else if (attendanceId) {
+    if (attendanceId) {
+      // ATTENDANCE É A FRONTEIRA: nunca somar client_id quando attendanceId está presente
       filters.push(`attendance_id = "${attendanceId}"`)
     } else if (clientId) {
       filters.push(`client_id = "${clientId}"`)
     }
 
-    if (lastCompanyMessageAt) {
-      filters.push(`created > "${lastCompanyMessageAt}"`)
+    if (resolvedLastCompanyAt) {
+      filters.push(`created > "${resolvedLastCompanyAt}"`)
     }
 
     // Usar perPage 50 com getList para obter totalItems de forma barata

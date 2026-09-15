@@ -459,9 +459,16 @@ export default function KanbanPage() {
       const msg = data.record as unknown as Partial<Message>
       if (!msg || !msg.id) return
 
+      // ATTENDANCE É A FRONTEIRA: se a mensagem possui attendance_id explícito,
+      // associar estritamente àquele attendance. Se não possuir attendance_id (mensagem órfã/avulsa),
+      // localizar attendance aberto (não arquivado) do cliente.
       const attId =
-        msg.attendance_id || attendancesRef.current.find((a) => a.client_id === msg.client_id)?.id
+        msg.attendance_id ||
+        attendancesRef.current.find((a) => a.client_id === msg.client_id && !a.is_archived)?.id
       if (!attId) return
+
+      // Se a mensagem possui attendance_id diferente de attId, não atribuir a este card
+      if (msg.attendance_id && msg.attendance_id !== attId) return
 
       if (data.action === 'create' || data.action === 'update') {
         if (msg.direction === 'outbound') {
