@@ -614,39 +614,218 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                   targetAtt.get('stage'),
                 )
               } else {
-                // 3. SE NÃO EXISTIR atendimento aberto:
-                // - Criar exatamente 1 novo attendance para o cliente.
-                // - stage = "Novo contato", is_archived = false.
-                // - Vincular a mensagem recebida ao novo attendance.
-                // - Preencher last_customer_message_at com timestamp ISO completo.
-                // - source = "whatsapp" (campo verificado na collection attendances).
-                // - assigned_to: herdar do cliente se existir; não inventar responsável.
-                const attendancesCol = $app.findCollectionByNameOrId('attendances')
-                const newAtt = new Record(attendancesCol)
-                newAtt.set('client_id', clientId)
-                newAtt.set('stage', 'Novo contato')
-                newAtt.set('is_archived', false)
-                newAtt.set('last_customer_message_at', currentTimestampIso)
-                newAtt.set('source', 'whatsapp')
+                // 3. FALLBACK PARA VENDA RECÉM-FECHADA (Janela de Continuidade: 15 minutos)
+                // Se NÃO existir atendimento aberto comercial, antes de criar novo attendance,
+                // verificar se o cliente possui atendimento em "Venda fechada" (não arquivado ou arquivado)
+                // fechado há <= 15 minutos ou com continuação recente (<= 15 min da última mensagem inbound vinculada).
+                const CLOSED_DEAL_CONTINUITY_WINDOW_MS = 15 * 60 * 1000 // 15 minutos
+                const currentMsgMs = new Date(currentTimestampIso).getTime()
 
-                const clientAssignedTo = foundClient.getString
-                  ? foundClient.getString('assigned_to')
-                  : foundClient.get('assigned_to')
-                if (clientAssignedTo) {
-                  newAtt.set('assigned_to', clientAssignedTo)
+                let fallbackClosedAtt = null
+
+                try {
+                  // Buscar atendimentos do cliente em "Venda fechada" (ordenados pelo mais recente atualizado/criado)
+                  const closedAttFilter =
+                    "client_id = '" + clientId + "' && stage = 'Venda fechada'"
+                  const candidateClosedAtts = $app.findRecordsByFilter(
+                    'attendances',
+                    closedAttFilter,
+                    '-updated',
+                    5,
+                    0,
+                  )
+
+                  if (candidateClosedAtts && candidateClosedAtts.length > 0) {
+                    for (let cIdx = 0; cIdx < candidateClosedAtts.length; cIdx++) {
+                      const candidate = candidateClosedAtts[cIdx]
+                      let closedEventMs = 0
+
+                      // 1. Tentar buscar transição em stage_transitions (to_stage = 'Venda fechada')
+                      try {
+                        const transFilter =
+                          "attendance_id = '" + candidate.id + "' && to_stage = 'Venda fechada'"
+                        const transitions = $app.findRecordsByFilter(
+                          'stage_transitions',
+                          transFilter,
+                          '-created',
+                          1,
+                          0,
+                        )
+                        if (transitions && transitions.length > 0) {
+                          const transCreated = transitions[0].getString
+                            ? transitions[0].getString('created')
+                            : String(transitions[0].get('created') || '')
+                          if (transCreated) {
+                            closedEventMs = new Date(transCreated).getTime()
+                          }
+                        }
+                      } catch (tLookupErr) {
+                        console.warn(
+                          '[WHATSAPP WEBHOOK POST] Aviso ao buscar stage_transitions para fallback:',
+                          tLookupErr,
+                        )
+                      }
+
+                      // 2. Se não houver stage_transition, usar campos de data do attendance (closed_at, updated, created)
+                      if (!closedEventMs || isNaN(closedEventMs)) {
+                        const closedAtStr = candidate.getString
+                          ? candidate.getString('closed_at')
+                          : String(candidate.get('closed_at') || '')
+                        if (closedAtStr) {
+                          closedEventMs = new Date(closedAtStr).getTime()
+                        }
+                      }
+
+                      if (!closedEventMs || isNaN(closedEventMs)) {
+                        const updatedStr = candidate.getString
+                          ? candidate.getString('updated')
+                          : String(candidate.get('updated') || '')
+                        if (updatedStr) {
+                          closedEventMs = new Date(updatedStr).getTime()
+                        }
+                      }
+
+                      if (!closedEventMs || isNaN(closedEventMs)) {
+                        const createdStr = candidate.getString
+                          ? candidate.getString('created')
+                          : String(candidate.get('created') || '')
+                        if (createdStr) {
+                          closedEventMs = new Date(createdStr).getTime()
+                        }
+                      }
+
+                      // 3. Regra de continuidade para mensagens posteriores (Item 9):
+                      // Se uma mensagem anterior foi vinculada ao attendance fechado,
+                      // considerar também o last_customer_message_at para evitar corte aos 15:01
+                      let lastCustomerMsgMs = 0
+                      const lastCustomerMsgStr = candidate.getString
+                        ? candidate.getString('last_customer_message_at')
+                        : String(candidate.get('last_customer_message_at') || '')
+                      if (lastCustomerMsgStr) {
+                        lastCustomerMsgMs = new Date(lastCustomerMsgStr).getTime()
+                      }
+
+                      // Determina se está dentro da janela:
+                      // - Base primária: tempo decorrido desde o fechamento <= 15 min
+                      // - Continuidade da mesma sequência: última inbound vinculada há <= 15 min
+                      const isWithinClosingWindow =
+                        closedEventMs > 0 &&
+                        currentMsgMs >= closedEventMs &&
+                        currentMsgMs - closedEventMs <= CLOSED_DEAL_CONTINUITY_WINDOW_MS
+
+                      const isWithinFollowUpSequence =
+                        lastCustomerMsgMs > 0 &&
+                        currentMsgMs >= lastCustomerMsgMs &&
+                        currentMsgMs - lastCustomerMsgMs <= CLOSED_DEAL_CONTINUITY_WINDOW_MS
+
+                      // Suporte adicional: se relógios tiverem pequena discrepância negativa (mensagens quase simultâneas)
+                      const isSimultaneousClose =
+                        closedEventMs > 0 &&
+                        Math.abs(currentMsgMs - closedEventMs) <= CLOSED_DEAL_CONTINUITY_WINDOW_MS
+
+                      if (
+                        isWithinClosingWindow ||
+                        isWithinFollowUpSequence ||
+                        isSimultaneousClose
+                      ) {
+                        // Reforço opcional com production_order vinculada (se existir, confirma contexto de produção)
+                        let hasLinkedProdOrder = false
+                        try {
+                          const prodOrders = $app.findRecordsByFilter(
+                            'production_orders',
+                            "attendance_id = '" + candidate.id + "'",
+                            '-created',
+                            1,
+                            0,
+                          )
+                          if (prodOrders && prodOrders.length > 0) {
+                            hasLinkedProdOrder = true
+                          }
+                        } catch (_) {}
+
+                        fallbackClosedAtt = candidate
+                        console.log(
+                          '[WHATSAPP WEBHOOK POST] Inbound vinculada a venda recém-fechada (continuidade <=15min): attendance ' +
+                            candidate.id +
+                            ' | is_archived: ' +
+                            Boolean(
+                              candidate.getBool
+                                ? candidate.getBool('is_archived')
+                                : candidate.get('is_archived'),
+                            ) +
+                            ' | has_production_order: ' +
+                            hasLinkedProdOrder,
+                        )
+                        break
+                      } else {
+                        console.log(
+                          '[WHATSAPP WEBHOOK POST] Janela de continuidade expirada para attendance em "Venda fechada": ' +
+                            candidate.id +
+                            ' | Fechamento: ' +
+                            new Date(closedEventMs).toISOString() +
+                            ' | Diferença: ' +
+                            Math.round((currentMsgMs - closedEventMs) / 1000) +
+                            's (limite: ' +
+                            CLOSED_DEAL_CONTINUITY_WINDOW_MS / 1000 +
+                            's)',
+                        )
+                      }
+                    }
+                  }
+                } catch (fallbackSearchErr) {
+                  console.warn(
+                    '[WHATSAPP WEBHOOK POST] Aviso ao buscar fallback de venda recém-fechada:',
+                    fallbackSearchErr,
+                  )
                 }
 
-                $app.save(newAtt)
-                attendanceId = newAtt.id
+                if (fallbackClosedAtt) {
+                  // VINCULAR AO ATTENDANCE RECÉM-FECHADO SEM REABRIR O FUNIL:
+                  // - NÃO mudar stage (permanece "Venda fechada").
+                  // - NÃO mudar is_archived (permanece arquivado se estiver arquivado).
+                  // - NÃO disparar notificação/SLA nem voltar para "Precisa responder".
+                  // - Atualizar last_customer_message_at para registrar continuidade.
+                  attendanceId = fallbackClosedAtt.id
+                  fallbackClosedAtt.set('last_customer_message_at', currentTimestampIso)
+                  $app.save(fallbackClosedAtt)
+                  console.log(
+                    '[WHATSAPP WEBHOOK POST] Atendimento recém-fechado atualizado com last_customer_message_at sem reabrir funil:',
+                    attendanceId,
+                  )
+                } else {
+                  // 4. SE NÃO EXISTIR atendimento aberto E NÃO for venda recém-fechada:
+                  // - Criar exatamente 1 novo attendance para o cliente ("Novo contato").
+                  // - stage = "Novo contato", is_archived = false.
+                  // - Preencher last_customer_message_at com timestamp ISO completo.
+                  // - source = "whatsapp" (campo verificado na collection attendances).
+                  // - assigned_to: herdar do cliente se existir; não inventar responsável.
+                  const attendancesCol = $app.findCollectionByNameOrId('attendances')
+                  const newAtt = new Record(attendancesCol)
+                  newAtt.set('client_id', clientId)
+                  newAtt.set('stage', 'Novo contato')
+                  newAtt.set('is_archived', false)
+                  newAtt.set('last_customer_message_at', currentTimestampIso)
+                  newAtt.set('source', 'whatsapp')
 
-                console.log(
-                  '[WHATSAPP WEBHOOK POST] Novo atendimento criado com sucesso:',
-                  attendanceId,
-                  'para o cliente:',
-                  clientId,
-                  '| assigned_to:',
-                  clientAssignedTo || 'nenhum',
-                )
+                  const clientAssignedTo = foundClient.getString
+                    ? foundClient.getString('assigned_to')
+                    : foundClient.get('assigned_to')
+                  if (clientAssignedTo) {
+                    newAtt.set('assigned_to', clientAssignedTo)
+                  }
+
+                  $app.save(newAtt)
+                  attendanceId = newAtt.id
+
+                  console.log(
+                    '[WHATSAPP WEBHOOK POST] Novo atendimento criado com sucesso:',
+                    attendanceId,
+                    'para o cliente:',
+                    clientId,
+                    '| assigned_to:',
+                    clientAssignedTo || 'nenhum',
+                  )
+                }
               }
             } catch (attProcErr) {
               console.error('[WHATSAPP WEBHOOK POST] Erro crítico ao resolver/criar atendimento:', {
