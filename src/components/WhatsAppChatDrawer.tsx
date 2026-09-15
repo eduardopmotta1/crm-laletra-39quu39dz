@@ -40,6 +40,7 @@ import {
   Trash2,
   ThumbsUp,
   ThumbsDown,
+  Link2,
   Lock,
   Download,
   FileImage,
@@ -195,6 +196,11 @@ export default function WhatsAppChatDrawer({
   const [newAttendanceConfirmOpen, setNewAttendanceConfirmOpen] = useState(false)
   const [isCreatingAttendanceFromUnassigned, setIsCreatingAttendanceFromUnassigned] =
     useState(false)
+
+  // Vincular a Pedido de Produção Existente a partir de mensagens sem pedido associado
+  const [linkExistingOrderModalOpen, setLinkExistingOrderModalOpen] = useState(false)
+  const [selectedOrderToLink, setSelectedOrderToLink] = useState<ProductionOrder | null>(null)
+  const [isLinkingToExistingOrder, setIsLinkingToExistingOrder] = useState(false)
 
   // Quote View Details Modal
   const [selectedQuoteToView, setSelectedQuoteToView] = useState<Quote | null>(null)
@@ -402,6 +408,7 @@ export default function WhatsAppChatDrawer({
           rejectDialogOpen ||
           confirmAddFileDialogOpen ||
           newAttendanceConfirmOpen ||
+          linkExistingOrderModalOpen ||
           requestRegistrationLinkModalOpen
         ) {
           return
@@ -421,6 +428,7 @@ export default function WhatsAppChatDrawer({
     deleteQuoteDialogOpen,
     sendQuoteModalOpen,
     newAttendanceConfirmOpen,
+    linkExistingOrderModalOpen,
     requestRegistrationLinkModalOpen,
     onClose,
   ])
@@ -1680,6 +1688,86 @@ export default function WhatsAppChatDrawer({
     }
   }
 
+  // Obter pedidos de produção elegíveis para vinculação
+  const eligibleProductionOrders = productionOrders.filter(
+    (o) =>
+      o.is_completed !== true &&
+      o.is_archived !== true &&
+      o.stage_internal_id !== 'completed' &&
+      !!o.attendance_id &&
+      o.attendance_id.trim() !== '',
+  )
+
+  const handleOpenLinkExistingOrderModal = () => {
+    setSelectedOrderToLink(null)
+    setLinkExistingOrderModalOpen(true)
+  }
+
+  const handleConfirmLinkToExistingOrder = async () => {
+    if (!selectedOrderToLink || !selectedOrderToLink.attendance_id || isLinkingToExistingOrder) {
+      return
+    }
+
+    const targetAttendanceId = selectedOrderToLink.attendance_id
+    setIsLinkingToExistingOrder(true)
+
+    try {
+      // 1. Localizar o bloco atual de mensagens inbound sem attendance_id desse cliente
+      const unassignedInboundMsgs = messages.filter(
+        (m) => m.direction === 'inbound' && !m.attendance_id && m.client_id === displayClient.id,
+      )
+
+      if (unassignedInboundMsgs.length > 0) {
+        // Atualizar SOMENTE messages.attendance_id das mensagens inbound pendentes
+        for (const msg of unassignedInboundMsgs) {
+          try {
+            await whatsappService.updateMessage(msg.id, {
+              attendance_id: targetAttendanceId,
+            })
+          } catch (updateErr) {
+            console.error(
+              `[WhatsAppChatDrawer] Erro ao vincular mensagem ${msg.id} ao pedido existente:`,
+              updateErr,
+            )
+          }
+        }
+
+        // Atualizar mensagens na memória local
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.direction === 'inbound' && !m.attendance_id && m.client_id === displayClient.id
+              ? { ...m, attendance_id: targetAttendanceId }
+              : m,
+          ),
+        )
+      }
+
+      setLinkExistingOrderModalOpen(false)
+      setSelectedOrderToLink(null)
+
+      // Disparar sincronização com funil e listas
+      window.dispatchEvent(new CustomEvent('crm-client-updated'))
+      if (onClientUpdated) onClientUpdated()
+
+      toast({
+        title: 'Mensagens vinculadas ao pedido',
+        description: `Mensagens associadas ao Pedido #${selectedOrderToLink.order_number} com sucesso.`,
+      })
+
+      // Recarregar dados completos em segundo plano
+      loadClientData(displayClient.id, targetAttendanceId, { silent: true })
+    } catch (err: any) {
+      console.error('[WhatsAppChatDrawer] Erro ao vincular mensagens ao pedido existente:', err)
+      toast({
+        title: 'Erro ao vincular pedido',
+        description: err?.message || 'Não foi possível vincular as mensagens ao pedido.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsLinkingToExistingOrder(false)
+    }
+  }
+
   return (
     <>
       <div
@@ -1909,6 +1997,18 @@ export default function WhatsAppChatDrawer({
                       >
                         <Plus className="h-3 w-3" />
                         <span>Novo pedido</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handleOpenLinkExistingOrderModal}
+                        className="h-6 px-2 text-[11px] font-semibold bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 gap-1 shadow-xs"
+                        title="Vincular a pedido existente deste cliente"
+                        data-testid="btn-link-to-existing-order"
+                      >
+                        <Link2 className="h-3 w-3 text-amber-700 dark:text-amber-400" />
+                        <span>Vincular a pedido existente</span>
                       </Button>
                     </div>
                   </div>
@@ -4386,6 +4486,163 @@ export default function WhatsAppChatDrawer({
                 </>
               ) : (
                 'Criar novo pedido'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* DIALOG DE VINCULAÇÃO A PEDIDO EXISTENTE */}
+      <AlertDialog
+        open={linkExistingOrderModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedOrderToLink(null)
+          }
+          setLinkExistingOrderModalOpen(open)
+        }}
+      >
+        <AlertDialogContent
+          zIndexClass="z-[80]"
+          className="max-w-md sm:max-w-lg max-h-[90vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-amber-600" />
+              <span>Selecione o pedido relacionado</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-600 dark:text-slate-300">
+              Vincule as mensagens inbound sem pedido ao atendimento de um pedido ativo de{' '}
+              <strong className="text-slate-900 dark:text-white">{displayClient?.name}</strong>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="py-2 space-y-3 overflow-y-auto max-h-[50vh] pr-1">
+            {eligibleProductionOrders.length === 0 ? (
+              <div
+                data-testid="no-eligible-orders-alert"
+                className="p-4 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-center space-y-1.5"
+              >
+                <AlertCircle className="h-6 w-6 text-amber-600 mx-auto" />
+                <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                  Nenhum pedido ativo disponível para vinculação.
+                </p>
+                <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                  Não há pedidos em andamento com atendimento comercial ativo para este cliente. Se
+                  desejar, utilize a opção <strong>Novo pedido</strong> para abrir uma nova
+                  oportunidade.
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Selecione um pedido ativo abaixo:
+                </p>
+                <div className="space-y-2">
+                  {eligibleProductionOrders.map((ord) => {
+                    const isSelected = selectedOrderToLink?.id === ord.id
+                    return (
+                      <div
+                        key={ord.id}
+                        data-testid={`order-option-${ord.id}`}
+                        onClick={() => setSelectedOrderToLink(ord)}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all text-xs flex items-center justify-between gap-3 ${
+                          isSelected
+                            ? 'bg-amber-50/80 dark:bg-amber-950/50 border-amber-500 dark:border-amber-500 shadow-xs ring-1 ring-amber-500'
+                            : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 hover:border-amber-300 dark:hover:border-amber-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <input
+                            type="radio"
+                            name="selectedOrderToLink"
+                            id={`radio-order-${ord.id}`}
+                            checked={isSelected}
+                            onChange={() => setSelectedOrderToLink(ord)}
+                            className="h-4 w-4 text-amber-600 border-slate-300 focus:ring-amber-500 shrink-0"
+                          />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded text-[11px] shrink-0">
+                                #{ord.order_number}
+                              </span>
+                              <span
+                                className="font-semibold text-slate-800 dark:text-slate-100 truncate"
+                                title={ord.product}
+                              >
+                                {ord.product}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
+                              <span>
+                                Etapa:{' '}
+                                <strong className="text-slate-700 dark:text-slate-300 font-medium">
+                                  {ord.stage_name}
+                                </strong>
+                              </span>
+                              <span>•</span>
+                              <span>Data: {formatDateTime(ord.created).split(' ')[0]}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+
+            {/* Destaque de confirmação com o pedido escolhido claramente visível */}
+            {selectedOrderToLink && (
+              <div
+                data-testid="selected-order-highlight"
+                className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800/80 text-emerald-950 dark:text-emerald-200 space-y-1"
+              >
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-900 dark:text-emerald-100">
+                  <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>Pedido selecionado para vinculação:</span>
+                </div>
+                <div className="text-xs pl-5.5 space-y-0.5">
+                  <p>
+                    <strong className="font-mono">#{selectedOrderToLink.order_number}</strong> —{' '}
+                    <span>{selectedOrderToLink.product}</span>
+                  </p>
+                  <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">
+                    Etapa: {selectedOrderToLink.stage_name}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={isLinkingToExistingOrder}
+              onClick={() => setSelectedOrderToLink(null)}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmLinkToExistingOrder()
+              }}
+              disabled={
+                !selectedOrderToLink ||
+                eligibleProductionOrders.length === 0 ||
+                isLinkingToExistingOrder
+              }
+              className="bg-amber-600 hover:bg-amber-700 text-white focus:ring-amber-600 disabled:opacity-50"
+              data-testid="btn-confirm-link-to-existing-order"
+            >
+              {isLinkingToExistingOrder ? (
+                <>
+                  <Clock className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  <span>Vinculando...</span>
+                </>
+              ) : (
+                'Vincular ao pedido'
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
