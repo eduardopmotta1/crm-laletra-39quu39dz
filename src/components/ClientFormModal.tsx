@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select'
 import { type Client, type KanbanStage, type User, isWithin24HourWindow } from '@/types/crm'
 import { clientsService, type FindClientByPhoneResult } from '@/services/clients'
+import { lastInboundAt, isTimestampWithin24h } from '@/services/whatsappWindow'
 import { whatsappService, usersService } from '@/services/whatsapp'
 import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/context/AuthContext'
@@ -142,6 +143,8 @@ export default function ClientFormModal({
   const [sendingLinkWhatsApp, setSendingLinkWhatsApp] = useState(false)
   const [requestLinkMessageDraft, setRequestLinkMessageDraft] = useState<string>('')
   const [isEditingRequestLinkMessage, setIsEditingRequestLinkMessage] = useState(false)
+  const [isCheckingWindow, setIsCheckingWindow] = useState(false)
+  const [isWindowOpen, setIsWindowOpen] = useState(false)
 
   // Guarda síncrona para modais filhos — previne race condition no ciclo de fechamento Radix UI
   const openChildModalRef = useRef<'evaluations' | 'history' | 'quotes' | 'chat' | null>(null)
@@ -445,18 +448,36 @@ export default function ClientFormModal({
     return `Olá! Para mantermos seu cadastro atualizado, por favor preencha seus dados neste link:\n\n${link}\n\nÉ rapidinho e ajuda a agilizar seus próximos pedidos.`
   }
 
-  const check24hWindowForTarget = (targetClient: Client | null) => {
-    if (!targetClient) return false
-    // Fonte final de verdade: a última mensagem INBOUND do cliente
-    // Outbound nunca fecha ou invalida a janela
-    return isWithin24HourWindow(targetClient.last_message_at, targetClient.last_message_direction, {
-      lastCustomerMessageAt:
-        phoneMatch?.activeAttendance?.last_customer_message_at ||
-        (targetClient as any).last_customer_message_at ||
-        (targetClient.last_message_direction === 'inbound'
-          ? targetClient.last_message_at
-          : undefined),
-    })
+  const check24hWindowForTargetAsync = async (targetClient: Client | null): Promise<boolean> => {
+    if (!targetClient || !targetClient.id) return false
+    try {
+      const resolvedInboundIso = await lastInboundAt(
+        targetClient.id,
+        phoneMatch?.activeAttendance?.id || null,
+        {
+          attendanceLastCustomerMessageAt:
+            phoneMatch?.activeAttendance?.last_customer_message_at ||
+            (targetClient as any).last_customer_message_at ||
+            null,
+        },
+      )
+      return isTimestampWithin24h(resolvedInboundIso)
+    } catch (err) {
+      console.warn('[ClientFormModal] Erro ao consultar janela 24h via lastInboundAt:', err)
+      // Fallback defensivo com a função pura usando dados locais se disponíveis
+      return isWithin24HourWindow(
+        targetClient.last_message_at,
+        targetClient.last_message_direction,
+        {
+          lastCustomerMessageAt:
+            phoneMatch?.activeAttendance?.last_customer_message_at ||
+            (targetClient as any).last_customer_message_at ||
+            (targetClient.last_message_direction === 'inbound'
+              ? targetClient.last_message_at
+              : undefined),
+        },
+      )
+    }
   }
 
   const handleOpenRequestLinkModal = async () => {
@@ -480,7 +501,18 @@ export default function ClientFormModal({
     setRequestLinkMessageDraft(defaultRequestLinkMessage(linkUrl))
     setIsEditingRequestLinkMessage(false)
     setCopiedLink(false)
+
+    // Avaliação prévia assíncrona da janela de 24h para exibição do modal
+    setIsCheckingWindow(true)
     setRequestLinkModalOpen(true)
+    try {
+      const open = await check24hWindowForTargetAsync(activeClientTarget)
+      setIsWindowOpen(open)
+    } catch {
+      setIsWindowOpen(false)
+    } finally {
+      setIsCheckingWindow(false)
+    }
   }
 
   const handleSendLinkViaWhatsApp = async () => {
@@ -495,8 +527,8 @@ export default function ClientFormModal({
       return
     }
 
-    // Validação da Janela de 24h com a regra existente do CRM
-    const within24h = check24hWindowForTarget(activeClientTarget)
+    // Validação da Janela de 24h com a regra GLOBAL completa da janela Meta
+    const within24h = await check24hWindowForTargetAsync(activeClientTarget)
     if (!within24h) {
       toast({
         title: 'Janela de 24h fechada',
@@ -1515,106 +1547,106 @@ export default function ClientFormModal({
             </div>
 
             {/* Seção de Envio pelo WhatsApp com verificação da Janela de 24h */}
-            {(() => {
-              const within24h = check24hWindowForTarget(activeClientTarget)
-              return (
-                <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                      <MessageSquare className="h-3.5 w-3.5 text-emerald-600" />
-                      Enviar pelo WhatsApp do Cliente
-                    </label>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      {activeClientTarget?.phone || formData.phone}
+            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <MessageSquare className="h-3.5 w-3.5 text-emerald-600" />
+                  Enviar pelo WhatsApp do Cliente
+                </label>
+                <span className="text-[11px] font-mono text-slate-500">
+                  {activeClientTarget?.phone || formData.phone}
+                </span>
+              </div>
+
+              {isCheckingWindow ? (
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2 text-xs text-slate-500">
+                  <Clock className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                  <span>Verificando janela de 24h do WhatsApp...</span>
+                </div>
+              ) : !isWindowOpen ? (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 text-xs space-y-2">
+                  <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">Janela de 24h fechada.</p>
+                      <p className="text-amber-800 dark:text-amber-300 text-[11px] mt-0.5 leading-relaxed">
+                        Não é permitido enviar mensagem de texto livre fora da janela de 24 horas.
+                        Para iniciar uma conversa com este cliente, utilize um Template Oficial
+                        aprovado pela Meta ou copie o link acima manualmente.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-1 flex items-center justify-between">
+                    <span className="text-[10px] text-amber-700 dark:text-amber-400">
+                      Regra oficial Meta / WhatsApp Cloud API
                     </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setRequestLinkModalOpen(false)
+                        openChild('chat')
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 px-3 gap-1 font-semibold"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Template Oficial
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Janela de 24h ativa • Mensagem pronta para disparo
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingRequestLinkMessage((prev) => !prev)}
+                      className="text-blue-600 hover:text-blue-700 dark:text-blue-400 text-[11px] font-semibold hover:underline"
+                    >
+                      {isEditingRequestLinkMessage ? 'Concluir edição' : 'Editar texto'}
+                    </button>
                   </div>
 
-                  {!within24h ? (
-                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 text-xs space-y-2">
-                      <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-semibold">Janela de 24h fechada.</p>
-                          <p className="text-amber-800 dark:text-amber-300 text-[11px] mt-0.5 leading-relaxed">
-                            Não é permitido enviar mensagem de texto livre fora da janela de 24
-                            horas. Para iniciar uma conversa com este cliente, utilize um Template
-                            Oficial aprovado pela Meta ou copie o link acima manualmente.
-                          </p>
-                        </div>
-                      </div>
-                      <div className="pt-1 flex items-center justify-between">
-                        <span className="text-[10px] text-amber-700 dark:text-amber-400">
-                          Regra oficial Meta / WhatsApp Cloud API
-                        </span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => {
-                            setRequestLinkModalOpen(false)
-                            openChild('chat')
-                          }}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 px-3 gap-1 font-semibold"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          Template Oficial
-                        </Button>
-                      </div>
-                    </div>
+                  {isEditingRequestLinkMessage ? (
+                    <Textarea
+                      value={requestLinkMessageDraft}
+                      onChange={(e) => setRequestLinkMessageDraft(e.target.value)}
+                      rows={4}
+                      className="text-xs bg-white dark:bg-slate-900 resize-none font-sans"
+                      placeholder="Digite a mensagem que acompanhará o link..."
+                    />
                   ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                          Janela de 24h ativa • Mensagem pronta para disparo
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditingRequestLinkMessage((prev) => !prev)}
-                          className="text-blue-600 hover:text-blue-700 dark:text-blue-400 text-[11px] font-semibold hover:underline"
-                        >
-                          {isEditingRequestLinkMessage ? 'Concluir edição' : 'Editar texto'}
-                        </button>
-                      </div>
-
-                      {isEditingRequestLinkMessage ? (
-                        <Textarea
-                          value={requestLinkMessageDraft}
-                          onChange={(e) => setRequestLinkMessageDraft(e.target.value)}
-                          rows={4}
-                          className="text-xs bg-white dark:bg-slate-900 resize-none font-sans"
-                          placeholder="Digite a mensagem que acompanhará o link..."
-                        />
-                      ) : (
-                        <div className="p-3 rounded-xl bg-[#d9fdd3]/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70 text-xs text-slate-800 dark:text-slate-100 whitespace-pre-wrap font-sans leading-relaxed shadow-inner max-h-36 overflow-y-auto">
-                          {requestLinkMessageDraft || defaultRequestLinkMessage(getPublicLinkUrl())}
-                        </div>
-                      )}
-
-                      <div className="flex justify-end pt-1">
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={sendingLinkWhatsApp || !getPublicLinkUrl()}
-                          onClick={handleSendLinkViaWhatsApp}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
-                        >
-                          {sendingLinkWhatsApp ? (
-                            <>
-                              <Clock className="h-3.5 w-3.5 animate-spin" />
-                              <span>Enviando pelo WhatsApp...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Send className="h-3.5 w-3.5" />
-                              <span>Enviar pelo WhatsApp</span>
-                            </>
-                          )}
-                        </Button>
-                      </div>
+                    <div className="p-3 rounded-xl bg-[#d9fdd3]/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70 text-xs text-slate-800 dark:text-slate-100 whitespace-pre-wrap font-sans leading-relaxed shadow-inner max-h-36 overflow-y-auto">
+                      {requestLinkMessageDraft || defaultRequestLinkMessage(getPublicLinkUrl())}
                     </div>
                   )}
+
+                  <div className="flex justify-end pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={sendingLinkWhatsApp || !getPublicLinkUrl()}
+                      onClick={handleSendLinkViaWhatsApp}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
+                    >
+                      {sendingLinkWhatsApp ? (
+                        <>
+                          <Clock className="h-3.5 w-3.5 animate-spin" />
+                          <span>Enviando pelo WhatsApp...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-3.5 w-3.5" />
+                          <span>Enviar pelo WhatsApp</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
-              )
-            })()}
+              )}
+            </div>
 
             <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 text-xs">
               <span className="text-slate-400 text-[11px]">
