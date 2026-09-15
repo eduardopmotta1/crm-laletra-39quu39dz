@@ -97,15 +97,34 @@ export default function ProductionCard({
       .toUpperCase()
   }
 
-  // 1. Check if order has a linked quote_id / quote_code
+  // 1. Parse items directly from structured description (instant, zero network latency)
+  const parsedFromDescription = useMemo(() => parseOrderItems(order), [order])
+
+  // Check if order has a linked quote_id / quote_code
   const quoteLink = useMemo(() => extractQuoteLinkFromOrder(order), [order])
 
-  // Try to load quote snapshot items if available and valid
+  // Only query quotes if description did NOT contain structured items (e.g. single fallback item)
+  // This avoids dozens/hundreds of simultaneous getOne('quotes') requests when the Kanban loads
+  const shouldFetchQuote = useMemo(() => {
+    if (!quoteLink.quoteId) return false
+    // If parseOrderItems already found multi-line structured items with dimensions/materials, no need to refetch quote
+    const hasStructuredItems =
+      parsedFromDescription.length > 1 ||
+      (parsedFromDescription.length === 1 &&
+        (Boolean(parsedFromDescription[0]?.material) ||
+          Boolean(parsedFromDescription[0]?.additionals)))
+    return !hasStructuredItems
+  }, [quoteLink.quoteId, parsedFromDescription])
+
+  // Try to load quote snapshot items only if strictly necessary
   useEffect(() => {
     let isMounted = true
-    if (quoteLink.quoteId) {
+    if (shouldFetchQuote && quoteLink.quoteId) {
       pb.collection('quotes')
-        .getOne<Quote>(quoteLink.quoteId)
+        .getOne<Quote>(quoteLink.quoteId, {
+          fields: 'id,items',
+          requestKey: null,
+        })
         .then((q) => {
           if (isMounted && q && Array.isArray(q.items) && q.items.length > 0) {
             const parsed = convertQuoteItemsToParsed(q.items)
@@ -121,15 +140,15 @@ export default function ProductionCard({
     return () => {
       isMounted = false
     }
-  }, [quoteLink.quoteId])
+  }, [shouldFetchQuote, quoteLink.quoteId])
 
-  // 2. Resolve items: use linked quote snapshot items or fallback to parser
+  // 2. Resolve items: use linked quote snapshot items or parsed items
   const items: ParsedProductionItem[] = useMemo(() => {
     if (linkedQuoteItems && linkedQuoteItems.length > 0) {
       return linkedQuoteItems
     }
-    return parseOrderItems(order)
-  }, [linkedQuoteItems, order])
+    return parsedFromDescription
+  }, [linkedQuoteItems, parsedFromDescription])
 
   const totalItemCount = items.length
   const displayedItems = expandedItems ? items : items.slice(0, 4)
@@ -157,7 +176,9 @@ export default function ProductionCard({
         title: 'Pedido arquivado',
         description: `O pedido ${order.order_number} foi arquivado com sucesso.`,
       })
-      window.dispatchEvent(new CustomEvent('production-order-updated'))
+      window.dispatchEvent(
+        new CustomEvent('production-order-updated', { detail: { orderId: order.id } }),
+      )
     } catch (err: any) {
       console.error('Error archiving order:', err)
       toast({

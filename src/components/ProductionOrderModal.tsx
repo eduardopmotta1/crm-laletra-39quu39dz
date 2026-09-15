@@ -72,7 +72,7 @@ import WhatsAppChatDrawer from '@/components/WhatsAppChatDrawer'
 interface ProductionOrderModalProps {
   isOpen: boolean
   onClose: () => void
-  onSaved: () => void
+  onSaved: (orderId?: string) => void
   orderToEdit?: ProductionOrder | null
   initialClientId?: string
   initialStageId?: string
@@ -368,7 +368,7 @@ export default function ProductionOrderModal({
           return
         }
 
-        const created = await productionService.create({
+        const createdOrder = await productionService.create({
           clientId: targetClientId,
           attendanceId: prefillData?.attendanceId,
           clientName: clientName.trim(),
@@ -404,13 +404,25 @@ export default function ProductionOrderModal({
 
         toast({
           title: '🎉 Pedido de Produção Criado!',
-          description: `Pedido ${created.order_number} gerado com sucesso para "${clientName}".`,
+          description: `Pedido ${createdOrder.order_number} gerado com sucesso para "${clientName}".`,
         })
+
+        onSaved(createdOrder?.id)
+        onClose()
+        window.dispatchEvent(
+          new CustomEvent('production-order-updated', { detail: { orderId: createdOrder?.id } }),
+        )
+        window.dispatchEvent(new CustomEvent('crm-client-updated'))
+        window.dispatchEvent(new CustomEvent('deal-updated'))
+        return
       }
 
-      onSaved()
+      const savedOrderId = orderToEdit.id
+      onSaved(savedOrderId)
       onClose()
-      window.dispatchEvent(new CustomEvent('production-order-updated'))
+      window.dispatchEvent(
+        new CustomEvent('production-order-updated', { detail: { orderId: savedOrderId } }),
+      )
       window.dispatchEvent(new CustomEvent('crm-client-updated'))
       window.dispatchEvent(new CustomEvent('deal-updated'))
     } catch (err: any) {

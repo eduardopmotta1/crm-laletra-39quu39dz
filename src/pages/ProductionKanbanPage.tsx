@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import type { ProductionOrder, ProductionStage, Priority, Client } from '@/types/crm'
 import { productionService } from '@/services/production'
 import { productionStagesService } from '@/services/productionStages'
@@ -47,7 +47,10 @@ import { toast } from '@/hooks/use-toast'
 export default function ProductionKanbanPage() {
   const [stages, setStages] = useState<ProductionStage[]>([])
   const [orders, setOrders] = useState<ProductionOrder[]>([])
+  const [archivedOrdersList, setArchivedOrdersList] = useState<ProductionOrder[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingArchived, setLoadingArchived] = useState(false)
+  const [archivedLoaded, setArchivedLoaded] = useState(false)
 
   // View Mode: Active production vs Archived
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active')
@@ -93,17 +96,23 @@ export default function ProductionKanbanPage() {
   const [reopening, setReopening] = useState(false)
 
   const loadVersionRef = useRef(0)
+  const archivedVersionRef = useRef(0)
 
-  const loadData = async () => {
+  // 1. Prioritized loading: load visible stages, active orders, and archived orders in parallel.
+  // Active orders render immediately to unblock the Kanban screen without waiting on archived data.
+  const loadData = useCallback(async () => {
     const version = ++loadVersionRef.current
     try {
-      const [stageList, orderList] = await Promise.all([
+      const [stageList, activeList, archivedList] = await Promise.all([
         productionStagesService.getVisible(),
-        productionService.getAll(undefined, '-created'),
+        productionService.getAllActiveForKanban('-created'),
+        productionService.getAllArchivedForList('-created'),
       ])
       if (version !== loadVersionRef.current) return
       setStages(stageList)
-      setOrders(orderList)
+      setOrders(activeList)
+      setArchivedOrdersList(archivedList)
+      setArchivedLoaded(true)
     } catch (err) {
       if (version !== loadVersionRef.current) return
       console.error('Error loading production data:', err)
@@ -112,96 +121,208 @@ export default function ProductionKanbanPage() {
         setLoading(false)
       }
     }
-  }
+  }, [])
+
+  // Lazy / on-demand load of archived orders when tab is clicked (if not already loaded)
+  const loadArchivedOrders = useCallback(async () => {
+    if (archivedLoaded) return
+    const version = ++archivedVersionRef.current
+    setLoadingArchived(true)
+    try {
+      const archivedList = await productionService.getAllArchivedForList('-created')
+      if (version !== archivedVersionRef.current) return
+      setArchivedOrdersList(archivedList)
+      setArchivedLoaded(true)
+    } catch (err) {
+      if (version !== archivedVersionRef.current) return
+      console.error('Error loading archived orders:', err)
+    } finally {
+      if (version === archivedVersionRef.current) {
+        setLoadingArchived(false)
+      }
+    }
+  }, [archivedLoaded])
+
+  // Handle specific order update event (fine-grained merge whenever orderId is provided)
+  const handleOrderUpdated = useCallback(
+    async (event: Event) => {
+      const customEvent = event as CustomEvent<{ orderId?: string }>
+      const orderId = customEvent.detail?.orderId
+
+      if (!orderId) {
+        // Fallback: full reload if no specific ID provided
+        loadData()
+        return
+      }
+
+      try {
+        const fresh = await productionService.getForKanbanById(orderId)
+        if (!fresh) {
+          // Order was deleted: remove from both active and archived
+          setOrders((prev) => prev.filter((o) => o.id !== orderId))
+          setArchivedOrdersList((prev) => prev.filter((o) => o.id !== orderId))
+          return
+        }
+
+        if (fresh.is_archived) {
+          // Moved to archived: remove from active and upsert in archived
+          setOrders((prev) => prev.filter((o) => o.id !== orderId))
+          setArchivedOrdersList((prev) => {
+            const exists = prev.some((o) => o.id === orderId)
+            if (exists) {
+              return prev.map((o) => (o.id === orderId ? fresh : o))
+            }
+            return [fresh, ...prev]
+          })
+        } else {
+          // Active order: remove from archived and upsert in active
+          setArchivedOrdersList((prev) => prev.filter((o) => o.id !== orderId))
+          setOrders((prev) => {
+            const exists = prev.some((o) => o.id === orderId)
+            if (exists) {
+              return prev.map((o) => (o.id === orderId ? fresh : o))
+            }
+            return [fresh, ...prev]
+          })
+        }
+      } catch (err) {
+        console.warn('Error fetching single updated order, falling back to full reload:', err)
+        loadData()
+      }
+    },
+    [loadData],
+  )
 
   useEffect(() => {
     loadData()
-    const handleUpdate = () => loadData()
-    window.addEventListener('production-order-updated', handleUpdate)
-    return () => window.removeEventListener('production-order-updated', handleUpdate)
-  }, [])
+    window.addEventListener('production-order-updated', handleOrderUpdated)
+    return () => window.removeEventListener('production-order-updated', handleOrderUpdated)
+  }, [loadData, handleOrderUpdated])
 
-  // Split orders into active and archived
-  const activeOrders = orders
-    .filter((o) => o.is_archived !== true)
-    .filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i)
+  // Active orders (memoized, deduplicated)
+  const activeOrders = useMemo(
+    () =>
+      orders
+        .filter((o) => o.is_archived !== true)
+        .filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i),
+    [orders],
+  )
 
-  const archivedOrders = orders
-    .filter((o) => o.is_archived === true)
-    .filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i)
+  // Archived orders (memoized, deduplicated)
+  const archivedOrders = useMemo(
+    () =>
+      archivedOrdersList
+        .filter((o) => o.is_archived === true)
+        .filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i),
+    [archivedOrdersList],
+  )
 
-  // Quick stats calculation for active production
-  const stats = {
-    total: activeOrders.length,
-    archivedTotal: archivedOrders.length,
-    overdue: activeOrders.filter((o) => {
+  // Quick stats calculation for active production (memoized)
+  const stats = useMemo(() => {
+    let overdue = 0
+    let dueToday = 0
+    let awaitingApproval = 0
+    let inProduction = 0
+    let ready = 0
+    let completed = 0
+
+    for (const o of activeOrders) {
       const dl = productionService.calculateDeadlineStatus(o.promised_deadline, o.is_completed)
-      return dl.status === 'overdue'
-    }).length,
-    dueToday: activeOrders.filter((o) => {
-      const dl = productionService.calculateDeadlineStatus(o.promised_deadline, o.is_completed)
-      return dl.status === 'due_today'
-    }).length,
-    awaitingApproval: activeOrders.filter((o) => o.stage_internal_id === 'awaiting_approval')
-      .length,
-    inProduction: activeOrders.filter((o) => o.stage_internal_id === 'in_production').length,
-    ready: activeOrders.filter((o) => o.stage_internal_id === 'ready').length,
-    completed: activeOrders.filter((o) => o.is_completed || o.stage_internal_id === 'completed')
-      .length,
-  }
+      if (dl.status === 'overdue') overdue++
+      if (dl.status === 'due_today') dueToday++
+      if (o.stage_internal_id === 'awaiting_approval') awaitingApproval++
+      if (o.stage_internal_id === 'in_production') inProduction++
+      if (o.stage_internal_id === 'ready') ready++
+      if (o.is_completed || o.stage_internal_id === 'completed') completed++
+    }
 
-  // Filter active orders for Kanban
-  const filteredActiveOrders = activeOrders.filter((o) => {
+    return {
+      total: activeOrders.length,
+      archivedTotal: archivedOrders.length,
+      overdue,
+      dueToday,
+      awaitingApproval,
+      inProduction,
+      ready,
+      completed,
+    }
+  }, [activeOrders, archivedOrders])
+
+  // Filter active orders for Kanban (memoized)
+  const filteredActiveOrders = useMemo(() => {
     const term = searchTerm.toLowerCase()
-    const matchesSearch =
-      o.order_number.toLowerCase().includes(term) ||
-      o.client_name.toLowerCase().includes(term) ||
-      o.client_phone.includes(term) ||
-      o.product.toLowerCase().includes(term) ||
-      (o.tracking_code && o.tracking_code.toLowerCase().includes(term))
+    return activeOrders.filter((o) => {
+      const matchesSearch =
+        !term ||
+        o.order_number.toLowerCase().includes(term) ||
+        o.client_name.toLowerCase().includes(term) ||
+        o.client_phone.includes(term) ||
+        o.product.toLowerCase().includes(term) ||
+        (o.tracking_code && o.tracking_code.toLowerCase().includes(term))
 
-    if (!matchesSearch) return false
+      if (!matchesSearch) return false
 
-    if (priorityFilter !== 'all' && o.priority !== priorityFilter) return false
+      if (priorityFilter !== 'all' && o.priority !== priorityFilter) return false
 
-    if (quickFilter === 'overdue') {
-      const dl = productionService.calculateDeadlineStatus(o.promised_deadline, o.is_completed)
-      return dl.status === 'overdue'
-    }
-    if (quickFilter === 'due_today') {
-      const dl = productionService.calculateDeadlineStatus(o.promised_deadline, o.is_completed)
-      return dl.status === 'due_today' || dl.status === 'due_tomorrow'
-    }
-    if (quickFilter === 'awaiting_art') {
-      return o.stage_internal_id === 'art_preparation' || o.stage_internal_id === 'awaiting_info'
-    }
-    if (quickFilter === 'awaiting_approval') {
-      return o.stage_internal_id === 'awaiting_approval'
-    }
-    if (quickFilter === 'in_production') {
-      return o.stage_internal_id === 'in_production'
-    }
-    if (quickFilter === 'ready') {
-      return o.stage_internal_id === 'ready' || o.stage_internal_id === 'shipped'
-    }
-    if (quickFilter === 'completed') {
-      return o.is_completed || o.stage_internal_id === 'completed'
-    }
+      if (quickFilter === 'overdue') {
+        const dl = productionService.calculateDeadlineStatus(o.promised_deadline, o.is_completed)
+        return dl.status === 'overdue'
+      }
+      if (quickFilter === 'due_today') {
+        const dl = productionService.calculateDeadlineStatus(o.promised_deadline, o.is_completed)
+        return dl.status === 'due_today' || dl.status === 'due_tomorrow'
+      }
+      if (quickFilter === 'awaiting_art') {
+        return o.stage_internal_id === 'art_preparation' || o.stage_internal_id === 'awaiting_info'
+      }
+      if (quickFilter === 'awaiting_approval') {
+        return o.stage_internal_id === 'awaiting_approval'
+      }
+      if (quickFilter === 'in_production') {
+        return o.stage_internal_id === 'in_production'
+      }
+      if (quickFilter === 'ready') {
+        return o.stage_internal_id === 'ready' || o.stage_internal_id === 'shipped'
+      }
+      if (quickFilter === 'completed') {
+        return o.is_completed || o.stage_internal_id === 'completed'
+      }
 
-    return true
-  })
+      return true
+    })
+  }, [activeOrders, searchTerm, priorityFilter, quickFilter])
 
-  // Filter archived orders for list view
-  const filteredArchivedOrders = archivedOrders.filter((o) => {
+  // Filter archived orders for list view (memoized)
+  const filteredArchivedOrders = useMemo(() => {
     const term = searchTerm.toLowerCase()
-    return (
-      o.order_number.toLowerCase().includes(term) ||
-      o.client_name.toLowerCase().includes(term) ||
-      o.client_phone.includes(term) ||
-      o.product.toLowerCase().includes(term) ||
-      (o.tracking_code && o.tracking_code.toLowerCase().includes(term))
-    )
-  })
+    return archivedOrders.filter((o) => {
+      if (!term) return true
+      return (
+        o.order_number.toLowerCase().includes(term) ||
+        o.client_name.toLowerCase().includes(term) ||
+        o.client_phone.includes(term) ||
+        o.product.toLowerCase().includes(term) ||
+        (o.tracking_code && o.tracking_code.toLowerCase().includes(term))
+      )
+    })
+  }, [archivedOrders, searchTerm])
+
+  // Map orders by stage for O(1) column rendering instead of repeated filteredActiveOrders.filter inside .map
+  const stageOrdersMap = useMemo(() => {
+    const map = new Map<string, ProductionOrder[]>()
+    for (const stage of stages) {
+      map.set(stage.internal_id, [])
+    }
+    for (const order of filteredActiveOrders) {
+      const list = map.get(order.stage_internal_id)
+      if (list) {
+        list.push(order)
+      } else {
+        map.set(order.stage_internal_id, [order])
+      }
+    }
+    return map
+  }, [stages, filteredActiveOrders])
 
   // Drag & Drop Handlers
   const handleDragStart = (e: React.DragEvent, orderId: string) => {
@@ -257,6 +378,7 @@ export default function ProductionKanbanPage() {
     const targetStageName = targetStage?.name || targetStageInternalId
 
     // Optimistic UI update
+    const prevOrderState = currentOrder
     setOrders((prev) =>
       prev.map((o) =>
         o.id === orderId
@@ -271,22 +393,29 @@ export default function ProductionKanbanPage() {
     )
 
     try {
-      await productionService.updateStage(orderId, targetStageInternalId, {
+      const updated = await productionService.updateStage(orderId, targetStageInternalId, {
         notes: `Pedido arrastado de "${currentOrder.stage_name}" para "${targetStageName}".`,
       })
+      // Update with fresh data returned from updateStage
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, ...updated, expand: o.expand } : o)),
+      )
       toast({
         title: 'Etapa de Produção Atualizada',
         description: `Pedido ${currentOrder.order_number} movido para "${targetStageName}".`,
       })
-      window.dispatchEvent(new CustomEvent('production-order-updated'))
+      window.dispatchEvent(
+        new CustomEvent('production-order-updated', { detail: { orderId: orderId } }),
+      )
     } catch (err: any) {
       console.error('Error updating production stage:', err)
+      // Rollback optimistic update
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? prevOrderState : o)))
       toast({
         title: 'Erro ao mover pedido',
         description: err?.message || 'Não foi possível atualizar a etapa.',
         variant: 'destructive',
       })
-      loadData()
     } finally {
       setDraggedOrderId(null)
     }
@@ -309,20 +438,16 @@ export default function ProductionKanbanPage() {
       const targetStageObj = stages.find((s) => s.internal_id === reopenTargetStage)
       const targetName = targetStageObj?.name || reopenTargetStage
 
-      // Optimistic: move from archived to active immediately
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id === orderToReopen.id
-            ? {
-                ...o,
-                is_archived: false,
-                stage_internal_id: reopenTargetStage,
-                stage_name: targetName,
-                is_completed: false,
-              }
-            : o,
-        ),
-      )
+      // Optimistic: remove from archived and add to active immediately
+      const reopenedOrder: ProductionOrder = {
+        ...orderToReopen,
+        is_archived: false,
+        stage_internal_id: reopenTargetStage,
+        stage_name: targetName,
+        is_completed: false,
+      }
+      setArchivedOrdersList((prev) => prev.filter((o) => o.id !== orderToReopen.id))
+      setOrders((prev) => [reopenedOrder, ...prev.filter((o) => o.id !== orderToReopen.id)])
 
       toast({
         title: 'Pedido Reaberto',
@@ -330,7 +455,9 @@ export default function ProductionKanbanPage() {
       })
       setReopenModalOpen(false)
       setOrderToReopen(null)
-      window.dispatchEvent(new CustomEvent('production-order-updated'))
+      window.dispatchEvent(
+        new CustomEvent('production-order-updated', { detail: { orderId: orderToReopen.id } }),
+      )
     } catch (err: any) {
       console.error('Error reopening production order:', err)
       toast({
@@ -395,7 +522,10 @@ export default function ProductionKanbanPage() {
 
           <button
             type="button"
-            onClick={() => setActiveTab('archived')}
+            onClick={() => {
+              setActiveTab('archived')
+              loadArchivedOrders()
+            }}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'archived'
                 ? 'bg-amber-600 text-white shadow-sm'
@@ -624,9 +754,7 @@ export default function ProductionKanbanPage() {
             >
               {stages.map((stage) => {
                 const stageInternalId = stage.internal_id
-                const stageOrders = filteredActiveOrders.filter(
-                  (o) => o.stage_internal_id === stageInternalId,
-                )
+                const stageOrders = stageOrdersMap.get(stageInternalId) || []
                 const isTarget = dragOverStageInternalId === stageInternalId
                 const totalStageValue = stageOrders.reduce(
                   (sum, o) => sum + (o.total_value || 0),
@@ -894,7 +1022,13 @@ export default function ProductionKanbanPage() {
           setOrderModalOpen(false)
           setOrderToEdit(null)
         }}
-        onSaved={loadData}
+        onSaved={(orderId?: string) => {
+          if (orderId) {
+            handleOrderUpdated(new CustomEvent('production-order-updated', { detail: { orderId } }))
+          } else {
+            loadData()
+          }
+        }}
         orderToEdit={orderToEdit}
         initialStageId={newOrderStageId}
         onOpenChat={(client, orderContext) => {
@@ -920,7 +1054,17 @@ export default function ProductionKanbanPage() {
           setOrderForApproval(null)
         }}
         order={orderForApproval}
-        onSuccess={loadData}
+        onSuccess={() => {
+          if (orderForApproval?.id) {
+            handleOrderUpdated(
+              new CustomEvent('production-order-updated', {
+                detail: { orderId: orderForApproval.id },
+              }),
+            )
+          } else {
+            loadData()
+          }
+        }}
       />
 
       {/* Reopen Production Order Modal */}

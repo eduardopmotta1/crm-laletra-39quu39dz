@@ -73,6 +73,66 @@ export const productionService = {
   },
 
   /**
+   * Fields required for rendering Kanban board and cards fast
+   */
+  KANBAN_FIELDS:
+    'id,order_number,tracking_token,client_id,client_name,client_phone,product,description,quantity,dimensions,total_value,sales_rep_id,production_rep_id,promised_deadline,delivery_type,tracking_code,notes,attachments,requires_art_approval,art_approved,art_approved_at,stage_id,stage_internal_id,stage_name,priority,is_completed,is_archived,created,updated,quote_id,approved_proof_id,expand.sales_rep_id.id,expand.sales_rep_id.name,expand.production_rep_id.id,expand.production_rep_id.name',
+
+  /**
+   * Fetch active production orders optimized for the Kanban board.
+   * Only fetches orders where is_archived = false, with reduced fields and minimal expand (sales/production reps).
+   */
+  async getAllActiveForKanban(sort = '-created'): Promise<ProductionOrder[]> {
+    try {
+      return await pb.collection('production_orders').getFullList<ProductionOrder>({
+        filter: 'is_archived != true',
+        sort,
+        fields: this.KANBAN_FIELDS,
+        expand: 'sales_rep_id,production_rep_id',
+        requestKey: null,
+      })
+    } catch (error) {
+      console.error('Error fetching active production orders for Kanban:', error)
+      return []
+    }
+  },
+
+  /**
+   * Fetch archived production orders optimized for the archived list view.
+   * Only fetches orders where is_archived = true.
+   */
+  async getAllArchivedForList(sort = '-created'): Promise<ProductionOrder[]> {
+    try {
+      return await pb.collection('production_orders').getFullList<ProductionOrder>({
+        filter: 'is_archived = true',
+        sort,
+        fields: this.KANBAN_FIELDS,
+        expand: 'sales_rep_id,production_rep_id',
+        requestKey: null,
+      })
+    } catch (error) {
+      console.error('Error fetching archived production orders:', error)
+      return []
+    }
+  },
+
+  /**
+   * Fetch single order with Kanban fields/expand for granular state updates
+   */
+  async getForKanbanById(id: string): Promise<ProductionOrder | null> {
+    try {
+      return await pb.collection('production_orders').getOne<ProductionOrder>(id, {
+        fields: this.KANBAN_FIELDS,
+        expand: 'sales_rep_id,production_rep_id',
+        requestKey: null,
+      })
+    } catch (error) {
+      console.error('Error fetching production order for kanban by ID:', error)
+      return null
+    }
+  },
+
+  /**
    * Fetch all production orders with filters
    */
   async getAll(filter?: string, sort = '-created'): Promise<ProductionOrder[]> {
