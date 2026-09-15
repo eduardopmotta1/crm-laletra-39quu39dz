@@ -1769,6 +1769,39 @@ export default function WhatsAppChatDrawer({
                 </div>
               )}
 
+              {/* Indicador de Mensagens Inbound sem Pedido Comercial Associado (Resolução Híbrida) */}
+              {(() => {
+                const unassignedInboundCount = messages.filter(
+                  (m) => m.direction === 'inbound' && !m.attendance_id,
+                ).length
+                if (unassignedInboundCount === 0) return null
+
+                return (
+                  <div
+                    data-testid="unassigned-messages-banner"
+                    className="shrink-0 px-3.5 py-2 bg-amber-50 dark:bg-amber-950/50 border-b border-amber-200 dark:border-amber-900/70 flex items-center justify-between text-xs text-amber-900 dark:text-amber-200 gap-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span className="truncate">
+                        <strong>
+                          {unassignedInboundCount === 1
+                            ? '1 mensagem inbound'
+                            : `${unassignedInboundCount} mensagens inbound`}
+                        </strong>{' '}
+                        sem pedido associado. Classifique a solicitação do cliente.
+                      </span>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 text-[10px] font-semibold shrink-0"
+                    >
+                      Sem pedido associado
+                    </Badge>
+                  </div>
+                )
+              })()}
+
               {/* Bloco Orçamento Vinculado ao Atendimento Atual */}
               {attendanceQuotes.length > 0 && (
                 <div className="shrink-0 px-3 py-2 bg-emerald-50/90 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60">
@@ -2092,6 +2125,18 @@ export default function WhatsAppChatDrawer({
                               <span className="text-slate-400">Cliente</span>
                               <span>•</span>
                               <span className="text-slate-400">{timeStr}</span>
+                              {!msg.attendance_id && (
+                                <>
+                                  <span>•</span>
+                                  <span
+                                    data-testid="unassigned-badge"
+                                    className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+                                    title="Mensagem recebida sem pedido ou atendimento comercial vinculado"
+                                  >
+                                    Sem pedido associado
+                                  </span>
+                                </>
+                              )}
                             </>
                           ) : (
                             <span className="text-slate-600 dark:text-slate-300">

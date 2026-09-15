@@ -587,7 +587,8 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
               )
 
               if (openAttendances && openAttendances.length > 0) {
-                // 2. SE EXISTIR atendimento aberto:
+                // 2. SE EXISTIR atendimento comercial aberto:
+                // Ordem de resolução: 1º attendance aberto comercial.
                 // - NÃO criar outro attendance.
                 // - Vincular a mensagem ao attendance existente.
                 // - Atualizar last_customer_message_at.
@@ -606,7 +607,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
 
                 $app.save(targetAtt)
                 console.log(
-                  '[WHATSAPP WEBHOOK POST] Atendimento aberto existente reutilizado:',
+                  '[WHATSAPP WEBHOOK POST] Atendimento comercial aberto reutilizado:',
                   attendanceId,
                   '| stage anterior:',
                   currentStage,
@@ -614,190 +615,136 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                   targetAtt.get('stage'),
                 )
               } else {
-                // 3. FALLBACK PARA VENDA RECÉM-FECHADA (Janela de Continuidade: 15 minutos)
-                // Se NÃO existir atendimento aberto comercial, antes de criar novo attendance,
-                // verificar se o cliente possui atendimento em "Venda fechada" (não arquivado ou arquivado)
-                // fechado há <= 15 minutos ou com continuação recente (<= 15 min da última mensagem inbound vinculada).
-                const CLOSED_DEAL_CONTINUITY_WINDOW_MS = 15 * 60 * 1000 // 15 minutos
-                const currentMsgMs = new Date(currentTimestampIso).getTime()
+                // RESOLUÇÃO HÍBRIDA (SUBSTITUI A REGRA TEMPORAL DOS 15 MINUTOS):
+                // Princípio: Conversa WhatsApp = por CLIENTE. Attendance = oportunidade/pedido comercial.
+                // Ordem de resolução quando NÃO há attendance comercial aberto:
+                // 2º (novo): Pedido ativo em produção do cliente vinculado a uma venda anterior
+                // 3º: Criar novo atendimento comercial ("Novo contato", source = "whatsapp")
+                //
+                // ESCOPO DE PRODUCTION_ORDERS ATIVAS X FINALIZADAS (Auditado nos stages reais da collection production_stages):
+                // Stages Ativos em Produção:
+                //   - 'order_received'          ("Pedido recebido")
+                //   - 'art_preparation'         ("Arte em preparação")
+                //   - 'awaiting_approval'       ("Aguardando aprovação do cliente")
+                //   - 'approved'                ("Arte aprovada")
+                //   - 'financial_pending'       ("Pendente financeiro")
+                //   - 'in_production'           ("Em produção")
+                //   - 'finishing'               ("Acabamento")
+                //   - 'quality_check'           ("Controle de qualidade")
+                // Stages Finalizados / Fora do escopo ativo:
+                //   - 'ready_for_pickup'        ("Pronto para retirada / Envio") [is_final_stage = true]
+                //   - 'shipped'                 ("Enviado / Aguardando retirada") [is_final_stage = true]
+                //   - 'completed'               ("Concluído") [is_final_stage = true, is_completed = true]
+                //   - E qualquer pedido com is_completed = true ou is_archived = true.
+                //
+                // NÃO adivinhar intenção: não usar IA, não usar palavras-chave, não usar janela temporal de minutos.
+                // Se existe pedido ativo em produção: NÃO criar automaticamente novo attendance.
+                // A inbound será gravada normalmente com client_id = cliente e attendance_id = null.
 
-                let fallbackClosedAtt = null
-
+                let hasActiveProductionOrder = false
                 try {
-                  // Buscar atendimentos do cliente em "Venda fechada" (ordenados pelo mais recente atualizado/criado)
-                  const closedAttFilter =
-                    "client_id = '" + clientId + "' && stage = 'Venda fechada'"
-                  const candidateClosedAtts = $app.findRecordsByFilter(
-                    'attendances',
-                    closedAttFilter,
+                  const prodOrdersFilter =
+                    "client_id = '" + clientId + "' && is_archived != true && is_completed != true"
+                  const candidateOrders = $app.findRecordsByFilter(
+                    'production_orders',
+                    prodOrdersFilter,
                     '-updated',
-                    5,
+                    10,
                     0,
                   )
 
-                  if (candidateClosedAtts && candidateClosedAtts.length > 0) {
-                    for (let cIdx = 0; cIdx < candidateClosedAtts.length; cIdx++) {
-                      const candidate = candidateClosedAtts[cIdx]
-                      let closedEventMs = 0
+                  if (candidateOrders && candidateOrders.length > 0) {
+                    // Stages de produção considerados finalizados (não mantêm o cliente eternamente sem card de novo contato)
+                    const finishedStageInternals = ['ready_for_pickup', 'shipped', 'completed']
+                    const finishedStageNames = [
+                      'pronto para retirada / envio',
+                      'pronto para retirada',
+                      'enviado / aguardando retirada',
+                      'enviado',
+                      'aguardando retirada',
+                      'concluído',
+                      'concluido',
+                    ]
 
-                      // 1. Tentar buscar transição em stage_transitions (to_stage = 'Venda fechada')
-                      try {
-                        const transFilter =
-                          "attendance_id = '" + candidate.id + "' && to_stage = 'Venda fechada'"
-                        const transitions = $app.findRecordsByFilter(
-                          'stage_transitions',
-                          transFilter,
-                          '-created',
-                          1,
-                          0,
-                        )
-                        if (transitions && transitions.length > 0) {
-                          const transCreated = transitions[0].getString
-                            ? transitions[0].getString('created')
-                            : String(transitions[0].get('created') || '')
-                          if (transCreated) {
-                            closedEventMs = new Date(transCreated).getTime()
-                          }
-                        }
-                      } catch (tLookupErr) {
-                        console.warn(
-                          '[WHATSAPP WEBHOOK POST] Aviso ao buscar stage_transitions para fallback:',
-                          tLookupErr,
-                        )
+                    for (let pIdx = 0; pIdx < candidateOrders.length; pIdx++) {
+                      const pOrder = candidateOrders[pIdx]
+                      const pStageInternal = String(
+                        (pOrder.getString
+                          ? pOrder.getString('stage_internal_id')
+                          : pOrder.get('stage_internal_id')) || '',
+                      )
+                        .trim()
+                        .toLowerCase()
+
+                      const pStageName = String(
+                        (pOrder.getString
+                          ? pOrder.getString('stage_name')
+                          : pOrder.get('stage_name')) || '',
+                      )
+                        .trim()
+                        .toLowerCase()
+
+                      const isCompletedFlag = pOrder.getBool
+                        ? pOrder.getBool('is_completed')
+                        : Boolean(pOrder.get('is_completed'))
+
+                      const isArchivedFlag = pOrder.getBool
+                        ? pOrder.getBool('is_archived')
+                        : Boolean(pOrder.get('is_archived'))
+
+                      if (isCompletedFlag || isArchivedFlag) {
+                        continue
                       }
-
-                      // 2. Se não houver stage_transition, usar campos de data do attendance (closed_at, updated, created)
-                      if (!closedEventMs || isNaN(closedEventMs)) {
-                        const closedAtStr = candidate.getString
-                          ? candidate.getString('closed_at')
-                          : String(candidate.get('closed_at') || '')
-                        if (closedAtStr) {
-                          closedEventMs = new Date(closedAtStr).getTime()
-                        }
-                      }
-
-                      if (!closedEventMs || isNaN(closedEventMs)) {
-                        const updatedStr = candidate.getString
-                          ? candidate.getString('updated')
-                          : String(candidate.get('updated') || '')
-                        if (updatedStr) {
-                          closedEventMs = new Date(updatedStr).getTime()
-                        }
-                      }
-
-                      if (!closedEventMs || isNaN(closedEventMs)) {
-                        const createdStr = candidate.getString
-                          ? candidate.getString('created')
-                          : String(candidate.get('created') || '')
-                        if (createdStr) {
-                          closedEventMs = new Date(createdStr).getTime()
-                        }
-                      }
-
-                      // 3. Regra de continuidade para mensagens posteriores (Item 9):
-                      // Se uma mensagem anterior foi vinculada ao attendance fechado,
-                      // considerar também o last_customer_message_at para evitar corte aos 15:01
-                      let lastCustomerMsgMs = 0
-                      const lastCustomerMsgStr = candidate.getString
-                        ? candidate.getString('last_customer_message_at')
-                        : String(candidate.get('last_customer_message_at') || '')
-                      if (lastCustomerMsgStr) {
-                        lastCustomerMsgMs = new Date(lastCustomerMsgStr).getTime()
-                      }
-
-                      // Determina se está dentro da janela:
-                      // - Base primária: tempo decorrido desde o fechamento <= 15 min
-                      // - Continuidade da mesma sequência: última inbound vinculada há <= 15 min
-                      const isWithinClosingWindow =
-                        closedEventMs > 0 &&
-                        currentMsgMs >= closedEventMs &&
-                        currentMsgMs - closedEventMs <= CLOSED_DEAL_CONTINUITY_WINDOW_MS
-
-                      const isWithinFollowUpSequence =
-                        lastCustomerMsgMs > 0 &&
-                        currentMsgMs >= lastCustomerMsgMs &&
-                        currentMsgMs - lastCustomerMsgMs <= CLOSED_DEAL_CONTINUITY_WINDOW_MS
-
-                      // Suporte adicional: se relógios tiverem pequena discrepância negativa (mensagens quase simultâneas)
-                      const isSimultaneousClose =
-                        closedEventMs > 0 &&
-                        Math.abs(currentMsgMs - closedEventMs) <= CLOSED_DEAL_CONTINUITY_WINDOW_MS
 
                       if (
-                        isWithinClosingWindow ||
-                        isWithinFollowUpSequence ||
-                        isSimultaneousClose
+                        finishedStageInternals.includes(pStageInternal) ||
+                        finishedStageNames.includes(pStageName)
                       ) {
-                        // Reforço opcional com production_order vinculada (se existir, confirma contexto de produção)
-                        let hasLinkedProdOrder = false
-                        try {
-                          const prodOrders = $app.findRecordsByFilter(
-                            'production_orders',
-                            "attendance_id = '" + candidate.id + "'",
-                            '-created',
-                            1,
-                            0,
-                          )
-                          if (prodOrders && prodOrders.length > 0) {
-                            hasLinkedProdOrder = true
-                          }
-                        } catch (_) {}
-
-                        fallbackClosedAtt = candidate
-                        console.log(
-                          '[WHATSAPP WEBHOOK POST] Inbound vinculada a venda recém-fechada (continuidade <=15min): attendance ' +
-                            candidate.id +
-                            ' | is_archived: ' +
-                            Boolean(
-                              candidate.getBool
-                                ? candidate.getBool('is_archived')
-                                : candidate.get('is_archived'),
-                            ) +
-                            ' | has_production_order: ' +
-                            hasLinkedProdOrder,
-                        )
-                        break
-                      } else {
-                        console.log(
-                          '[WHATSAPP WEBHOOK POST] Janela de continuidade expirada para attendance em "Venda fechada": ' +
-                            candidate.id +
-                            ' | Fechamento: ' +
-                            new Date(closedEventMs).toISOString() +
-                            ' | Diferença: ' +
-                            Math.round((currentMsgMs - closedEventMs) / 1000) +
-                            's (limite: ' +
-                            CLOSED_DEAL_CONTINUITY_WINDOW_MS / 1000 +
-                            's)',
-                        )
+                        continue
                       }
+
+                      // Pedido ativo em produção encontrado!
+                      hasActiveProductionOrder = true
+                      console.log(
+                        '[WHATSAPP WEBHOOK POST] Pedido ativo em produção detectado para cliente:',
+                        clientId,
+                        '| Pedido ID:',
+                        pOrder.id,
+                        '| Número:',
+                        pOrder.getString
+                          ? pOrder.getString('order_number')
+                          : pOrder.get('order_number'),
+                        '| Stage:',
+                        pStageInternal || pStageName,
+                      )
+                      break
                     }
                   }
-                } catch (fallbackSearchErr) {
+                } catch (prodSearchErr) {
                   console.warn(
-                    '[WHATSAPP WEBHOOK POST] Aviso ao buscar fallback de venda recém-fechada:',
-                    fallbackSearchErr,
+                    '[WHATSAPP WEBHOOK POST] Aviso ao verificar production_orders ativas:',
+                    prodSearchErr,
                   )
                 }
 
-                if (fallbackClosedAtt) {
-                  // VINCULAR AO ATTENDANCE RECÉM-FECHADO SEM REABRIR O FUNIL:
-                  // - NÃO mudar stage (permanece "Venda fechada").
-                  // - NÃO mudar is_archived (permanece arquivado se estiver arquivado).
-                  // - NÃO disparar notificação/SLA nem voltar para "Precisa responder".
-                  // - Atualizar last_customer_message_at para registrar continuidade.
-                  attendanceId = fallbackClosedAtt.id
-                  fallbackClosedAtt.set('last_customer_message_at', currentTimestampIso)
-                  $app.save(fallbackClosedAtt)
+                if (hasActiveProductionOrder) {
+                  // CENÁRIO CLIENTE COM PEDIDO EM PRODUÇÃO ATIVO:
+                  // - NÃO criar atendimento comercial automaticamente.
+                  // - NÃO associar a attendance fechado anterior.
+                  // - Deixar attendanceId = null / vazio para gravação em messages.
+                  // - A mensagem será exibida na conversa unificada do cliente no Drawer (busca por attendance_id || client_id).
+                  attendanceId = null
                   console.log(
-                    '[WHATSAPP WEBHOOK POST] Atendimento recém-fechado atualizado com last_customer_message_at sem reabrir funil:',
-                    attendanceId,
+                    '[WHATSAPP WEBHOOK POST] Resolução híbrida: cliente possui pedido em produção ativo. Mensagem gravada sem attendance_id para classificação manual do atendente.',
+                    { clientId: clientId },
                   )
                 } else {
-                  // 4. SE NÃO EXISTIR atendimento aberto E NÃO for venda recém-fechada:
-                  // - Criar exatamente 1 novo attendance para o cliente ("Novo contato").
+                  // CENÁRIO CLIENTE NOVO OU SEM PEDIDO ATIVO:
+                  // - Nenhum attendance comercial aberto e nenhuma production_order ativa.
+                  // - CRIAR exatamente 1 novo atendimento comercial ("Novo contato").
                   // - stage = "Novo contato", is_archived = false.
                   // - Preencher last_customer_message_at com timestamp ISO completo.
-                  // - source = "whatsapp" (campo verificado na collection attendances).
+                  // - source = "whatsapp".
                   // - assigned_to: herdar do cliente se existir; não inventar responsável.
                   const attendancesCol = $app.findCollectionByNameOrId('attendances')
                   const newAtt = new Record(attendancesCol)
@@ -818,7 +765,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
                   attendanceId = newAtt.id
 
                   console.log(
-                    '[WHATSAPP WEBHOOK POST] Novo atendimento criado com sucesso:',
+                    '[WHATSAPP WEBHOOK POST] Novo atendimento comercial ("Novo contato") criado com sucesso:',
                     attendanceId,
                     'para o cliente:',
                     clientId,
