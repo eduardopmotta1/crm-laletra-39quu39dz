@@ -191,6 +191,11 @@ export default function WhatsAppChatDrawer({
     )
   }
 
+  // Novo Atendimento / Pedido comercial a partir de mensagens sem pedido associado
+  const [newAttendanceConfirmOpen, setNewAttendanceConfirmOpen] = useState(false)
+  const [isCreatingAttendanceFromUnassigned, setIsCreatingAttendanceFromUnassigned] =
+    useState(false)
+
   // Quote View Details Modal
   const [selectedQuoteToView, setSelectedQuoteToView] = useState<Quote | null>(null)
   const [quoteDetailsOpen, setQuoteDetailsOpen] = useState(false)
@@ -396,6 +401,7 @@ export default function WhatsAppChatDrawer({
           approveDialogOpen ||
           rejectDialogOpen ||
           confirmAddFileDialogOpen ||
+          newAttendanceConfirmOpen ||
           requestRegistrationLinkModalOpen
         ) {
           return
@@ -414,6 +420,7 @@ export default function WhatsAppChatDrawer({
     quoteDetailsOpen,
     deleteQuoteDialogOpen,
     sendQuoteModalOpen,
+    newAttendanceConfirmOpen,
     requestRegistrationLinkModalOpen,
     onClose,
   ])
@@ -1580,6 +1587,99 @@ export default function WhatsAppChatDrawer({
     }
   }
 
+  const handleConfirmCreateAttendanceFromUnassigned = async () => {
+    if (!displayClient?.id || isCreatingAttendanceFromUnassigned) return
+    setIsCreatingAttendanceFromUnassigned(true)
+
+    try {
+      // 1. Criar novo attendance comercial para o cliente
+      const newAttendance = await attendancesService.createForClient(displayClient.id, {
+        stage: 'Em atendimento',
+        source: 'whatsapp',
+        assigned_to: user?.id || '',
+        notes: 'Atendimento comercial iniciado a partir de mensagem sem pedido associado',
+      })
+
+      // 2. Localizar o bloco atual de mensagens inbound sem attendance_id desse cliente
+      const unassignedInboundMsgs = messages.filter(
+        (m) => m.direction === 'inbound' && !m.attendance_id && m.client_id === displayClient.id,
+      )
+
+      if (unassignedInboundMsgs.length > 0) {
+        // Encontrar o timestamp da inbound mais recente para atualizar o last_customer_message_at
+        let latestInboundIso = newAttendance.created || new Date().toISOString()
+        for (const msg of unassignedInboundMsgs) {
+          if (
+            msg.created &&
+            (!latestInboundIso ||
+              new Date(msg.created).getTime() > new Date(latestInboundIso).getTime())
+          ) {
+            latestInboundIso = msg.created
+          }
+        }
+
+        // Associar cada mensagem inbound pendente ao novo attendance
+        for (const msg of unassignedInboundMsgs) {
+          try {
+            await whatsappService.updateMessage(msg.id, {
+              attendance_id: newAttendance.id,
+            })
+          } catch (updateErr) {
+            console.error(
+              `[WhatsAppChatDrawer] Erro ao associar mensagem ${msg.id} ao novo atendimento:`,
+              updateErr,
+            )
+          }
+        }
+
+        // Atualizar last_customer_message_at do attendance para herdar a regra de SLA existente
+        try {
+          await attendancesService.update(newAttendance.id, {
+            last_customer_message_at: latestInboundIso,
+          })
+        } catch (slaUpdateErr) {
+          console.warn(
+            '[WhatsAppChatDrawer] Aviso ao sincronizar last_customer_message_at para SLA:',
+            slaUpdateErr,
+          )
+        }
+
+        // Atualizar mensagens na memória local
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.direction === 'inbound' && !m.attendance_id && m.client_id === displayClient.id
+              ? { ...m, attendance_id: newAttendance.id }
+              : m,
+          ),
+        )
+      }
+
+      setNewAttendanceConfirmOpen(false)
+      setCurrentAttendance(newAttendance)
+
+      // Disparar sincronização com funil e listas
+      window.dispatchEvent(new CustomEvent('crm-client-updated'))
+      if (onClientUpdated) onClientUpdated()
+
+      toast({
+        title: 'Novo pedido criado',
+        description: `Atendimento comercial #${newAttendance.id} aberto para ${displayClient.name} na etapa "Em atendimento".`,
+      })
+
+      // Recarregar dados completos em segundo plano
+      loadClientData(displayClient.id, newAttendance.id, { silent: true })
+    } catch (err: any) {
+      console.error('[WhatsAppChatDrawer] Erro ao criar novo atendimento a partir de inbound:', err)
+      toast({
+        title: 'Erro ao criar pedido',
+        description: err?.message || 'Não foi possível criar o novo atendimento.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsCreatingAttendanceFromUnassigned(false)
+    }
+  }
+
   return (
     <>
       <div
@@ -1779,7 +1879,7 @@ export default function WhatsAppChatDrawer({
                 return (
                   <div
                     data-testid="unassigned-messages-banner"
-                    className="shrink-0 px-3.5 py-2 bg-amber-50 dark:bg-amber-950/50 border-b border-amber-200 dark:border-amber-900/70 flex items-center justify-between text-xs text-amber-900 dark:text-amber-200 gap-2"
+                    className="shrink-0 px-3.5 py-2 bg-amber-50 dark:bg-amber-950/50 border-b border-amber-200 dark:border-amber-900/70 flex items-center justify-between text-xs text-amber-900 dark:text-amber-200 gap-2 flex-wrap sm:flex-nowrap"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -1792,12 +1892,25 @@ export default function WhatsAppChatDrawer({
                         sem pedido associado. Classifique a solicitação do cliente.
                       </span>
                     </div>
-                    <Badge
-                      variant="outline"
-                      className="bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 text-[10px] font-semibold shrink-0"
-                    >
-                      Sem pedido associado
-                    </Badge>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge
+                        variant="outline"
+                        className="bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700 text-[10px] font-semibold shrink-0"
+                      >
+                        Sem pedido associado
+                      </Badge>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setNewAttendanceConfirmOpen(true)}
+                        className="h-6 px-2 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1 shadow-xs"
+                        title="Criar novo atendimento para este cliente"
+                        data-testid="btn-create-new-order-from-unassigned"
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Novo pedido</span>
+                      </Button>
+                    </div>
                   </div>
                 )
               })()}
@@ -4227,6 +4340,53 @@ export default function WhatsAppChatDrawer({
               className="bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-600"
             >
               {isDeletingQuote ? 'Excluindo...' : 'Excluir orçamento'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* DIALOG DE CONFIRMAÇÃO DE NOVO PEDIDO A PARTIR DE MENSAGENS SEM PEDIDO ASSOCIADO */}
+      <AlertDialog open={newAttendanceConfirmOpen} onOpenChange={setNewAttendanceConfirmOpen}>
+        <AlertDialogContent zIndexClass="z-[80]" onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Plus className="h-5 w-5 text-emerald-600" />
+              <span>Novo pedido</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+              <p>
+                Criar um novo atendimento comercial para{' '}
+                <strong className="text-slate-900 dark:text-white">{displayClient?.name}</strong>?
+              </p>
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-900 dark:text-amber-200">
+                <span className="font-semibold block mb-1">Aviso de proteção:</span>
+                Pedidos anteriores e pedidos em produção deste cliente permanecerão inalterados. As
+                mensagens pendentes sem atendimento serão associadas a esta nova oportunidade no
+                Funil de Vendas.
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCreatingAttendanceFromUnassigned}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmCreateAttendanceFromUnassigned()
+              }}
+              disabled={isCreatingAttendanceFromUnassigned}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-600"
+              data-testid="btn-confirm-create-new-order"
+            >
+              {isCreatingAttendanceFromUnassigned ? (
+                <>
+                  <Clock className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  <span>Criando novo pedido...</span>
+                </>
+              ) : (
+                'Criar novo pedido'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

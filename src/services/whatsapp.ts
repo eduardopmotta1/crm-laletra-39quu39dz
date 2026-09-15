@@ -385,6 +385,10 @@ export const whatsappService = {
     return message
   },
 
+  async updateMessage(messageId: string, data: Partial<Message>): Promise<Message> {
+    return await pb.collection('messages').update<Message>(messageId, data)
+  },
+
   async markAsRead(messageId: string): Promise<Message> {
     return await pb.collection('messages').update<Message>(messageId, {
       status: 'read',
