@@ -121,13 +121,12 @@ function resolveWebhookInboundMessage(params: {
     .sort((a, b) => new Date(b.created || 0).getTime() - new Date(a.created || 0).getTime())
 
   if (openAttendances.length > 0) {
-    // 1º Attendance aberto comercial
+    // 1º Attendance aberto comercial:
+    // Reutilizar o mesmo attendance; NÃO criar outro attendance;
+    // NÃO alterar stage em hipótese alguma (mensagem nova é notificação, não mudança de etapa comercial).
     const targetAtt = openAttendances[0]
     attendanceId = targetAtt.id
     targetAtt.last_customer_message_at = currentTimestampIso
-    if (targetAtt.stage !== 'Novo contato' && targetAtt.stage !== 'Precisa responder') {
-      targetAtt.stage = 'Precisa responder'
-    }
     action = 'reused_open'
     targetAttendance = targetAtt
   } else {
@@ -296,7 +295,8 @@ describe('WhatsApp Webhook — Resolução Híbrida Inbound (Substituição da R
     expect(result.action).toBe('reused_open')
     expect(result.createdNewAttendance).toBe(false)
     expect(result.attendanceId).toBe('att_open_proposta')
-    expect(result.targetAttendance?.stage).toBe('Precisa responder')
+    // PRESERVAÇÃO DE STAGE: "Orçamento enviado" permanece "Orçamento enviado"
+    expect(result.targetAttendance?.stage).toBe('Orçamento enviado')
     expect(result.targetAttendance?.last_customer_message_at).toBe('2025-05-10T14:00:00.000Z')
     expect(result.savedMessage.attendance_id).toBe('att_open_proposta')
     expect(allAttendances.length).toBe(1)
@@ -419,10 +419,11 @@ describe('WhatsApp Webhook — Resolução Híbrida Inbound (Substituição da R
     expect(result.action).toBe('reused_open')
     expect(result.attendanceId).toBe('att_comercial_B')
     expect(result.createdNewAttendance).toBe(false)
+    // Stage Novo contato preservado
+    expect(result.targetAttendance?.stage).toBe('Novo contato')
     expect(result.savedMessage.attendance_id).toBe('att_comercial_B')
     expect(allAttendances.length).toBe(1)
   })
-
   it('TESTE G) Outbound → nunca cria attendance', () => {
     // Valida que direção outbound não cria attendance nem passa pela resolução de funil inbound
     const isOutbound = true

@@ -28,6 +28,7 @@ interface KanbanCardProps {
   client: Client
   attendance?: Attendance
   firstUnansweredInboundAt?: string | null
+  pendingInboundCount?: number
   slaConfig: SlaConfig
   column?: KanbanColumn
   realQuote?: Quote | null
@@ -43,6 +44,7 @@ export default function KanbanCard({
   client,
   attendance,
   firstUnansweredInboundAt,
+  pendingInboundCount = 0,
   slaConfig,
   column,
   realQuote,
@@ -159,14 +161,31 @@ export default function KanbanCard({
             )}
           </div>
 
-          {/* Dynamic SLA Badge */}
-          <span
-            className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${slaInfo.colorBadgeClass}`}
-            title={`Tempo na etapa: ${slaInfo.minutesElapsed} minutos`}
-          >
-            <Clock className="h-3 w-3" />
-            {slaInfo.label}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+            {/* Alerta de novas mensagens inbound pendentes de resposta */}
+            {pendingInboundCount > 0 && (
+              <span
+                data-testid="unread-inbound-badge"
+                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800 shadow-xs animate-pulse"
+                title={`${pendingInboundCount} mensagem(ns) do cliente aguardando resposta da empresa`}
+              >
+                <span>🔴</span>
+                <span>
+                  {pendingInboundCount}{' '}
+                  {pendingInboundCount === 1 ? 'nova mensagem' : 'novas mensagens'}
+                </span>
+              </span>
+            )}
+
+            {/* Dynamic SLA Badge */}
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${slaInfo.colorBadgeClass}`}
+              title={`Tempo na etapa: ${slaInfo.minutesElapsed} minutos`}
+            >
+              <Clock className="h-3 w-3" />
+              {slaInfo.label}
+            </span>
+          </div>
         </div>
 
         {/* Client Name & Product */}

@@ -589,10 +589,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
               if (openAttendances && openAttendances.length > 0) {
                 // 2. SE EXISTIR atendimento comercial aberto:
                 // Ordem de resolução: 1º attendance aberto comercial.
-                // - NÃO criar outro attendance.
+                // - Reutilizar o mesmo attendance; NÃO criar outro attendance.
                 // - Vincular a mensagem ao attendance existente.
                 // - Atualizar last_customer_message_at.
-                // - Mover stage para "Precisa responder" (EXCEÇÃO: se já estiver em "Novo contato", permanecer).
+                // - NÃO alterar stage em hipótese alguma (mensagem nova é notificação, não mudança de etapa).
+                //   "Novo contato", "Em atendimento", "Orçamento enviado", "Aguardando cliente",
+                //   "Venda fechada", "Em produção" permanecem inalterados.
                 const targetAtt = openAttendances[0]
                 attendanceId = targetAtt.id
                 const currentStage = targetAtt.getString
@@ -601,18 +603,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
 
                 targetAtt.set('last_customer_message_at', currentTimestampIso)
 
-                if (currentStage !== 'Novo contato' && currentStage !== 'Precisa responder') {
-                  targetAtt.set('stage', 'Precisa responder')
-                }
-
                 $app.save(targetAtt)
                 console.log(
-                  '[WHATSAPP WEBHOOK POST] Atendimento comercial aberto reutilizado:',
+                  '[WHATSAPP WEBHOOK POST] Atendimento comercial aberto reutilizado (stage preservado):',
                   attendanceId,
-                  '| stage anterior:',
+                  '| stage mantido:',
                   currentStage,
-                  '| stage atual:',
-                  targetAtt.get('stage'),
                 )
               } else {
                 // RESOLUÇÃO HÍBRIDA (SUBSTITUI A REGRA TEMPORAL DOS 15 MINUTOS):

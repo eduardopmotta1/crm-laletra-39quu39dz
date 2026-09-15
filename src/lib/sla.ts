@@ -470,6 +470,97 @@ export function resolveFirstUnansweredInboundFromMessages(
 }
 
 /**
+ * CÁLCULO DERIVADO DE MENSAGENS INBOUND PENDENTES:
+ * Conta quantas mensagens inbound do cliente estão aguardando resposta da empresa
+ * naquele attendance (ou cliente como fallback se attendance_id ainda não foi atribuído).
+ *
+ * Regras de contagem:
+ * - Mensagens INBOUND posteriores à última mensagem OUTBOUND da empresa no atendimento/cliente.
+ * - Se não houver nenhuma outbound ainda: conta todas as mensagens INBOUND do atendimento (primeiro ciclo).
+ * - Se houver outbound mais recente que todas as inbounds: retorna 0 (cliente respondido).
+ * - A contagem NÃO é zerada pela simples abertura do Drawer; somente o envio de outbound encerra o ciclo.
+ */
+export function countPendingUnansweredInboundFromMessages(
+  messages: Message[],
+  attendanceId?: string,
+  clientId?: string,
+  lastCompanyMessageAt?: string | null,
+): number {
+  if (!messages || messages.length === 0) return 0
+
+  const relevant = messages.filter((m) => {
+    if (attendanceId && m.attendance_id === attendanceId) return true
+    if (clientId && m.client_id === clientId) return true
+    return false
+  })
+
+  if (relevant.length === 0) return 0
+
+  let lastOutboundEpoch = lastCompanyMessageAt ? new Date(lastCompanyMessageAt).getTime() : 0
+
+  for (const m of relevant) {
+    if (m.direction === 'outbound') {
+      const t = new Date(m.created).getTime()
+      if (t > lastOutboundEpoch) {
+        lastOutboundEpoch = t
+      }
+    }
+  }
+
+  let count = 0
+  for (const m of relevant) {
+    if (m.direction === 'inbound') {
+      const t = new Date(m.created).getTime()
+      if (t > lastOutboundEpoch) {
+        count++
+      }
+    }
+  }
+
+  return count
+}
+
+/**
+ * Consulta no backend a quantidade de mensagens inbound não respondidas para um attendance.
+ * Se lastCompanyMessageAt for fornecido e lastCompanyMessageAt >= lastCustomerMessageAt, retorna 0 de imediato.
+ * Caso contrário, conta as mensagens inbound criadas após lastCompanyMessageAt.
+ */
+export async function fetchPendingInboundCount(
+  attendanceId: string,
+  lastCompanyMessageAt?: string | null,
+  clientId?: string,
+): Promise<number> {
+  if (!attendanceId && !clientId) return 0
+
+  try {
+    const filters: string[] = ['direction = "inbound"']
+    if (attendanceId && clientId) {
+      filters.push(`(attendance_id = "${attendanceId}" || client_id = "${clientId}")`)
+    } else if (attendanceId) {
+      filters.push(`attendance_id = "${attendanceId}"`)
+    } else if (clientId) {
+      filters.push(`client_id = "${clientId}"`)
+    }
+
+    if (lastCompanyMessageAt) {
+      filters.push(`created > "${lastCompanyMessageAt}"`)
+    }
+
+    // Usar perPage 50 com getList para obter totalItems de forma barata
+    const res = await pb.collection<Message>('messages').getList(1, 50, {
+      filter: filters.join(' && '),
+      requestKey: null,
+      fields: 'id',
+    })
+
+    return res.totalItems ?? res.items.length
+  } catch (err) {
+    console.error('Error fetching pending inbound count:', err)
+    return 0
+  }
+}
+
+/**
  * Formats time in minutes (e.g. "30min", "120min", "1440min").
  */
 export function formatMinutes(minutes: number): string {
