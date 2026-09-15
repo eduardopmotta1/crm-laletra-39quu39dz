@@ -46,7 +46,21 @@ export function calculateQuoteItem(params: ItemCalculationParams): QuoteCalculat
       individualArea = width * height
       totalArea = individualArea * quantity
       baseUnitCost = individualArea * materialCost
-      baseUnitSale = individualArea * materialSale
+
+      const productFixedPrice =
+        typeof product?.fixed_price === 'number'
+          ? product.fixed_price
+          : typeof product?.fixed_price === 'string' &&
+              (product.fixed_price as string).trim() !== ''
+            ? Number(product.fixed_price)
+            : NaN
+
+      const salePricePerM2 =
+        Number.isFinite(productFixedPrice) && productFixedPrice > 0
+          ? productFixedPrice
+          : materialSale
+
+      baseUnitSale = individualArea * salePricePerM2
       break
     }
     case 'metro_linear': {

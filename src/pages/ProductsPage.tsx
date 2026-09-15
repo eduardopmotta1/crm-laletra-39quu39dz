@@ -639,6 +639,19 @@ export default function ProductsPage() {
                         </div>
                       )}
 
+                      {prod.calc_rule === 'm2' &&
+                        typeof prod.fixed_price === 'number' &&
+                        prod.fixed_price > 0 && (
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-emerald-600 font-medium">
+                              Preço Venda Próprio:
+                            </span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              R$ {prod.fixed_price.toFixed(2)}/m²
+                            </span>
+                          </div>
+                        )}
+
                       {prod.min_price && prod.min_price > 0 ? (
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="text-amber-600 font-medium">Preço Mínimo:</span>
@@ -913,7 +926,7 @@ export default function ProductsPage() {
 
                 <div>
                   <label className="text-xs font-semibold text-amber-700 dark:text-amber-400">
-                    TIPO 5 — Preço Mínimo (R$)
+                    Preço Mínimo (R$)
                   </label>
                   <Input
                     type="number"
@@ -926,6 +939,40 @@ export default function ProductsPage() {
                   />
                 </div>
               </div>
+
+              {/* Specific pricing for TIPO 1 (m2): Preço de Venda por m² (R$) */}
+              {form.calc_rule === 'm2' && (
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <div className="max-w-md">
+                    <label className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                      Preço de Venda por m² (R$)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.fixed_price}
+                      onChange={(e) => setForm({ ...form, fixed_price: e.target.value })}
+                      placeholder="Deixe vazio para usar material"
+                      className="mt-1 font-semibold text-emerald-700 dark:text-emerald-300"
+                    />
+                    <div className="mt-1.5 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      <p>Deixe vazio para usar o preço de venda do material vinculado.</p>
+                      {(() => {
+                        const selectedMat = materials.find((m) => m.id === form.main_material_id)
+                        if (selectedMat && typeof selectedMat.sale_price === 'number') {
+                          return (
+                            <p className="text-emerald-600 dark:text-emerald-400 font-medium">
+                              Preço do material: R$ {selectedMat.sale_price.toFixed(2)}/m²
+                            </p>
+                          )
+                        }
+                        return null
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Fixed Price & Cost fields when calc_rule is preco_fixo or unidade */}
               {(form.calc_rule === 'preco_fixo' || form.calc_rule === 'unidade') && (

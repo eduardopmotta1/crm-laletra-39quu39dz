@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import type { QuoteProduct } from '@/types/quotes'
+import type { QuoteProduct, QuoteMaterial } from '@/types/quotes'
+import { calculateQuoteItem } from '@/lib/quoteCalculator'
 
 /**
  * Função pura que espelha exatamente a lógica de toggle implementada em ProductsPage
@@ -435,5 +436,270 @@ describe('ProductsPage — Duplicar Produto (Fluxo Completo e Cenários Obrigat�
     // O FormData não possui main_image nem referências de arquivos
     expect(formData.has('main_image')).toBe(false)
     expect(formData.has('gallery_images')).toBe(false)
+  })
+})
+
+describe('Cálculo de Preço de Venda Próprio por m² (quote_products.fixed_price quando calc_rule === m2)', () => {
+  const baseMaterial: QuoteMaterial = {
+    id: 'mat_lona_35',
+    name: 'Lona Fosca 440g',
+    category: 'Lonas',
+    calc_unit: 'm2',
+    cost_price: 15.0,
+    sale_price: 35.0,
+    min_price: 0,
+    is_active: true,
+    created: '2026-01-01',
+    updated: '2026-01-01',
+  }
+
+  it('TESTE A: Produto m² com fixed_price=40, material.sale_price=35, medida 1×2, qty 1 → total R$80 (não R$70)', () => {
+    const productA: QuoteProduct = {
+      id: 'prod_m2_proprio',
+      name: 'Banner Lona Preço Próprio',
+      category: 'Banners',
+      calc_rule: 'm2',
+      fixed_price: 40.0,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const result = calculateQuoteItem({
+      product: productA,
+      material: baseMaterial,
+      width: 1,
+      height: 2,
+      quantity: 1,
+    })
+
+    expect(result.individual_area).toBe(2)
+    expect(result.total_area).toBe(2)
+    expect(result.applied_unit_price).toBe(80.0)
+    expect(result.item_total_sale).toBe(80.0)
+    expect(result.item_total_sale).not.toBe(70.0)
+  })
+
+  it('TESTE B: Produto m² SEM fixed_price, material.sale_price=35, 1×2 → total R$70 (compatibilidade com produtos antigos)', () => {
+    const productB: QuoteProduct = {
+      id: 'prod_m2_antigo',
+      name: 'Banner Lona Tradicional',
+      category: 'Banners',
+      calc_rule: 'm2',
+      // fixed_price ausente / undefined
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const result = calculateQuoteItem({
+      product: productB,
+      material: baseMaterial,
+      width: 1,
+      height: 2,
+      quantity: 1,
+    })
+
+    expect(result.individual_area).toBe(2)
+    expect(result.applied_unit_price).toBe(70.0)
+    expect(result.item_total_sale).toBe(70.0)
+  })
+
+  it('TESTE C: Produto m² fixed_price=40, min_price=50, 0,50×0,50 (área 0,25 → R$10) → total R$50 (mínimo vence)', () => {
+    const productC: QuoteProduct = {
+      id: 'prod_m2_min',
+      name: 'Etiqueta Lona Pequena',
+      category: 'Banners',
+      calc_rule: 'm2',
+      fixed_price: 40.0,
+      min_price: 50.0,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const result = calculateQuoteItem({
+      product: productC,
+      material: baseMaterial,
+      width: 0.5,
+      height: 0.5,
+      quantity: 1,
+    })
+
+    expect(result.individual_area).toBe(0.25)
+    // 0.25 * 40 = 10, porém min_price é 50
+    expect(result.calculated_unit_price).toBe(10.0)
+    expect(result.applied_unit_price).toBe(50.0)
+    expect(result.is_min_price_applied).toBe(true)
+    expect(result.item_total_sale).toBe(50.0)
+  })
+
+  it('TESTE D: Alterar preço próprio do produto NÃO altera material.sale_price', () => {
+    const materialSnapshot = { ...baseMaterial }
+    const productD: QuoteProduct = {
+      id: 'prod_m2_custom',
+      name: 'Banner Lona Personalizado',
+      category: 'Banners',
+      calc_rule: 'm2',
+      fixed_price: 99.0,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    calculateQuoteItem({
+      product: productD,
+      material: materialSnapshot,
+      width: 2,
+      height: 2,
+      quantity: 1,
+    })
+
+    expect(materialSnapshot.sale_price).toBe(35.0)
+    expect(baseMaterial.sale_price).toBe(35.0)
+  })
+
+  it('TESTE E: Dois produtos com o mesmo material: A com 35/m² (ou material) e B com 45/m² → cada um calcula com seu próprio preço', () => {
+    const productA: QuoteProduct = {
+      id: 'prod_A',
+      name: 'Produto A',
+      category: 'Banners',
+      calc_rule: 'm2',
+      // fixed_price vazio ou 35
+      fixed_price: 35.0,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const productB: QuoteProduct = {
+      id: 'prod_B',
+      name: 'Produto B',
+      category: 'Banners',
+      calc_rule: 'm2',
+      fixed_price: 45.0,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const resA = calculateQuoteItem({
+      product: productA,
+      material: baseMaterial,
+      width: 1,
+      height: 2, // 2m²
+      quantity: 1,
+    })
+
+    const resB = calculateQuoteItem({
+      product: productB,
+      material: baseMaterial,
+      width: 1,
+      height: 2, // 2m²
+      quantity: 1,
+    })
+
+    expect(resA.item_total_sale).toBe(70.0) // 2 * 35
+    expect(resB.item_total_sale).toBe(90.0) // 2 * 45
+  })
+
+  it('TESTE F: Produto antigo sem fixed_price (ou 0 ou vazio) continua calculando exatamente como antes', () => {
+    const productEmpty: QuoteProduct = {
+      id: 'prod_empty',
+      name: 'Produto Zero Fixed Price',
+      category: 'Banners',
+      calc_rule: 'm2',
+      fixed_price: 0,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const result = calculateQuoteItem({
+      product: productEmpty,
+      material: baseMaterial,
+      width: 1,
+      height: 2,
+      quantity: 1,
+    })
+
+    expect(result.applied_unit_price).toBe(70.0)
+    expect(result.item_total_sale).toBe(70.0)
+  })
+
+  it('TESTE G: Duplicar produto m² com preço próprio → fixed_price preservado no formulário da cópia', () => {
+    const originalM2Product: QuoteProduct = {
+      id: 'prod_orig_m2',
+      name: 'Banner Especial 440g',
+      category: 'Banners',
+      calc_rule: 'm2',
+      sale_unit: 'm²',
+      main_material_id: 'mat_lona_35',
+      fixed_price: 48.5,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const duplicateState = prepareDuplicateProductForm(originalM2Product)
+
+    expect(duplicateState.isDuplicating).toBe(true)
+    expect(duplicateState.form.calc_rule).toBe('m2')
+    // fixed_price preservado na íntegra
+    expect(duplicateState.form.fixed_price).toBe(48.5)
+
+    // Usuário altera o preço próprio antes de salvar a cópia
+    const userModified = {
+      ...duplicateState.form,
+      fixed_price: 52.0,
+      additionals: [],
+    }
+
+    const formData = buildProductFormData(userModified)
+    expect(formData.get('fixed_price')).toBe('52')
+  })
+
+  it('TESTE H: TIPO 3 (unidade) e TIPO 4 (preco_fixo) continuam funcionando exatamente como antes com fixed_price', () => {
+    const productTipo3: QuoteProduct = {
+      id: 'prod_tipo3',
+      name: 'Camisa Polo Bordada',
+      category: 'Vestuário',
+      calc_rule: 'unidade',
+      fixed_cost: 15.0,
+      fixed_price: 55.0,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const productTipo4: QuoteProduct = {
+      id: 'prod_tipo4',
+      name: 'Taxa de Instalação Fixa',
+      category: 'Serviços',
+      calc_rule: 'preco_fixo',
+      fixed_cost: 50.0,
+      fixed_price: 150.0,
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const resTipo3 = calculateQuoteItem({
+      product: productTipo3,
+      quantity: 3,
+    })
+
+    expect(resTipo3.applied_unit_price).toBe(55.0)
+    expect(resTipo3.item_total_sale).toBe(165.0) // 3 * 55
+    expect(resTipo3.item_total_cost).toBe(45.0) // 3 * 15
+
+    const resTipo4 = calculateQuoteItem({
+      product: productTipo4,
+      quantity: 1,
+    })
+
+    expect(resTipo4.applied_unit_price).toBe(150.0)
+    expect(resTipo4.item_total_sale).toBe(150.0)
+    expect(resTipo4.item_total_cost).toBe(50.0)
   })
 })
