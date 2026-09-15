@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { type Client, type KanbanStage, type User, isWithin24HourWindow } from '@/types/crm'
+import { type Client, type KanbanStage, type User } from '@/types/crm'
 import { clientsService, type FindClientByPhoneResult } from '@/services/clients'
 import { lastInboundAt, isTimestampWithin24h } from '@/services/whatsappWindow'
 import { whatsappService, usersService } from '@/services/whatsapp'
@@ -448,7 +448,7 @@ export default function ClientFormModal({
     return `Olá! Para mantermos seu cadastro atualizado, por favor preencha seus dados neste link:\n\n${link}\n\nÉ rapidinho e ajuda a agilizar seus próximos pedidos.`
   }
 
-  const check24hWindowForTargetAsync = async (targetClient: Client | null): Promise<boolean> => {
+  const checkGlobal24hWindow = async (targetClient: Client | null): Promise<boolean> => {
     if (!targetClient || !targetClient.id) return false
     try {
       const resolvedInboundIso = await lastInboundAt(
@@ -464,19 +464,7 @@ export default function ClientFormModal({
       return isTimestampWithin24h(resolvedInboundIso)
     } catch (err) {
       console.warn('[ClientFormModal] Erro ao consultar janela 24h via lastInboundAt:', err)
-      // Fallback defensivo com a função pura usando dados locais se disponíveis
-      return isWithin24HourWindow(
-        targetClient.last_message_at,
-        targetClient.last_message_direction,
-        {
-          lastCustomerMessageAt:
-            phoneMatch?.activeAttendance?.last_customer_message_at ||
-            (targetClient as any).last_customer_message_at ||
-            (targetClient.last_message_direction === 'inbound'
-              ? targetClient.last_message_at
-              : undefined),
-        },
-      )
+      return false
     }
   }
 
@@ -502,11 +490,11 @@ export default function ClientFormModal({
     setIsEditingRequestLinkMessage(false)
     setCopiedLink(false)
 
-    // Avaliação prévia assíncrona da janela de 24h para exibição do modal
+    // Avaliação prévia assíncrona da janela de 24h para exibição do modal via regra GLOBAL
     setIsCheckingWindow(true)
     setRequestLinkModalOpen(true)
     try {
-      const open = await check24hWindowForTargetAsync(activeClientTarget)
+      const open = await checkGlobal24hWindow(activeClientTarget)
       setIsWindowOpen(open)
     } catch {
       setIsWindowOpen(false)
@@ -527,8 +515,8 @@ export default function ClientFormModal({
       return
     }
 
-    // Validação da Janela de 24h com a regra GLOBAL completa da janela Meta
-    const within24h = await check24hWindowForTargetAsync(activeClientTarget)
+    // Validação da Janela de 24h com a regra GLOBAL completa da janela Meta (lastInboundAt + isTimestampWithin24h)
+    const within24h = await checkGlobal24hWindow(activeClientTarget)
     if (!within24h) {
       toast({
         title: 'Janela de 24h fechada',
