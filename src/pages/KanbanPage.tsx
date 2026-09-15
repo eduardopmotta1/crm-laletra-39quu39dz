@@ -834,6 +834,8 @@ export default function KanbanPage() {
                   (a.stage === 'Novo contato' || a.stage === stageName)) ||
                 (column.internal_id === 'won' &&
                   (a.stage === 'Venda fechada' || a.stage === stageName)) ||
+                (column.internal_id === 'sales_in_production' &&
+                  (a.stage === 'Em produção' || a.stage === stageName)) ||
                 (column.internal_id === 'lost' &&
                   (a.stage === 'Não fechou' || a.stage === stageName)),
             )

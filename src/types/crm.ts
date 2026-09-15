@@ -5,6 +5,7 @@ export type KanbanStage =
   | 'Orçamento enviado'
   | 'Aguardando cliente'
   | 'Venda fechada'
+  | 'Em produção'
   | 'Não fechou'
   | string
 
@@ -15,6 +16,7 @@ export const DEFAULT_KANBAN_STAGES = [
   'Orçamento enviado',
   'Aguardando cliente',
   'Venda fechada',
+  'Em produção',
   'Não fechou',
 ]
 
