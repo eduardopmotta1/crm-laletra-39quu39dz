@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T23:06:05.127Z",
+  "generatedAt": "2026-09-15T23:15:19.737Z",
   "collections": [
     {
       "name": "users",
@@ -3103,6 +3103,58 @@
         "CREATE UNIQUE INDEX idx_poma_order_message ON production_order_message_attachments (production_order_id, message_id)",
         "CREATE INDEX idx_poma_order ON production_order_message_attachments (production_order_id)",
         "CREATE INDEX idx_poma_message ON production_order_message_attachments (message_id)"
+      ]
+    },
+    {
+      "name": "production_order_chat_messages",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\" && user_id = @request.auth.id",
+        "delete": "@request.auth.id != \"\" && user_id = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "order_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "production_orders"
+        },
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_pochats_order ON production_order_chat_messages (order_id)",
+        "CREATE INDEX idx_pochats_order_created ON production_order_chat_messages (order_id, created ASC)",
+        "CREATE INDEX idx_pochats_user ON production_order_chat_messages (user_id)"
       ]
     }
   ]

@@ -90,6 +90,7 @@ interface ProductionOrderModalProps {
   }
   onOpenChat?: (client: Client, orderContext: { id: string; orderNumber: string }) => void
   zIndexClass?: string
+  initialTab?: 'details' | 'chat' | 'proofs' | 'history'
 }
 
 export default function ProductionOrderModal({
@@ -102,15 +103,22 @@ export default function ProductionOrderModal({
   prefillData,
   onOpenChat,
   zIndexClass = 'z-50',
+  initialTab = 'details',
 }: ProductionOrderModalProps) {
   const [stages, setStages] = useState<ProductionStage[]>([])
   const [users, setUsers] = useState<UserType[]>([])
   const [clients, setClients] = useState<Client[]>([])
-  const [activeTab, setActiveTab] = useState<'details' | 'history' | 'proofs'>('details')
+  const [activeTab, setActiveTab] = useState<'details' | 'chat' | 'history' | 'proofs'>(initialTab)
   const [loading, setLoading] = useState(false)
   const [logs, setLogs] = useState<ProductionLog[]>([])
   const [proofs, setProofs] = useState<ProductionProof[]>([])
   const [linkedQuote, setLinkedQuote] = useState<Quote | null>(null)
+
+  // Internal Chat (Vendas <-> Produção) states
+  const [chatMessages, setChatMessages] = useState<ProductionOrderChatMessage[]>([])
+  const [chatInputText, setChatInputText] = useState('')
+  const [sendingChat, setSendingChat] = useState(false)
+  const [loadingChat, setLoadingChat] = useState(false)
 
   // Form states
   const [clientId, setClientId] = useState('')
@@ -195,6 +203,13 @@ export default function ProductionOrderModal({
         productionService.getLogs(orderToEdit.id).then(setLogs)
         productionService.getProofs(orderToEdit.id).then(setProofs)
 
+        // Fetch internal chat messages
+        setLoadingChat(true)
+        productionService
+          .getChatMessages(orderToEdit.id)
+          .then(setChatMessages)
+          .finally(() => setLoadingChat(false))
+
         // Fetch linked quote if available
         const qLink = extractQuoteLinkFromOrder(orderToEdit)
         if (qLink.quoteId) {
@@ -231,10 +246,79 @@ export default function ProductionOrderModal({
         setLogs([])
         setProofs([])
         setLinkedQuote(null)
+        setChatMessages([])
       }
-      setActiveTab('details')
+      setActiveTab(initialTab || 'details')
     }
-  }, [isOpen, orderToEdit, prefillData, initialClientId, initialStageId])
+  }, [isOpen, orderToEdit, prefillData, initialClientId, initialStageId, initialTab])
+
+  // Realtime subscription and polling fallback for internal chat messages
+  useEffect(() => {
+    if (!isOpen || !orderToEdit?.id) return
+
+    const orderId = orderToEdit.id
+
+    const refreshChat = async () => {
+      try {
+        const msgs = await productionService.getChatMessages(orderId)
+        setChatMessages(msgs)
+      } catch (e) {
+        console.error('Error refreshing internal chat messages:', e)
+      }
+    }
+
+    // Subscribe to PocketBase realtime events for the collection
+    let unsubscribed = false
+    pb.collection('production_order_chat_messages')
+      .subscribe('*', (e) => {
+        if (unsubscribed) return
+        const record = e.record as unknown as ProductionOrderChatMessage
+        if (record && record.order_id === orderId) {
+          refreshChat()
+        }
+      })
+      .catch((err) => {
+        console.warn('Realtime subscription not available, relying on polling:', err)
+      })
+
+    // Polling every 5 seconds as robust fallback
+    const interval = setInterval(() => {
+      refreshChat()
+    }, 5000)
+
+    return () => {
+      unsubscribed = true
+      clearInterval(interval)
+      pb.collection('production_order_chat_messages')
+        .unsubscribe('*')
+        .catch(() => {})
+    }
+  }, [isOpen, orderToEdit?.id])
+
+  const handleSendChatMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!orderToEdit?.id || !chatInputText.trim() || sendingChat) return
+
+    const textToSend = chatInputText.trim()
+    setSendingChat(true)
+    try {
+      const newMsg = await productionService.sendChatMessage(orderToEdit.id, textToSend)
+      setChatMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev
+        return [...prev, newMsg]
+      })
+      setChatInputText('')
+    } catch (err: any) {
+      console.error('Error sending internal chat message:', err)
+      toast({
+        title: 'Erro ao enviar mensagem',
+        description: err?.message || 'Não foi possível enviar a mensagem interna.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSendingChat(false)
+    }
+  }
 
   const handleClientSelect = (id: string) => {
     setClientId(id)
@@ -665,25 +749,42 @@ export default function ProductionOrderModal({
         </DialogHeader>
         {/* Tab switch */}
         {orderToEdit && (
-          <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-1 rounded-xl">
+          <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-1 rounded-xl gap-1">
             <button
               type="button"
               onClick={() => setActiveTab('details')}
-              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
                 activeTab === 'details'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
               <FileText className="h-3.5 w-3.5" />
-              Especificações & Dados
+              Especificações
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('chat')}
+              className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                activeTab === 'chat'
+                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <MessageSquare className="h-3.5 w-3.5 text-indigo-500" />
+              Chat Interno (Vendas ↔ Produção)
+              {chatMessages.length > 0 && (
+                <span className="ml-1 text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 px-1.5 py-0.2 rounded-full font-bold">
+                  {chatMessages.length}
+                </span>
+              )}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('proofs')}
-              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
                 activeTab === 'proofs'
-                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                  ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
@@ -693,14 +794,14 @@ export default function ProductionOrderModal({
             <button
               type="button"
               onClick={() => setActiveTab('history')}
-              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
                 activeTab === 'history'
-                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
               <History className="h-3.5 w-3.5 text-blue-600" />
-              Histórico & Auditoria ({logs.length})
+              Histórico ({logs.length})
             </button>
           </div>
         )}
@@ -1775,6 +1876,172 @@ export default function ProductionOrderModal({
                 ))
               )}
             </div>
+          </div>
+        )}
+
+        {/* TAB 2: INTERNAL CHAT (VENDAS <-> PRODUÇÃO) */}
+        {activeTab === 'chat' && orderToEdit && (
+          <div className="flex flex-col h-[480px] bg-slate-50/70 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            {/* Header info */}
+            <div className="p-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <MessageSquare className="h-4 w-4 text-indigo-600" />
+                  Chat Interno: Vendas ↔ Produção
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Comunicação 100% interna vinculada exclusivamente ao Pedido{' '}
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    {orderToEdit.order_number}
+                  </span>
+                  . O cliente e o WhatsApp NÃO têm acesso a estas mensagens.
+                </p>
+              </div>
+              <Badge
+                variant="outline"
+                className="text-[10px] font-semibold text-indigo-700 border-indigo-200 bg-indigo-50 dark:bg-indigo-950/40 dark:text-indigo-300"
+              >
+                {chatMessages.length} mensagem{chatMessages.length === 1 ? '' : 's'}
+              </Badge>
+            </div>
+
+            {/* Messages list */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {loadingChat && chatMessages.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                  Carregando mensagens internas...
+                </div>
+              ) : chatMessages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 space-y-2">
+                  <MessageSquare className="h-8 w-8 text-slate-300 stroke-[1.5]" />
+                  <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Nenhuma mensagem interna ainda
+                  </p>
+                  <p className="text-[11px] max-w-sm text-slate-400">
+                    Use este espaço para alinhar dúvidas, prazos e detalhes técnicos entre Vendas e
+                    a equipe de Produção.
+                  </p>
+                </div>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isCurrentAuthUser =
+                    Boolean(pb.authStore.record?.id) &&
+                    (msg.user_id === pb.authStore.record?.id ||
+                      msg.expand?.user_id?.id === pb.authStore.record?.id)
+                  const author = msg.expand?.user_id
+                  const authorName =
+                    author?.name ||
+                    (isCurrentAuthUser ? pb.authStore.record?.name : null) ||
+                    author?.email ||
+                    'Usuário'
+
+                  // Resolve role/sector name: role_id can be string or expanded object
+                  let roleName = ''
+                  if (typeof author?.role_id === 'object' && (author.role_id as any)?.name) {
+                    roleName = (author.role_id as any).name
+                  } else if (typeof author?.role_id === 'string' && author.role_id) {
+                    // Try to match users list from state
+                    const foundUser = users.find((u) => u.id === msg.user_id)
+                    if (
+                      typeof foundUser?.role_id === 'object' &&
+                      (foundUser.role_id as any)?.name
+                    ) {
+                      roleName = (foundUser.role_id as any).name
+                    }
+                  }
+                  if (!roleName && isCurrentAuthUser && roleSlug) {
+                    roleName =
+                      roleSlug === 'admin'
+                        ? 'Administração'
+                        : roleSlug === 'vendas'
+                          ? 'Vendas'
+                          : roleSlug === 'producao'
+                            ? 'Produção'
+                            : roleSlug === 'financeiro'
+                              ? 'Financeiro'
+                              : roleSlug === 'gestao'
+                                ? 'Gestão'
+                                : roleSlug
+                  }
+                  if (!roleName) {
+                    // Fallback to checking order sales_rep or production_rep
+                    if (orderToEdit.sales_rep_id === msg.user_id) {
+                      roleName = 'Vendas'
+                    } else if (orderToEdit.production_rep_id === msg.user_id) {
+                      roleName = 'Produção'
+                    }
+                  }
+
+                  const timeString = msg.created
+                    ? new Date(msg.created).toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : ''
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${isCurrentAuthUser ? 'items-end' : 'items-start'}`}
+                    >
+                      {/* Meta header: Nome · Setor/função · Data/hora */}
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mb-1 px-1">
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          {authorName}
+                        </span>
+                        {roleName && (
+                          <>
+                            <span>·</span>
+                            <span className="text-slate-600 dark:text-slate-400 font-medium">
+                              {roleName}
+                            </span>
+                          </>
+                        )}
+                        {timeString && (
+                          <>
+                            <span>—</span>
+                            <span className="text-slate-400">{timeString}</span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Message Bubble */}
+                      <div
+                        className={`rounded-2xl px-4 py-2.5 max-w-[85%] text-xs shadow-sm break-words whitespace-pre-wrap ${
+                          isCurrentAuthUser
+                            ? 'bg-indigo-600 text-white rounded-tr-none'
+                            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-tl-none'
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Input & Send area */}
+            <form
+              onSubmit={handleSendChatMessage}
+              className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2"
+            >
+              <input
+                type="text"
+                value={chatInputText}
+                onChange={(e) => setChatInputText(e.target.value)}
+                placeholder="Escreva uma mensagem para a equipe interna..."
+                disabled={sendingChat}
+                className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:opacity-50"
+              />
+              <Button
+                type="submit"
+                disabled={!chatInputText.trim() || sendingChat}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4 h-9 font-semibold shrink-0"
+              >
+                {sendingChat ? 'Enviando...' : 'Enviar'}
+              </Button>
+            </form>
           </div>
         )}
 

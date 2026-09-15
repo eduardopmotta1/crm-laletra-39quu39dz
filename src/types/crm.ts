@@ -529,6 +529,19 @@ export interface ProductionLog {
   updated: string
 }
 
+export interface ProductionOrderChatMessage {
+  id: string
+  order_id: string
+  user_id: string
+  text: string
+  expand?: {
+    order_id?: ProductionOrder
+    user_id?: User
+  }
+  created: string
+  updated: string
+}
+
 export interface ProductionProof {
   id: string
   order_id: string

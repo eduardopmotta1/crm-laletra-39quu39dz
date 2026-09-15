@@ -3,6 +3,7 @@ import type {
   ProductionOrder,
   ProductionLog,
   ProductionProof,
+  ProductionOrderChatMessage,
   ProductionDeadlineStatus,
   ProductionStageInternalId,
 } from '@/types/crm'
@@ -826,6 +827,85 @@ export const productionService = {
       })
     } catch (error) {
       console.error('Error fetching production logs:', error)
+      return []
+    }
+  },
+
+  /**
+   * Get all internal chat messages for a specific production order.
+   * Separate collection: production_order_chat_messages.
+   * NEVER mixes with production_logs or WhatsApp messages.
+   */
+  async getChatMessages(orderId: string): Promise<ProductionOrderChatMessage[]> {
+    if (!orderId) return []
+    try {
+      return await pb
+        .collection('production_order_chat_messages')
+        .getFullList<ProductionOrderChatMessage>({
+          filter: `order_id = "${orderId}"`,
+          sort: 'created',
+          expand: 'user_id,user_id.role_id',
+          requestKey: null,
+        })
+    } catch (error) {
+      console.error('Error fetching production order chat messages:', error)
+      return []
+    }
+  },
+
+  /**
+   * Send an internal chat message for a specific production order.
+   * Automatically sets user_id to the authenticated user.
+   * Client NEVER sends user_id manually.
+   * 100% INTERNAL: never sends to WhatsApp, Meta Cloud API or external webhooks.
+   */
+  async sendChatMessage(orderId: string, text: string): Promise<ProductionOrderChatMessage> {
+    const trimmedText = text.trim()
+    if (!trimmedText) {
+      throw new Error('Mensagem não pode ser vazia.')
+    }
+    const currentUserId = pb.authStore.record?.id
+    if (!currentUserId) {
+      throw new Error('Usuário não autenticado.')
+    }
+
+    const created = await pb
+      .collection('production_order_chat_messages')
+      .create<ProductionOrderChatMessage>({
+        order_id: orderId,
+        user_id: currentUserId,
+        text: trimmedText,
+      })
+
+    // Fetch expanded message so caller has user details immediately
+    try {
+      const expanded = await pb
+        .collection('production_order_chat_messages')
+        .getOne<ProductionOrderChatMessage>(created.id, {
+          expand: 'user_id,user_id.role_id',
+          requestKey: null,
+        })
+      return expanded
+    } catch {
+      return created
+    }
+  },
+
+  /**
+   * Get all production orders associated with an attendance.
+   * Supports 1 attendance -> N production orders.
+   */
+  async getByAttendanceId(attendanceId: string): Promise<ProductionOrder[]> {
+    if (!attendanceId) return []
+    try {
+      return await pb.collection('production_orders').getFullList<ProductionOrder>({
+        filter: `attendance_id = "${attendanceId}"`,
+        sort: '-created',
+        expand: 'stage_id,sales_rep_id,production_rep_id,approved_proof_id',
+        requestKey: null,
+      })
+    } catch (error) {
+      console.error('Error fetching production orders by attendance ID:', error)
       return []
     }
   },

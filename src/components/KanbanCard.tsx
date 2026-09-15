@@ -11,6 +11,7 @@ import {
   Lock,
   MoreVertical,
   FileText,
+  Factory,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -34,6 +35,8 @@ interface KanbanCardProps {
   realQuote?: Quote | null
   openQuotesCount?: number
   now?: number
+  linkedOrdersCount?: number
+  onOpenProduction?: (e: React.MouseEvent) => void
   onClick: () => void
   onOpenChat: (e: React.MouseEvent) => void
   onCompleteAndArchive?: (client: Client, e: React.MouseEvent) => void
@@ -50,6 +53,8 @@ export default function KanbanCard({
   realQuote,
   openQuotesCount = 0,
   now,
+  linkedOrdersCount = 0,
+  onOpenProduction,
   onClick,
   onOpenChat,
   onCompleteAndArchive,
@@ -120,6 +125,10 @@ export default function KanbanCard({
     })
   }
 
+  const isInProductionStage =
+    currentStage === 'Em produção' ||
+    column?.internal_id === 'sales_in_production' ||
+    linkedOrdersCount > 0
   const isWon = currentStage === 'Venda fechada'
   const isLost = currentStage === 'Não fechou'
   const isFinalStage = isWon || isLost
@@ -240,6 +249,28 @@ export default function KanbanCard({
           </div>
         )}
 
+        {/* Action: Open Production Order & Chat Interno from "Em produção" card */}
+        {isInProductionStage && onOpenProduction && (
+          <div className="pt-0.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenProduction(e)
+              }}
+              className="w-full py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 dark:text-indigo-300 dark:border-indigo-800 shadow-xs"
+              title="Acessar o pedido de produção e o chat interno Vendas ↔ Produção"
+            >
+              <Factory className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>
+                {linkedOrdersCount > 1
+                  ? `Ver Produção (${linkedOrdersCount} pedidos) & Chat`
+                  : 'Ver Produção & Chat Interno'}
+              </span>
+            </button>
+          </div>
+        )}
+
         {/* Quick Final Stage Action: Concluir & Arquivar button directly on final cards */}
         {isFinalStage && (
           <div className="flex flex-col gap-1.5 pt-0.5">
@@ -333,6 +364,15 @@ export default function KanbanCard({
                   >
                     <Archive className="h-3.5 w-3.5 text-slate-500" />
                     <span>Concluir e arquivar</span>
+                  </DropdownMenuItem>
+                )}
+                {onOpenProduction && (
+                  <DropdownMenuItem
+                    onClick={(e) => onOpenProduction(e)}
+                    className="flex items-center gap-2 cursor-pointer text-indigo-700 dark:text-indigo-300"
+                  >
+                    <Factory className="h-3.5 w-3.5 text-indigo-600" />
+                    <span>Chat Interno / Produção</span>
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
