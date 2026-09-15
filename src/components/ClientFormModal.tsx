@@ -20,8 +20,8 @@ import {
 } from '@/components/ui/select'
 import { type Client, type KanbanStage, type User } from '@/types/crm'
 import { clientsService, type FindClientByPhoneResult } from '@/services/clients'
-import { lastInboundAt, isTimestampWithin24h } from '@/services/whatsappWindow'
-import { whatsappService, usersService } from '@/services/whatsapp'
+import { usersService } from '@/services/whatsapp'
+import RequestRegistrationLinkModal from './RequestRegistrationLinkModal'
 import pb from '@/lib/pocketbase/client'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from '@/hooks/use-toast'
@@ -136,15 +136,9 @@ export default function ClientFormModal({
   const [quotesModalOpen, setQuotesModalOpen] = useState(false)
   const [evaluationsModalOpen, setEvaluationsModalOpen] = useState(false)
   const [searchingCep, setSearchingCep] = useState(false)
-  const [copiedLink, setCopiedLink] = useState(false)
   const [requestLinkModalOpen, setRequestLinkModalOpen] = useState(false)
   const [currentPublicToken, setCurrentPublicToken] = useState<string>('')
   const [missingFieldsExpanded, setMissingFieldsExpanded] = useState(false)
-  const [sendingLinkWhatsApp, setSendingLinkWhatsApp] = useState(false)
-  const [requestLinkMessageDraft, setRequestLinkMessageDraft] = useState<string>('')
-  const [isEditingRequestLinkMessage, setIsEditingRequestLinkMessage] = useState(false)
-  const [isCheckingWindow, setIsCheckingWindow] = useState(false)
-  const [isWindowOpen, setIsWindowOpen] = useState(false)
 
   // Guarda síncrona para modais filhos — previne race condition no ciclo de fechamento Radix UI
   const openChildModalRef = useRef<'evaluations' | 'history' | 'quotes' | 'chat' | null>(null)
@@ -437,163 +431,9 @@ export default function ClientFormModal({
   // Cálculo reativo e dinâmico de completude cadastral baseado nos dados atuais do formulário
   const completeness = clientsService.calculateCompleteness(formData)
 
-  const getPublicLinkUrl = () => {
-    if (!activeClientTarget) return ''
-    const token = currentPublicToken || activeClientTarget.public_token
-    if (!token) return ''
-    return clientsService.getPublicClientUrl({ public_token: token, id: activeClientTarget.id })
-  }
-
-  const defaultRequestLinkMessage = (link: string) => {
-    return `Olá! Para mantermos seu cadastro atualizado, por favor preencha seus dados neste link:\n\n${link}\n\nÉ rapidinho e ajuda a agilizar seus próximos pedidos.`
-  }
-
-  const checkGlobal24hWindow = async (targetClient: Client | null): Promise<boolean> => {
-    if (!targetClient || !targetClient.id) return false
-    try {
-      const resolvedInboundIso = await lastInboundAt(
-        targetClient.id,
-        phoneMatch?.activeAttendance?.id || null,
-        {
-          attendanceLastCustomerMessageAt:
-            phoneMatch?.activeAttendance?.last_customer_message_at ||
-            (targetClient as any).last_customer_message_at ||
-            null,
-        },
-      )
-      return isTimestampWithin24h(resolvedInboundIso)
-    } catch (err) {
-      console.warn('[ClientFormModal] Erro ao consultar janela 24h via lastInboundAt:', err)
-      return false
-    }
-  }
-
-  const handleOpenRequestLinkModal = async () => {
+  const handleOpenRequestLinkModal = () => {
     if (!activeClientTarget) return
-    let token = currentPublicToken || activeClientTarget.public_token
-    if (!token) {
-      try {
-        const updated = await clientsService.ensurePublicToken(activeClientTarget)
-        if (updated.public_token) {
-          token = updated.public_token
-          setCurrentPublicToken(token)
-          activeClientTarget.public_token = token
-        }
-      } catch (err) {
-        console.warn('Falha ao gerar public_token para cliente:', err)
-      }
-    }
-    const linkUrl = token
-      ? clientsService.getPublicClientUrl({ public_token: token, id: activeClientTarget.id })
-      : ''
-    setRequestLinkMessageDraft(defaultRequestLinkMessage(linkUrl))
-    setIsEditingRequestLinkMessage(false)
-    setCopiedLink(false)
-
-    // Avaliação prévia assíncrona da janela de 24h para exibição do modal via regra GLOBAL
-    setIsCheckingWindow(true)
     setRequestLinkModalOpen(true)
-    try {
-      const open = await checkGlobal24hWindow(activeClientTarget)
-      setIsWindowOpen(open)
-    } catch {
-      setIsWindowOpen(false)
-    } finally {
-      setIsCheckingWindow(false)
-    }
-  }
-
-  const handleSendLinkViaWhatsApp = async () => {
-    if (!activeClientTarget) return
-    const url = getPublicLinkUrl()
-    if (!url) {
-      toast({
-        title: 'Link de cadastro não gerado',
-        description: 'Não foi possível encontrar o link de cadastro deste cliente.',
-        variant: 'destructive',
-      })
-      return
-    }
-
-    // Validação da Janela de 24h com a regra GLOBAL completa da janela Meta (lastInboundAt + isTimestampWithin24h)
-    const within24h = await checkGlobal24hWindow(activeClientTarget)
-    if (!within24h) {
-      toast({
-        title: 'Janela de 24h fechada',
-        description:
-          'Não é possível enviar mensagem livre fora da janela de 24h. Utilize um Template Oficial aprovado pela Meta para iniciar uma nova conversa.',
-        variant: 'destructive',
-      })
-      return
-    }
-
-    const textToSend = requestLinkMessageDraft.trim() || defaultRequestLinkMessage(url)
-    setSendingLinkWhatsApp(true)
-    try {
-      // Obter ou resolver ID de atendimento ativo se houver
-      let attId = phoneMatch?.activeAttendance?.id
-      if (!attId && activeClientTarget.id) {
-        try {
-          const atts = await pb.collection('attendances').getList(1, 1, {
-            filter: `client_id = "${activeClientTarget.id}" && is_archived != true`,
-            sort: '-created',
-            requestKey: null,
-          })
-          if (atts.items.length > 0) {
-            attId = atts.items[0].id
-          }
-        } catch {
-          /* non-fatal */
-        }
-      }
-
-      const res = await whatsappService.sendMessage({
-        clientId: activeClientTarget.id,
-        attendanceId: attId,
-        messageText: textToSend,
-      })
-
-      if (!res.success || res.error) {
-        throw new Error(res.error || 'Falha ao enviar mensagem de solicitação de cadastro.')
-      }
-
-      toast({
-        title: 'Link enviado pelo WhatsApp!',
-        description: `O link de cadastro foi enviado com sucesso para ${activeClientTarget.name}.`,
-      })
-      setRequestLinkModalOpen(false)
-      window.dispatchEvent(new CustomEvent('crm-client-updated'))
-    } catch (err: any) {
-      console.error('Erro ao enviar link de cadastro pelo WhatsApp:', err)
-      toast({
-        title: 'Erro ao enviar pelo WhatsApp',
-        description:
-          err?.message || 'Não foi possível enviar a mensagem pelo WhatsApp. Tente novamente.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSendingLinkWhatsApp(false)
-    }
-  }
-
-  const handleCopyLink = async () => {
-    const url = getPublicLinkUrl()
-    if (!url) return
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopiedLink(true)
-      toast({
-        title: 'Link copiado com sucesso!',
-        description: 'Envie o link para o cliente completar ou revisar os dados cadastrais.',
-      })
-      setTimeout(() => setCopiedLink(false), 3000)
-    } catch (_) {
-      toast({
-        title: 'Não foi possível copiar',
-        description: 'Selecione e copie o link manualmente.',
-        variant: 'destructive',
-      })
-    }
   }
 
   // Helpers síncronos de abertura/fechamento dos modais filhos
@@ -1485,186 +1325,21 @@ export default function ClientFormModal({
         zIndexClass="z-[70]"
       />
 
-      {/* Modal / Diálogo para exibir e copiar o Link Público de Solicitar Cadastro */}
-      <Dialog open={requestLinkModalOpen} onOpenChange={setRequestLinkModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Link2 className="h-5 w-5 text-blue-600" />
-              Solicitar Cadastro ao Cliente
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Envie o link público exclusivo abaixo para o cliente. Ao acessar, ele poderá
-              visualizar, corrigir e completar os próprios dados cadastrais e de endereço de forma
-              autônoma e segura.
-            </p>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Link Público do Cliente:
-              </label>
-              <div className="flex items-center gap-2">
-                <Input
-                  readOnly
-                  value={getPublicLinkUrl()}
-                  className="font-mono text-xs bg-slate-50 dark:bg-slate-900 select-all"
-                  onClick={(e) => (e.target as HTMLInputElement).select()}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleCopyLink}
-                  className="bg-blue-600 hover:bg-blue-700 text-white shrink-0 font-semibold text-xs gap-1.5"
-                >
-                  {copiedLink ? (
-                    <>
-                      <Check className="h-3.5 w-3.5" />
-                      Copiado!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5" />
-                      Copiar link
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            {/* Seção de Envio pelo WhatsApp com verificação da Janela de 24h */}
-            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <MessageSquare className="h-3.5 w-3.5 text-emerald-600" />
-                  Enviar pelo WhatsApp do Cliente
-                </label>
-                <span className="text-[11px] font-mono text-slate-500">
-                  {activeClientTarget?.phone || formData.phone}
-                </span>
-              </div>
-
-              {isCheckingWindow ? (
-                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2 text-xs text-slate-500">
-                  <Clock className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                  <span>Verificando janela de 24h do WhatsApp...</span>
-                </div>
-              ) : !isWindowOpen ? (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 text-xs space-y-2">
-                  <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
-                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold">Janela de 24h fechada.</p>
-                      <p className="text-amber-800 dark:text-amber-300 text-[11px] mt-0.5 leading-relaxed">
-                        Não é permitido enviar mensagem de texto livre fora da janela de 24 horas.
-                        Para iniciar uma conversa com este cliente, utilize um Template Oficial
-                        aprovado pela Meta ou copie o link acima manualmente.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="pt-1 flex items-center justify-between">
-                    <span className="text-[10px] text-amber-700 dark:text-amber-400">
-                      Regra oficial Meta / WhatsApp Cloud API
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => {
-                        setRequestLinkModalOpen(false)
-                        openChild('chat')
-                      }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 px-3 gap-1 font-semibold"
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      Template Oficial
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Janela de 24h ativa • Mensagem pronta para disparo
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingRequestLinkMessage((prev) => !prev)}
-                      className="text-blue-600 hover:text-blue-700 dark:text-blue-400 text-[11px] font-semibold hover:underline"
-                    >
-                      {isEditingRequestLinkMessage ? 'Concluir edição' : 'Editar texto'}
-                    </button>
-                  </div>
-
-                  {isEditingRequestLinkMessage ? (
-                    <Textarea
-                      value={requestLinkMessageDraft}
-                      onChange={(e) => setRequestLinkMessageDraft(e.target.value)}
-                      rows={4}
-                      className="text-xs bg-white dark:bg-slate-900 resize-none font-sans"
-                      placeholder="Digite a mensagem que acompanhará o link..."
-                    />
-                  ) : (
-                    <div className="p-3 rounded-xl bg-[#d9fdd3]/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70 text-xs text-slate-800 dark:text-slate-100 whitespace-pre-wrap font-sans leading-relaxed shadow-inner max-h-36 overflow-y-auto">
-                      {requestLinkMessageDraft || defaultRequestLinkMessage(getPublicLinkUrl())}
-                    </div>
-                  )}
-
-                  <div className="flex justify-end pt-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={sendingLinkWhatsApp || !getPublicLinkUrl()}
-                      onClick={handleSendLinkViaWhatsApp}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
-                    >
-                      {sendingLinkWhatsApp ? (
-                        <>
-                          <Clock className="h-3.5 w-3.5 animate-spin" />
-                          <span>Enviando pelo WhatsApp...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="h-3.5 w-3.5" />
-                          <span>Enviar pelo WhatsApp</span>
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 text-xs">
-              <span className="text-slate-400 text-[11px]">
-                Token reutilizável e exclusivo deste cliente.
-              </span>
-              {getPublicLinkUrl() && (
-                <a
-                  href={getPublicLinkUrl()}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-semibold inline-flex items-center gap-1 hover:underline text-xs"
-                >
-                  Abrir link <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setRequestLinkModalOpen(false)}
-            >
-              Fechar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Modal compartilhado de Solicitar atualização de cadastro */}
+      <RequestRegistrationLinkModal
+        isOpen={requestLinkModalOpen}
+        onClose={() => setRequestLinkModalOpen(false)}
+        client={activeClientTarget}
+        attendanceId={phoneMatch?.activeAttendance?.id || null}
+        phoneOverride={activeClientTarget?.phone || formData.phone}
+        onOpenTemplateModal={() => openChild('chat')}
+        onClientTokenGenerated={(token) => {
+          setCurrentPublicToken(token)
+          if (activeClientTarget) {
+            activeClientTarget.public_token = token
+          }
+        }}
+      />
     </>
   )
 }

@@ -44,6 +44,7 @@ import {
   Download,
   FileImage,
   Pencil,
+  UserRoundPen,
 } from 'lucide-react'
 import type {
   Client,
@@ -91,6 +92,7 @@ import { toast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
 import StartWhatsAppConversationModal from './StartWhatsAppConversationModal'
 import CompleteAndArchiveModal from './CompleteAndArchiveModal'
+import RequestRegistrationLinkModal from './RequestRegistrationLinkModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -240,6 +242,7 @@ export default function WhatsAppChatDrawer({
   // Modals state
   const [startModalOpen, setStartModalOpen] = useState(false)
   const [archiveModalOpen, setArchiveModalOpen] = useState(false)
+  const [requestRegistrationLinkModalOpen, setRequestRegistrationLinkModalOpen] = useState(false)
 
   // Collapsible sections state
   const [quotesExpanded, setQuotesExpanded] = useState(true)
@@ -392,7 +395,8 @@ export default function WhatsAppChatDrawer({
           sendQuoteModalOpen ||
           approveDialogOpen ||
           rejectDialogOpen ||
-          confirmAddFileDialogOpen
+          confirmAddFileDialogOpen ||
+          requestRegistrationLinkModalOpen
         ) {
           return
         }
@@ -410,6 +414,7 @@ export default function WhatsAppChatDrawer({
     quoteDetailsOpen,
     deleteQuoteDialogOpen,
     sendQuoteModalOpen,
+    requestRegistrationLinkModalOpen,
     onClose,
   ])
 
@@ -1712,6 +1717,16 @@ export default function WhatsAppChatDrawer({
                 <span className="hidden sm:inline">Template Oficial</span>
                 <span className="sm:hidden">Template</span>
               </Button>
+
+              <button
+                type="button"
+                onClick={() => setRequestRegistrationLinkModalOpen(true)}
+                title="Solicitar atualização de cadastro"
+                aria-label="Solicitar atualização de cadastro"
+                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors shrink-0"
+              >
+                <UserRoundPen className="h-4 w-4" />
+              </button>
 
               <a
                 href={getWhatsAppDirectUrl(displayClient.phone)}
@@ -3370,6 +3385,30 @@ export default function WhatsAppChatDrawer({
           </div>
         </div>
       </div>
+
+      {/* Request Registration Link Modal */}
+      {displayClient && (
+        <RequestRegistrationLinkModal
+          isOpen={requestRegistrationLinkModalOpen}
+          onClose={() => setRequestRegistrationLinkModalOpen(false)}
+          client={displayClient}
+          attendanceId={activeAttendance?.id || displayAttendance?.id || null}
+          phoneOverride={displayClient.phone}
+          onOpenTemplateModal={() => {
+            setStartModalInitialQuote(null)
+            setStartModalInitialTemplateName(undefined)
+            setStartModalOpen(true)
+          }}
+          onSuccess={() => {
+            loadClientData(displayClient.id, activeAttendance?.id)
+            if (onClientUpdated) onClientUpdated()
+          }}
+          onClientTokenGenerated={(token) => {
+            setCurrentClient((prev) => (prev ? { ...prev, public_token: token } : prev))
+            if (onClientUpdated) onClientUpdated()
+          }}
+        />
+      )}
 
       {/* Start Official WhatsApp Template Modal */}
       <StartWhatsAppConversationModal
