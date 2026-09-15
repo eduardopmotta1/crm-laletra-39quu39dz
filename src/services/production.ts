@@ -543,6 +543,39 @@ export const productionService = {
       } catch (err) {
         console.error('Error triggering post sale for completed order:', err)
       }
+
+      // Sincronização do Attendance vinculado ao pedido concluído
+      const targetAttendanceId = updated.attendance_id
+      if (targetAttendanceId && targetAttendanceId.trim()) {
+        try {
+          const attendanceRec = await pb.collection('attendances').getOne(targetAttendanceId.trim())
+
+          // Idempotente: se já estiver arquivado, não faz nada
+          if (!attendanceRec?.is_archived) {
+            const siblingOrders = await pb
+              .collection('production_orders')
+              .getFullList<ProductionOrder>({
+                filter: `attendance_id = "${targetAttendanceId.trim()}"`,
+                requestKey: null,
+              })
+
+            // Verifica se resta QUALQUER pedido com is_completed != true e is_archived != true
+            const hasPendingOrders = siblingOrders.some(
+              (order) => !order.is_completed && !order.is_archived,
+            )
+
+            // Se não restar nenhum pedido pendente/ativo, arquiva o atendimento mantendo o stage "Em produção"
+            if (!hasPendingOrders) {
+              await pb.collection('attendances').update(targetAttendanceId.trim(), {
+                is_archived: true,
+                closed_at: new Date().toISOString(),
+              })
+            }
+          }
+        } catch (attSyncErr) {
+          console.error('Error checking/syncing attendance completion:', attSyncErr)
+        }
+      }
     }
 
     // Audit log da transição de etapa
