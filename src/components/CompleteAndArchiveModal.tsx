@@ -34,6 +34,7 @@ import { productionService } from '@/services/production'
 import { quotesService } from '@/services/quotes'
 import { formatCurrency } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
+import pb from '@/lib/pocketbase/client'
 import ProductionOrderModal from './ProductionOrderModal'
 import CreateProductionOrderFromQuoteModal from './CreateProductionOrderFromQuoteModal'
 
@@ -523,34 +524,223 @@ export default function CompleteAndArchiveModal({
           setProductionModalOpen(false)
           // Se fechar o modal manual de produção sem salvar, a venda NÃO é arquivada e o atendimento permanece aberto!
         }}
-        onSaved={async () => {
+        onSaved={async (savedOrderId?: string) => {
           setProductionModalOpen(false)
-          // Arquivar somente após o salvamento com sucesso do pedido de produção
-          try {
-            await dealsService.completeAndArchive({
-              clientId: client.id,
-              attendanceId: attendanceId || client.attendance_id,
-              result: 'Venda fechada',
-              quoteValue: quoteValue ? Number(quoteValue) : undefined,
-              productInterest: productInterest.trim() || undefined,
-              finalNotes: finalNotes.trim() || undefined,
-            })
+          // REGRA 0.0.229/0.0.230:
+          // Só registrar venda e mover atendimento para "Em produção" DEPOIS que production_order
+          // for criado com sucesso no banco de dados.
+          // O attendance deve ficar: stage="Em produção", is_archived=false, closed_at=null.
+          const effectiveAttId = attendanceId || client.attendance_id
+          const clientId = client.id
+
+          if (effectiveAttId) {
+            try {
+              const todayDateStr = new Date().toISOString().split('T')[0]
+              const finalVal = quoteValue ? Number(quoteValue) : client.quote_value || 0
+              const finalProd = productInterest.trim() || client.product_interest || ''
+
+              // Carregar dados atualizados do attendance e client para consistência
+              let attendanceRec: any = null
+              try {
+                attendanceRec = await pb.collection('attendances').getOne(effectiveAttId)
+              } catch {
+                /* ignore */
+              }
+
+              let clientRec: any = null
+              if (clientId) {
+                try {
+                  clientRec = await pb.collection('clients').getOne(clientId)
+                } catch {
+                  /* ignore */
+                }
+              }
+
+              // Buscar dados da ordem de produção criada se o id foi fornecido
+              let confirmedOrder: any = null
+              if (savedOrderId) {
+                try {
+                  confirmedOrder = await pb.collection('production_orders').getOne(savedOrderId)
+                } catch {
+                  /* ignore */
+                }
+              }
+
+              const clientName = clientRec?.name || client.name || 'Cliente'
+              const clientPhone =
+                clientRec?.phone || confirmedOrder?.client_phone || client.phone || ''
+              const clientEmail =
+                clientRec?.email || confirmedOrder?.client_email || client.email || undefined
+
+              // Duração do atendimento em dias
+              let durationDays = 0
+              const timeRef = attendanceRec?.created || clientRec?.created
+              if (timeRef) {
+                const createdTime = new Date(timeRef).getTime()
+                const diffMs = Date.now() - createdTime
+                durationDays = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)))
+              }
+
+              // 1. Upsert do registro comercial em archived_deals (resultado "Venda fechada")
+              let archivedDeal: any = null
+              let isNewArchivedRecord = false
+              let previousExistingResult: string | null = null
+
+              let existingDeals: { items: any[] } = { items: [] }
+              try {
+                existingDeals = await pb.collection('archived_deals').getList(1, 1, {
+                  filter: `attendance_id = "${effectiveAttId}"`,
+                  sort: '-created',
+                  requestKey: null,
+                })
+              } catch {
+                /* ignore */
+              }
+
+              const orderLabel = confirmedOrder?.order_number
+                ? ` ${confirmedOrder.order_number}`
+                : ''
+              const dealNotes =
+                finalNotes.trim() ||
+                `Venda fechada com pedido de produção${orderLabel} gerado manualmente. Atendimento movido para "Em produção".`
+
+              const dealData: Record<string, any> = {
+                attendance_id: effectiveAttId,
+                client_name: clientName,
+                client_phone: clientPhone,
+                client_email: clientEmail,
+                result: 'Venda fechada',
+                loss_reason: '',
+                loss_category: '',
+                product_interest: finalProd,
+                quote_value: finalVal,
+                closed_at: todayDateStr,
+                assigned_to:
+                  attendanceRec?.assigned_to ||
+                  clientRec?.assigned_to ||
+                  client.assigned_to ||
+                  undefined,
+                closed_by: pb.authStore.record?.id || undefined,
+                final_notes: dealNotes,
+                duration_days: durationDays,
+              }
+              if (clientId) {
+                dealData.client_id = clientId
+              }
+
+              if (existingDeals.items.length > 0) {
+                const existingDeal = existingDeals.items[0]
+                previousExistingResult = existingDeal.result
+                archivedDeal = await pb
+                  .collection('archived_deals')
+                  .update(existingDeal.id, dealData)
+              } else {
+                isNewArchivedRecord = true
+                archivedDeal = await pb.collection('archived_deals').create({
+                  client_id: clientId || '',
+                  attendance_id: effectiveAttId,
+                  ...dealData,
+                })
+              }
+
+              // 2. Atualizar atendimento comercial: stage="Em produção", is_archived=false, closed_at=null
+              await pb.collection('attendances').update(effectiveAttId, {
+                stage: 'Em produção',
+                is_archived: false,
+                closed_at: null,
+                archived_at: null,
+                result: 'Venda fechada',
+                quote_value: finalVal,
+                product_interest: finalProd,
+                last_archived_deal_id: archivedDeal?.id || undefined,
+              })
+
+              // 3. Atualizar métricas acumuladas do cliente e vincular last_archived_deal_id
+              if (clientId && clientRec) {
+                const dealValue = finalVal || 0
+                let shouldIncrementPurchase = false
+                if (isNewArchivedRecord) {
+                  shouldIncrementPurchase = true
+                } else if (previousExistingResult !== 'Venda fechada') {
+                  shouldIncrementPurchase = true
+                }
+
+                const currentPurchases =
+                  (clientRec.total_purchases || 0) + (shouldIncrementPurchase ? 1 : 0)
+                const currentTotalValue =
+                  (clientRec.total_purchase_value || 0) + (shouldIncrementPurchase ? dealValue : 0)
+                const firstPurchase = clientRec.first_purchase_date || todayDateStr
+                const lastPurchase = todayDateStr
+
+                const clientUpdateData: Record<string, any> = {
+                  stage: 'Em produção',
+                  last_archived_deal_id: archivedDeal?.id || undefined,
+                  has_returned: currentPurchases > 0,
+                  total_purchases: currentPurchases,
+                  total_purchase_value: currentTotalValue,
+                  first_purchase_date: firstPurchase,
+                  last_purchase_date: lastPurchase,
+                }
+
+                try {
+                  await pb.collection('clients').update(clientRec.id, clientUpdateData)
+                } catch (clientUpErr) {
+                  console.error(
+                    'Erro ao atualizar métricas do cliente após envio manual para produção:',
+                    clientUpErr,
+                  )
+                }
+              }
+
+              // 4. Log de transição de etapa para auditoria do funil comercial
+              try {
+                await pb.collection('stage_transitions').create({
+                  client_id: clientId || '',
+                  attendance_id: effectiveAttId,
+                  from_stage: attendanceRec?.stage || client.stage || 'Em negociação',
+                  to_stage: 'Em produção',
+                  change_type: 'manual',
+                  user_id: pb.authStore.record?.id || undefined,
+                  user_name: pb.authStore.record?.name || pb.authStore.record?.email || 'Sistema',
+                  notes: `Pedido de produção${orderLabel} gerado manualmente. Atendimento mantido ativo na etapa "Em produção".`,
+                })
+              } catch (stageTransErr) {
+                console.warn('Erro ao registrar transição de etapa comercial:', stageTransErr)
+              }
+
+              toast({
+                title: '🎉 Venda Concluída & Pedido em Produção!',
+                description: `Pedido de produção criado e atendimento de "${client.name}" movido para "Em produção" no Kanban.`,
+              })
+            } catch (syncErr: any) {
+              console.error(
+                'Falha ao registrar venda e mover atendimento para "Em produção":',
+                syncErr,
+              )
+              toast({
+                title: 'Pedido criado',
+                description:
+                  'O pedido de produção foi gerado, mas ocorreu um erro ao atualizar o atendimento.',
+                variant: 'destructive',
+              })
+            }
+          } else {
+            // Caso raro sem attendance_id vinculado: apenas atualiza cliente se houver clientId
+            if (clientId) {
+              try {
+                await pb.collection('clients').update(clientId, {
+                  stage: 'Em produção',
+                })
+              } catch {
+                /* ignore */
+              }
+            }
             toast({
-              title: '🎉 Venda Concluída & Arquivada!',
-              description: `Pedido de produção criado e atendimento de "${client.name}" arquivado com sucesso.`,
-            })
-          } catch (archiveErr: any) {
-            console.error(
-              'Falha ao arquivar atendimento após criação manual de pedido:',
-              archiveErr,
-            )
-            toast({
-              title: 'Pedido criado',
-              description:
-                'O pedido de produção foi gerado, mas ocorreu um erro ao arquivar o atendimento.',
-              variant: 'destructive',
+              title: '🎉 Pedido de Produção Criado!',
+              description: `Pedido criado com sucesso para "${client.name}".`,
             })
           }
+
           if (onSuccess) onSuccess()
           onClose()
           window.dispatchEvent(new CustomEvent('production-order-updated'))
