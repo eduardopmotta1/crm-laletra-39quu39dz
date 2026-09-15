@@ -287,9 +287,13 @@ export default function ProductsPage() {
         formData.append('fixed_cost', String(form.fixed_cost))
       }
 
-      // Append additionals relations array
-      for (const addId of form.additionals) {
-        formData.append('additionals', addId)
+      // Append additionals relations array (garantindo envio de lista vazia para PocketBase remover vínculos)
+      if (form.additionals.length === 0) {
+        formData.append('additionals', '')
+      } else {
+        for (const addId of form.additionals) {
+          formData.append('additionals', addId)
+        }
       }
 
       // If new image uploaded
@@ -1029,14 +1033,23 @@ export default function ProductsPage() {
                     <div
                       key={add.id}
                       onClick={() => handleToggleAdditionalInForm(add.id)}
-                      className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                      className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-colors select-none ${
                         isChecked
                           ? 'bg-teal-50 border-teal-300 dark:bg-teal-950/40 dark:border-teal-800 font-medium'
                           : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:bg-slate-100'
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <Checkbox checked={isChecked} />
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          className="flex items-center"
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() => handleToggleAdditionalInForm(add.id)}
+                          />
+                        </div>
                         <div>
                           <span className="text-slate-800 dark:text-slate-200">{add.name}</span>
                           <span className="text-[10px] text-slate-400 block">
