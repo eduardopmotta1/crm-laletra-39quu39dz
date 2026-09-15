@@ -411,22 +411,169 @@ export const quoteToProductionService = {
       )
     }
 
-    // 7. SOMENTE APÓS CONFIRMAÇÃO DO PEDIDO DE PRODUÇÃO: Arquivar o atendimento comercial
-    // Localizado EXCLUSIVAMENTE por freshQuote.attendance_id
+    // 7. SOMENTE APÓS CONFIRMAÇÃO DO PEDIDO DE PRODUÇÃO:
+    // Registrar venda comercial (archived_deal, métricas do cliente, last_archived_deal_id)
+    // E mover o atendimento para a etapa ativa "Em produção" (is_archived = false, closed_at = null)
+    // para mantê-lo visível no Kanban de Vendas.
     if (freshQuote.attendance_id) {
       try {
-        await dealsService.completeAndArchive({
-          attendanceId: freshQuote.attendance_id,
-          clientId: freshQuote.client_id,
+        const attendanceId = freshQuote.attendance_id
+        const clientId = freshQuote.client_id || confirmedOrder.client_id || ''
+        const todayDateStr = new Date().toISOString().split('T')[0]
+
+        // Carrega dados de attendance e client para consistência
+        let attendanceRec: any = null
+        try {
+          attendanceRec = await pb.collection('attendances').getOne(attendanceId)
+        } catch {
+          /* ignore */
+        }
+
+        let clientRec: any = null
+        if (clientId) {
+          try {
+            clientRec = await pb.collection('clients').getOne(clientId)
+          } catch {
+            /* ignore */
+          }
+        }
+
+        const clientName = clientRec?.name || freshQuote.client_name || 'Cliente'
+        const clientPhone =
+          clientRec?.phone || confirmedOrder.client_phone || freshQuote.client_phone || ''
+        const clientEmail = clientRec?.email || freshQuote.client_email || undefined
+
+        // Duração do atendimento em dias
+        let durationDays = 0
+        const timeRef = attendanceRec?.created || clientRec?.created
+        if (timeRef) {
+          const createdTime = new Date(timeRef).getTime()
+          const diffMs = Date.now() - createdTime
+          durationDays = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)))
+        }
+
+        // 7.1 Upsert do registro comercial em archived_deals (resultado "Venda fechada")
+        let archivedDeal: any = null
+        let isNewArchivedRecord = false
+        let previousExistingResult: string | null = null
+
+        let existingDeals: { items: any[] } = { items: [] }
+        try {
+          existingDeals = await pb.collection('archived_deals').getList(1, 1, {
+            filter: `attendance_id = "${attendanceId}"`,
+            sort: '-created',
+            requestKey: null,
+          })
+        } catch {
+          /* ignore */
+        }
+
+        const dealData: Record<string, any> = {
+          attendance_id: attendanceId,
+          client_name: clientName,
+          client_phone: clientPhone,
+          client_email: clientEmail,
           result: 'Venda fechada',
-          quoteValue: snapshot.totalValue,
-          productInterest: snapshot.productSummary,
-          finalNotes: `Atendimento concluído e arquivado automaticamente após a criação confirmada do pedido de produção ${confirmedOrder.order_number} vinculado ao orçamento ${freshQuote.code}.`,
+          loss_reason: '',
+          loss_category: '',
+          product_interest: snapshot.productSummary,
+          quote_value: snapshot.totalValue,
+          closed_at: todayDateStr,
+          assigned_to:
+            attendanceRec?.assigned_to ||
+            clientRec?.assigned_to ||
+            options.salesRepId ||
+            freshQuote.user_id ||
+            undefined,
+          closed_by: pb.authStore.record?.id || undefined,
+          final_notes: `Venda fechada com pedido de produção ${confirmedOrder.order_number} gerado para o orçamento ${freshQuote.code}. Atendimento movido para "Em produção".`,
+          duration_days: durationDays,
+        }
+        if (clientId) {
+          dealData.client_id = clientId
+        }
+
+        if (existingDeals.items.length > 0) {
+          const existingDeal = existingDeals.items[0]
+          previousExistingResult = existingDeal.result
+          archivedDeal = await pb.collection('archived_deals').update(existingDeal.id, dealData)
+        } else {
+          isNewArchivedRecord = true
+          archivedDeal = await pb.collection('archived_deals').create({
+            client_id: clientId || '',
+            attendance_id: attendanceId,
+            ...dealData,
+          })
+        }
+
+        // 7.2 Atualizar atendimento comercial: stage="Em produção", is_archived=false, closed_at=null
+        await pb.collection('attendances').update(attendanceId, {
+          stage: 'Em produção',
+          is_archived: false,
+          closed_at: null,
+          archived_at: null,
+          result: 'Venda fechada',
+          quote_value: snapshot.totalValue,
+          product_interest: snapshot.productSummary,
+          last_archived_deal_id: archivedDeal?.id || undefined,
         })
-      } catch (archiveErr: any) {
+
+        // 7.3 Atualizar métricas acumuladas do cliente e vincular last_archived_deal_id
+        if (clientId && clientRec) {
+          const dealValue = snapshot.totalValue || 0
+          let shouldIncrementPurchase = false
+          if (isNewArchivedRecord) {
+            shouldIncrementPurchase = true
+          } else if (previousExistingResult !== 'Venda fechada') {
+            shouldIncrementPurchase = true
+          }
+
+          const currentPurchases =
+            (clientRec.total_purchases || 0) + (shouldIncrementPurchase ? 1 : 0)
+          const currentTotalValue =
+            (clientRec.total_purchase_value || 0) + (shouldIncrementPurchase ? dealValue : 0)
+          const firstPurchase = clientRec.first_purchase_date || todayDateStr
+          const lastPurchase = todayDateStr
+
+          const clientUpdateData: Record<string, any> = {
+            stage: 'Em produção',
+            last_archived_deal_id: archivedDeal?.id || undefined,
+            has_returned: currentPurchases > 0,
+            total_purchases: currentPurchases,
+            total_purchase_value: currentTotalValue,
+            first_purchase_date: firstPurchase,
+            last_purchase_date: lastPurchase,
+          }
+
+          try {
+            await pb.collection('clients').update(clientRec.id, clientUpdateData)
+          } catch (clientUpErr) {
+            console.error(
+              'Erro ao atualizar métricas do cliente após envio para produção:',
+              clientUpErr,
+            )
+          }
+        }
+
+        // 7.4 Log de transição de etapa para auditoria do funil comercial
+        try {
+          await pb.collection('stage_transitions').create({
+            client_id: clientId || '',
+            attendance_id: attendanceId,
+            from_stage: attendanceRec?.stage || 'Em negociação',
+            to_stage: 'Em produção',
+            change_type: 'automatic',
+            user_id: pb.authStore.record?.id || undefined,
+            user_name: pb.authStore.record?.name || pb.authStore.record?.email || 'Sistema',
+            notes: `Pedido de produção ${confirmedOrder.order_number} gerado a partir do orçamento ${freshQuote.code}. Atendimento mantido ativo na etapa "Em produção".`,
+          })
+        } catch (stageTransErr) {
+          console.warn('Erro ao registrar transição de etapa comercial:', stageTransErr)
+        }
+      } catch (commercialErr: any) {
         console.error(
-          `Erro ao arquivar atendimento ${freshQuote.attendance_id} após criação do pedido ${confirmedOrder.order_number}:`,
-          archiveErr,
+          `Erro no registro comercial do atendimento ${freshQuote.attendance_id} após criação do pedido ${confirmedOrder.order_number}:`,
+          commercialErr,
         )
       }
     }
@@ -442,7 +589,7 @@ export const quoteToProductionService = {
         module: 'production',
         record_id: confirmedOrder.id,
         record_title: confirmedOrder.order_number,
-        details: `Pedido de produção ${confirmedOrder.order_number} gerado com sucesso a partir do orçamento aprovado ${freshQuote.code} (Valor: ${formatCurrency(snapshot.totalValue)}). Atendimento comercial ${freshQuote.attendance_id || 'N/A'} arquivado após sucesso.`,
+        details: `Pedido de produção ${confirmedOrder.order_number} gerado com sucesso a partir do orçamento aprovado ${freshQuote.code} (Valor: ${formatCurrency(snapshot.totalValue)}). Atendimento comercial ${freshQuote.attendance_id || 'N/A'} movido para "Em produção".`,
         previous_value: {
           quote_id: freshQuote.id,
           quote_code: freshQuote.code,
