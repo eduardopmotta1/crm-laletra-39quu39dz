@@ -32,7 +32,7 @@
     "README.md"
   ],
   "deployment": {
-    "lastDevBuildRef": "db1baca",
+    "lastDevBuildRef": "fd765d3",
     "lastProdBuildRef": "daa6d0d",
     "publishedAt": "2026-09-15T14:10:23.521Z",
     "lastPublishedRef": "196389f"
