@@ -4,6 +4,7 @@ import {
   Plus,
   Search,
   Edit2,
+  Copy,
   Power,
   PowerOff,
   Image as ImageIcon,
@@ -66,6 +67,7 @@ export default function ProductsPage() {
   // Product Modal State
   const [modalOpen, setModalOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<QuoteProduct | null>(null)
+  const [isDuplicating, setIsDuplicating] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // Interactive Calculator Simulation Modal
@@ -173,6 +175,7 @@ export default function ProductsPage() {
   // Open Modal for Create or Edit
   const handleOpenModal = (prod?: QuoteProduct) => {
     setMainImageFile(null)
+    setIsDuplicating(false)
     if (prod) {
       setEditingProduct(prod)
       setForm({
@@ -219,6 +222,35 @@ export default function ProductsPage() {
       })
       setMainImagePreview(null)
     }
+    setModalOpen(true)
+  }
+
+  // Open Modal for Duplicating a Product (Dedicated flow: editingProduct must be null)
+  const handleDuplicateProduct = (prod: QuoteProduct) => {
+    setEditingProduct(null)
+    setIsDuplicating(true)
+    setMainImageFile(null)
+    setMainImagePreview(null)
+    setForm({
+      name: `${prod.name} - Cópia`,
+      category: prod.category,
+      description: prod.description || '',
+      main_material_id: prod.main_material_id || '',
+      calc_rule: prod.calc_rule,
+      sale_unit: prod.sale_unit || 'unidade',
+      has_default_dimensions: !!prod.has_default_dimensions,
+      default_width: prod.default_width || '',
+      default_height: prod.default_height || '',
+      default_quantity: prod.default_quantity || 1,
+      min_price: prod.min_price || '',
+      fixed_price: prod.fixed_price || '',
+      fixed_cost: prod.fixed_cost || '',
+      requires_art_approval:
+        prod.requires_art_approval !== undefined ? Boolean(prod.requires_art_approval) : true,
+      internal_notes: prod.internal_notes || '',
+      is_active: prod.is_active,
+      additionals: prod.additionals ? [...prod.additionals] : [],
+    })
     setModalOpen(true)
   }
 
@@ -654,8 +686,9 @@ export default function ProductsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      title="Editar Produto"
                       onClick={() => handleOpenModal(prod)}
-                      className="h-8 text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 px-2.5"
+                      className="h-8 text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 px-2"
                     >
                       <Edit2 className="h-3.5 w-3.5" />
                     </Button>
@@ -663,8 +696,19 @@ export default function ProductsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      title="Duplicar Produto"
+                      onClick={() => handleDuplicateProduct(prod)}
+                      className="h-8 text-xs text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 px-2"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      title={prod.is_active ? 'Desativar Produto' : 'Reativar Produto'}
                       onClick={() => handleToggleProductStatus(prod)}
-                      className={`h-8 text-xs px-2.5 ${
+                      className={`h-8 text-xs px-2 ${
                         prod.is_active
                           ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
                           : 'text-emerald-600 hover:bg-emerald-50'
@@ -684,16 +728,26 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* MODAL: CREATE / EDIT PRODUCT */}
+      {/* MODAL: CREATE / EDIT / DUPLICATE PRODUCT */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
-              <Package className="h-5 w-5 text-emerald-600" />
-              {editingProduct ? 'Editar Produto do Catálogo' : 'Cadastrar Novo Produto'}
+              {isDuplicating ? (
+                <Copy className="h-5 w-5 text-emerald-600" />
+              ) : (
+                <Package className="h-5 w-5 text-emerald-600" />
+              )}
+              {isDuplicating
+                ? 'Duplicar Produto'
+                : editingProduct
+                  ? 'Editar Produto do Catálogo'
+                  : 'Cadastrar Novo Produto'}
             </DialogTitle>
             <DialogDescription>
-              Configure regras de cálculo, material vinculado, medidas padrão e fotos do item.
+              {isDuplicating
+                ? 'Revise as informações abaixo e faça as alterações necessárias antes de criar o novo produto.'
+                : 'Configure regras de cálculo, material vinculado, medidas padrão e fotos do item.'}
             </DialogDescription>
           </DialogHeader>
 

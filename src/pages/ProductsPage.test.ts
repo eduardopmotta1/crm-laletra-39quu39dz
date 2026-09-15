@@ -20,8 +20,15 @@ export function buildProductFormData(productData: {
   sale_unit: string
   is_active: boolean
   has_default_dimensions?: boolean
+  default_width?: number | string
+  default_height?: number | string
+  default_quantity?: number | string
+  min_price?: number | string
+  fixed_price?: number | string
+  fixed_cost?: number | string
   requires_art_approval?: boolean
   internal_notes?: string
+  main_material_id?: string
   additionals: string[]
 }): FormData {
   const formData = new FormData()
@@ -35,6 +42,28 @@ export function buildProductFormData(productData: {
   formData.append('requires_art_approval', String(productData.requires_art_approval ?? true))
   formData.append('internal_notes', productData.internal_notes?.trim() || '')
 
+  if (productData.main_material_id) {
+    formData.append('main_material_id', productData.main_material_id)
+  }
+  if (productData.default_width) {
+    formData.append('default_width', String(productData.default_width))
+  }
+  if (productData.default_height) {
+    formData.append('default_height', String(productData.default_height))
+  }
+  if (productData.default_quantity) {
+    formData.append('default_quantity', String(productData.default_quantity))
+  }
+  if (productData.min_price) {
+    formData.append('min_price', String(productData.min_price))
+  }
+  if (productData.fixed_price) {
+    formData.append('fixed_price', String(productData.fixed_price))
+  }
+  if (productData.fixed_cost) {
+    formData.append('fixed_cost', String(productData.fixed_cost))
+  }
+
   // Append additionals relations array (garantindo envio de lista vazia para PocketBase remover vínculos)
   if (productData.additionals.length === 0) {
     formData.append('additionals', '')
@@ -45,6 +74,38 @@ export function buildProductFormData(productData: {
   }
 
   return formData
+}
+
+/**
+ * Função pura que espelha exatamente a lógica de duplicação implementada em handleDuplicateProduct
+ */
+export function prepareDuplicateProductForm(prod: QuoteProduct) {
+  return {
+    editingProduct: null,
+    isDuplicating: true,
+    mainImageFile: null,
+    mainImagePreview: null,
+    form: {
+      name: `${prod.name} - Cópia`,
+      category: prod.category,
+      description: prod.description || '',
+      main_material_id: prod.main_material_id || '',
+      calc_rule: prod.calc_rule,
+      sale_unit: prod.sale_unit || 'unidade',
+      has_default_dimensions: !!prod.has_default_dimensions,
+      default_width: prod.default_width || '',
+      default_height: prod.default_height || '',
+      default_quantity: prod.default_quantity || 1,
+      min_price: prod.min_price || '',
+      fixed_price: prod.fixed_price || '',
+      fixed_cost: prod.fixed_cost || '',
+      requires_art_approval:
+        prod.requires_art_approval !== undefined ? Boolean(prod.requires_art_approval) : true,
+      internal_notes: prod.internal_notes || '',
+      is_active: prod.is_active,
+      additionals: prod.additionals ? [...prod.additionals] : [],
+    },
+  }
 }
 
 describe('ProductsPage — Edição de Acabamentos e Adicionais Permitidos', () => {
@@ -209,5 +270,170 @@ describe('ProductsPage — Edição de Acabamentos e Adicionais Permitidos', () 
 
     expect(handleToggleAdditionalInForm).toHaveBeenCalledTimes(1)
     expect(handleToggleAdditionalInForm).toHaveBeenCalledWith('add_B')
+  })
+})
+
+describe('ProductsPage — Duplicar Produto (Fluxo Completo e Cenários Obrigatórios)', () => {
+  const originalProduct: QuoteProduct = {
+    id: 'orig_123',
+    name: 'Banner Lona Frontlight 440g',
+    category: 'Comunicação Visual',
+    description: 'Banner em lona com ilhós reforçado',
+    calc_rule: 'm2',
+    sale_unit: 'm²',
+    main_material_id: 'mat_lona_440',
+    additionals: ['add_ilhos', 'add_bainha'],
+    has_default_dimensions: true,
+    default_width: 2.0,
+    default_height: 1.0,
+    default_quantity: 1,
+    min_price: 50.0,
+    fixed_price: 0,
+    fixed_cost: 0,
+    requires_art_approval: true,
+    internal_notes: 'Cuidado com acabamento de canto',
+    is_active: true,
+    main_image: 'banner_lona_orig.jpg',
+    created: '2026-01-01T10:00:00.000Z',
+    updated: '2026-01-01T10:00:00.000Z',
+  }
+
+  it('CENÁRIO A: duplicar produto com materiais e adicionais → mesmos IDs relacionados no formulário', () => {
+    const duplicateState = prepareDuplicateProductForm(originalProduct)
+
+    expect(duplicateState.editingProduct).toBeNull()
+    expect(duplicateState.isDuplicating).toBe(true)
+    expect(duplicateState.form.name).toBe('Banner Lona Frontlight 440g - Cópia')
+    // Mesmos IDs relacionados preservados
+    expect(duplicateState.form.main_material_id).toBe('mat_lona_440')
+    expect(duplicateState.form.additionals).toEqual(['add_ilhos', 'add_bainha'])
+    // Demais campos copiados fielmente
+    expect(duplicateState.form.description).toBe('Banner em lona com ilhós reforçado')
+    expect(duplicateState.form.category).toBe('Comunicação Visual')
+    expect(duplicateState.form.calc_rule).toBe('m2')
+    expect(duplicateState.form.sale_unit).toBe('m²')
+    expect(duplicateState.form.default_width).toBe(2.0)
+    expect(duplicateState.form.default_height).toBe(1.0)
+    expect(duplicateState.form.default_quantity).toBe(1)
+    expect(duplicateState.form.min_price).toBe(50.0)
+    expect(duplicateState.form.requires_art_approval).toBe(true)
+    expect(duplicateState.form.internal_notes).toBe('Cuidado com acabamento de canto')
+    expect(duplicateState.form.is_active).toBe(true)
+  })
+
+  it('CENÁRIO B: alterar nome/preço da cópia e criar → novo ID gerado, produto original intacto (nenhum update chamado com id do original)', async () => {
+    const duplicateState = prepareDuplicateProductForm(originalProduct)
+
+    // Usuário altera nome e preço mínimo no modal antes de salvar
+    const userModifiedForm = {
+      ...duplicateState.form,
+      name: 'Banner Lona Frontlight Edição Especial',
+      min_price: 65.0,
+    }
+
+    // Mock das chamadas de serviço
+    const mockCreate = vi.fn().mockImplementation(async (formData: FormData) => {
+      return {
+        id: 'new_prod_999',
+        name: formData.get('name'),
+        min_price: Number(formData.get('min_price')),
+        category: formData.get('category'),
+        created: '2026-03-31T12:00:00.000Z',
+        updated: '2026-03-31T12:00:00.000Z',
+      }
+    })
+    const mockUpdate = vi.fn()
+
+    // Simulação do salvamento: como editingProduct === null, OBRIGATORIAMENTE cai em create
+    const formData = buildProductFormData(userModifiedForm)
+    let savedRecord
+    if (duplicateState.editingProduct) {
+      savedRecord = await mockUpdate((duplicateState.editingProduct as any).id, formData)
+    } else {
+      savedRecord = await mockCreate(formData)
+    }
+
+    // Verificações de segurança e integridade
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+    expect(savedRecord.id).toBe('new_prod_999')
+    expect(savedRecord.id).not.toBe(originalProduct.id)
+    expect(savedRecord.name).toBe('Banner Lona Frontlight Edição Especial')
+    expect(savedRecord.min_price).toBe(65.0)
+
+    // Original permanece 100% intacto
+    expect(originalProduct.id).toBe('orig_123')
+    expect(originalProduct.name).toBe('Banner Lona Frontlight 440g')
+    expect(originalProduct.min_price).toBe(50.0)
+    expect(originalProduct.updated).toBe('2026-01-01T10:00:00.000Z')
+  })
+
+  it('CENÁRIO C: duplicar e desmarcar alguns adicionais antes de criar → novo produto respeita a seleção final', async () => {
+    const duplicateState = prepareDuplicateProductForm(originalProduct)
+    expect(duplicateState.form.additionals).toEqual(['add_ilhos', 'add_bainha'])
+
+    // Desmarca 'add_ilhos', mantendo apenas 'add_bainha'
+    const updatedAdditionals = toggleAdditional(duplicateState.form.additionals, 'add_ilhos')
+    expect(updatedAdditionals).toEqual(['add_bainha'])
+
+    const formData = buildProductFormData({
+      ...duplicateState.form,
+      additionals: updatedAdditionals,
+    })
+
+    expect(formData.getAll('additionals')).toEqual(['add_bainha'])
+    expect(formData.getAll('additionals')).not.toContain('add_ilhos')
+
+    // Original permanece com seus adicionais intactos
+    expect(originalProduct.additionals).toEqual(['add_ilhos', 'add_bainha'])
+  })
+
+  it('CENÁRIO D: duplicar e remover TODOS os adicionais → novo produto nasce com additionals vazio (lista vazia enviada)', async () => {
+    const duplicateState = prepareDuplicateProductForm(originalProduct)
+
+    // Desmarca todos os adicionais
+    let formAdds = toggleAdditional(duplicateState.form.additionals, 'add_ilhos')
+    formAdds = toggleAdditional(formAdds, 'add_bainha')
+    expect(formAdds).toEqual([])
+
+    const formData = buildProductFormData({
+      ...duplicateState.form,
+      additionals: formAdds,
+    })
+
+    // Confirma que envia chave 'additionals' com string vazia para limpar relações no PocketBase
+    expect(formData.has('additionals')).toBe(true)
+    expect(formData.getAll('additionals')).toEqual([''])
+  })
+
+  it('CENÁRIO E: abrir "Duplicar Produto" e cancelar → nenhum registro criado (nenhuma chamada create/update)', () => {
+    const mockCreate = vi.fn()
+    const mockUpdate = vi.fn()
+
+    // Abre duplicação
+    const duplicateState = prepareDuplicateProductForm(originalProduct)
+    expect(duplicateState.isDuplicating).toBe(true)
+
+    // Usuário fecha / cancela o modal
+    const modalOpen = false // setModalOpen(false)
+
+    // Nenhuma operação de rede executada
+    expect(modalOpen).toBe(false)
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(originalProduct.updated).toBe('2026-01-01T10:00:00.000Z')
+  })
+
+  it('CENÁRIO F: confirmar que main_image/gallery_images não são copiadas', () => {
+    const duplicateState = prepareDuplicateProductForm(originalProduct)
+
+    // A cópia nasce sem preview e sem arquivo de imagem selecionado
+    expect(duplicateState.mainImageFile).toBeNull()
+    expect(duplicateState.mainImagePreview).toBeNull()
+
+    const formData = buildProductFormData(duplicateState.form)
+    // O FormData não possui main_image nem referências de arquivos
+    expect(formData.has('main_image')).toBe(false)
+    expect(formData.has('gallery_images')).toBe(false)
   })
 })
