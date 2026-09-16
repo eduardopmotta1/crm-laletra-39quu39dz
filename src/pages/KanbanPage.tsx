@@ -161,6 +161,24 @@ export default function KanbanPage() {
   const refreshAttendanceSlaStart = useCallback(
     async (attendanceId: string, lastCompanyMessageAt?: string | null, clientId?: string) => {
       try {
+        const currentAtt = attendancesRef.current.find((a) => a.id === attendanceId)
+        const compTime = lastCompanyMessageAt ? new Date(lastCompanyMessageAt).getTime() : 0
+        const custTime = currentAtt?.last_customer_message_at
+          ? new Date(currentAtt.last_customer_message_at).getTime()
+          : 0
+
+        if (compTime > 0 && compTime >= custTime) {
+          setUnansweredInboundMap((prev) => ({
+            ...prev,
+            [attendanceId]: null,
+          }))
+          setPendingInboundCountMap((prev) => ({
+            ...prev,
+            [attendanceId]: 0,
+          }))
+          return
+        }
+
         const [firstInbound, count] = await Promise.all([
           fetchFirstUnansweredInbound(attendanceId, lastCompanyMessageAt, clientId),
           fetchPendingInboundCount(attendanceId, lastCompanyMessageAt, clientId),
@@ -174,7 +192,23 @@ export default function KanbanPage() {
           [attendanceId]: count,
         }))
       } catch {
-        // Non-fatal
+        const currentAtt = attendancesRef.current.find((a) => a.id === attendanceId)
+        const compTime = lastCompanyMessageAt ? new Date(lastCompanyMessageAt).getTime() : 0
+        const custTime = currentAtt?.last_customer_message_at
+          ? new Date(currentAtt.last_customer_message_at).getTime()
+          : 0
+
+        const hasUnansweredInbound = custTime > 0 && custTime > compTime
+        setUnansweredInboundMap((prev) => ({
+          ...prev,
+          [attendanceId]: hasUnansweredInbound
+            ? currentAtt?.last_customer_message_at || null
+            : null,
+        }))
+        setPendingInboundCountMap((prev) => ({
+          ...prev,
+          [attendanceId]: hasUnansweredInbound ? 1 : 0,
+        }))
       }
     },
     [],
@@ -573,8 +607,9 @@ export default function KanbanPage() {
           slaMap[att.id] = firstInbound
           countMap[att.id] = pendingCount
         } catch {
-          slaMap[att.id] = att.last_customer_message_at || null
-          countMap[att.id] = att.last_customer_message_at ? 1 : 0
+          const hasUnansweredInbound = custTime > 0 && custTime > compTime
+          slaMap[att.id] = hasUnansweredInbound ? att.last_customer_message_at || null : null
+          countMap[att.id] = hasUnansweredInbound ? 1 : 0
         }
       })
 
