@@ -32,6 +32,7 @@ import type { Quote } from '@/types/quotes'
 import { dealsService } from '@/services/deals'
 import { productionService } from '@/services/production'
 import { quotesService } from '@/services/quotes'
+import { tasksService } from '@/services/tasks'
 import { formatCurrency } from '@/lib/sla'
 import { toast } from '@/hooks/use-toast'
 import pb from '@/lib/pocketbase/client'
@@ -208,9 +209,11 @@ export default function CompleteAndArchiveModal({
           ? customLossReason.trim()
           : lossReason || customLossReason.trim()
 
+      const effectiveAttId = attendanceId || client.attendance_id
+
       const archived = await dealsService.completeAndArchive({
         clientId: client.id,
-        attendanceId: attendanceId || client.attendance_id,
+        attendanceId: effectiveAttId,
         result,
         lossReason: result === 'Venda perdida' ? selectedReason : undefined,
         quoteValue: quoteValue ? Number(quoteValue) : undefined,
@@ -218,6 +221,17 @@ export default function CompleteAndArchiveModal({
         finalNotes: finalNotes.trim() || undefined,
       })
       setCreatedArchivedDealId(archived.id)
+
+      if (effectiveAttId) {
+        try {
+          await tasksService.cancelPendingFollowUpsForAttendance(effectiveAttId, {
+            reason: `Modal Concluir e Arquivar (${result})`,
+            source: 'CompleteAndArchiveModal.handleSubmit',
+          })
+        } catch (cancelErr) {
+          console.error('Erro ao cancelar follow-ups em CompleteAndArchiveModal:', cancelErr)
+        }
+      }
 
       toast({
         title:

@@ -1,6 +1,7 @@
 import pb from '@/lib/pocketbase/client'
 import type { Attendance, KanbanStage } from '@/types/crm'
 import { dealsService } from './deals'
+import { tasksService } from './tasks'
 
 export const attendancesService = {
   async getAll(
@@ -327,6 +328,19 @@ export const attendancesService = {
                   resultType === 'lost' ? 'Arquivado automaticamente por inatividade' : undefined,
                 finalNotes: `Arquivado automaticamente pelo sistema após ${limitHours}h da conclusão.`,
               })
+
+              // Encerramento automático garantido de follow-ups pendentes para o attendance arquivado por inatividade
+              try {
+                await tasksService.cancelPendingFollowUpsForAttendance(att.id, {
+                  reason: 'Auto-arquivamento por inatividade',
+                  source: 'attendancesService.runAutoArchiveCheck',
+                })
+              } catch (taskCancelErr) {
+                console.error(
+                  `[AutoArchive] Erro ao cancelar follow-ups do atendimento ${att.id}:`,
+                  taskCancelErr,
+                )
+              }
 
               archivedCount++
             } catch (itemErr) {

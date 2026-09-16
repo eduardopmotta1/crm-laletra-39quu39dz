@@ -9,6 +9,7 @@ import type {
 } from '@/types/crm'
 import { productionStagesService } from './productionStages'
 import { settingsService } from './settings'
+import { tasksService } from './tasks'
 
 export interface OrdersPaginatedFilterOptions {
   search?: string
@@ -589,6 +590,19 @@ export const productionService = {
                 is_archived: true,
                 closed_at: new Date().toISOString(),
               })
+
+              // Encerramento automático de follow-ups pendentes ao arquivar o attendance por conclusão de pedidos
+              try {
+                await tasksService.cancelPendingFollowUpsForAttendance(targetAttendanceId.trim(), {
+                  reason: 'Todos os pedidos de produção concluídos/resolvidos',
+                  source: 'productionService.updateStage',
+                })
+              } catch (cancelErr) {
+                console.error(
+                  'Error auto-canceling follow-ups on production completion sync:',
+                  cancelErr,
+                )
+              }
             }
           }
         } catch (attSyncErr) {

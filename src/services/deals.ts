@@ -1,4 +1,5 @@
 import pb from '@/lib/pocketbase/client'
+import { tasksService } from './tasks'
 import type { ArchivedDeal, StageTransition } from '@/types/crm'
 
 export interface ArchiveDealPayload {
@@ -177,6 +178,16 @@ export const dealsService = {
         })
       } catch (attErr) {
         console.error('Error updating attendance during archive:', attErr)
+      }
+
+      // Encerramento automático de follow-ups pendentes vinculados exclusivamente a este atendimento arquivado
+      try {
+        await tasksService.cancelPendingFollowUpsForAttendance(attendanceId, {
+          reason: `Atendimento arquivado (${payload.result})`,
+          source: 'dealsService.completeAndArchive',
+        })
+      } catch (cancelErr) {
+        console.error('Error auto-canceling follow-ups during deal archive:', cancelErr)
       }
     }
 
