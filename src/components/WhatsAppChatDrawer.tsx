@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { useRealtime } from '@/hooks/use-realtime'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -266,15 +266,54 @@ export default function WhatsAppChatDrawer({
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Effective client & attendance to reference
-  const displayClient = currentClient || client
-  const activeClientId = displayClient?.id
+  // 1. USAR A PROP COMO FONTE DA IDENTIDADE — O ID ativo deve vir diretamente da prop:
+  const activeClientId = client?.id
+  // displayClient impede que um cliente antigo apareça durante a troca:
+  const displayClient = currentClient?.id === client?.id ? currentClient : client
   const displayAttendance = currentAttendance || activeAttendance
+
+  // 2. CRIAR PROTEÇÕES PARA O CONTEXTO ATUAL E PARA AS REQUISIÇÕES
+  const activeClientIdRef = useRef<string | null>(client?.id || null)
+  const loadRequestIdRef = useRef(0)
+  // Sincronize activeClientIdRef.current com client?.id durante cada renderização
+  activeClientIdRef.current = client?.id || null
 
   // Track scroll state and navigation triggers
   const isNearBottomRef = useRef<boolean>(true)
   const previousMessagesCountRef = useRef<number>(0)
   const lastConversationKeyRef = useRef<string | null>(null)
   const shouldAutoScrollNextRef = useRef<boolean>(false)
+
+  // 3. RESETAR COMPLETAMENTE O DRAWER AO TROCAR DE CLIENTE
+  useLayoutEffect(() => {
+    // Incrementa loadRequestIdRef.current, invalidando requisições anteriores
+    loadRequestIdRef.current += 1
+    setCurrentClient(client || null)
+    setCurrentAttendance(activeAttendance || null)
+    setMessages([])
+    setTasks([])
+    setArchivedDeals([])
+    setStageTransitions([])
+    setEvaluations([])
+    setPostSales([])
+    setProductionOrders([])
+    setAttendanceQuotes([])
+    setSelectedAttachment(null)
+    setInputMessage('')
+    setAttachmentNote('')
+    setNewTaskTitle('')
+    setNewTaskDueDate('')
+    setNewTaskDueTime('')
+    setEditingTaskInDrawerId(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+    setLoading(Boolean(isOpen && client?.id))
+    lastConversationKeyRef.current = null
+    previousMessagesCountRef.current = 0
+    isNearBottomRef.current = true
+    shouldAutoScrollNextRef.current = false
+  }, [client?.id])
 
   // Função utilitária para merge idempotente com deduplicação por id / whatsapp_message_id e ordenação cronológica
   const mergeMessages = useCallback(
@@ -433,21 +472,14 @@ export default function WhatsAppChatDrawer({
     onClose,
   ])
 
-  // Carrega e sincroniza dados do cliente e atendimento ao abrir ou alternar contexto por ID estável
+  // 4. CORRIGIR O EFEITO DE CARREGAMENTO — depende de: isOpen, client?.id, activeAttendance?.id, orderContext?.id
   useEffect(() => {
-    if (!isOpen || !activeClientId) return
+    if (!isOpen || !client?.id) return
 
-    if (client && client.id === activeClientId) {
-      setCurrentClient(client)
-    }
-    if (activeAttendance) {
-      setCurrentAttendance(activeAttendance)
-    }
+    loadClientData(client.id, activeAttendance?.id)
+  }, [isOpen, client?.id, activeAttendance?.id, orderContext?.id])
 
-    loadClientData(activeClientId, activeAttendance?.id)
-  }, [isOpen, activeClientId, activeAttendance?.id, orderContext?.id])
-
-  // Polling leve a cada 10 segundos como fallback se o SSE/realtime falhar no ambiente publicado
+  // 8. PROTEGER O POLLING — polling leve a cada 10 segundos como fallback se o SSE/realtime falhar
   useEffect(() => {
     if (!isOpen || !activeClientId) return
 
@@ -465,8 +497,13 @@ export default function WhatsAppChatDrawer({
           expand: 'sent_by_user,sent_by_user.role_id',
           requestKey: null,
         })
-        const incoming = page.items
 
+        // Antes de aplicar o resultado do polling, confirme activeClientIdRef.current === activeClientId
+        if (activeClientIdRef.current !== activeClientId) {
+          return
+        }
+
+        const incoming = page.items
         if (incoming && incoming.length > 0) {
           setMessages((prev) => mergeMessages(prev, incoming))
         }
@@ -488,14 +525,16 @@ export default function WhatsAppChatDrawer({
 
     const handleWindowUpdate = () => {
       // Reload client and messages when simulation or external event triggers
-      loadClientData(activeClientId, activeAttendance?.id)
+      if (activeClientIdRef.current === activeClientId) {
+        loadClientData(activeClientId, activeAttendance?.id)
+      }
     }
 
     window.addEventListener('crm-client-updated', handleWindowUpdate)
     return () => window.removeEventListener('crm-client-updated', handleWindowUpdate)
   }, [isOpen, activeClientId, activeAttendance?.id])
 
-  // Real-time listener for messages in PocketBase collection (create, update, delete)
+  // 9. PROTEGER O REALTIME — listener for messages in PocketBase collection (create, update, delete)
   // vinculadas ao cliente/atendimento atualmente aberto no Drawer
   useRealtime(
     'messages',
@@ -503,7 +542,12 @@ export default function WhatsAppChatDrawer({
       const rec = data.record as Message | undefined
       if (!rec || !activeClientId) return
 
-      // Verifica se a mensagem pertence ao cliente ou atendimento atualmente aberto
+      // (a) o ID capturado ainda corresponde a activeClientIdRef.current
+      if (activeClientIdRef.current !== activeClientId) {
+        return
+      }
+
+      // (b) a mensagem pertence ao cliente ou atendimento atualmente aberto
       const matchesClient = rec.client_id === activeClientId
       const matchesAttendance =
         activeAttendance?.id && rec.attendance_id
@@ -515,7 +559,11 @@ export default function WhatsAppChatDrawer({
       }
 
       if (data.action === 'create') {
+        if (activeClientIdRef.current !== activeClientId) return
+
         setMessages((prev) => {
+          if (activeClientIdRef.current !== activeClientId) return prev
+
           // Idempotência estrita: evitar duplicatas por id ou por whatsapp_message_id
           const exists = prev.some(
             (m) =>
@@ -546,7 +594,8 @@ export default function WhatsAppChatDrawer({
 
         // Atualiza metadados visuais do cliente (janela 24h, última mensagem)
         setCurrentClient((prevClient) => {
-          if (!prevClient) return prevClient
+          if (activeClientIdRef.current !== activeClientId) return prevClient
+          if (!prevClient || prevClient.id !== activeClientId) return prevClient
           const preservedDirection =
             rec.direction === 'inbound'
               ? 'inbound'
@@ -563,7 +612,11 @@ export default function WhatsAppChatDrawer({
           }
         })
       } else if (data.action === 'update') {
+        if (activeClientIdRef.current !== activeClientId) return
+
         setMessages((prev) => {
+          if (activeClientIdRef.current !== activeClientId) return prev
+
           const index = prev.findIndex(
             (m) =>
               m.id === rec.id ||
@@ -615,13 +668,16 @@ export default function WhatsAppChatDrawer({
           return next
         })
       } else if (data.action === 'delete') {
-        setMessages((prev) =>
-          prev.filter(
+        if (activeClientIdRef.current !== activeClientId) return
+
+        setMessages((prev) => {
+          if (activeClientIdRef.current !== activeClientId) return prev
+          return prev.filter(
             (m) =>
               m.id !== rec.id &&
               (!rec.whatsapp_message_id || m.whatsapp_message_id !== rec.whatsapp_message_id),
-          ),
-        )
+          )
+        })
       }
     },
     isOpen && !!activeClientId,
@@ -681,11 +737,18 @@ export default function WhatsAppChatDrawer({
     attendanceId?: string,
     options?: { silent?: boolean; skipMessages?: boolean },
   ) => {
+    // 5. PROTEGER loadClientData CONTRA CORRIDAS ASSÍNCRONAS
+    const requestId = ++loadRequestIdRef.current
+    const isCurrentRequest = () =>
+      requestId === loadRequestIdRef.current && activeClientIdRef.current === clientId
+
     if (!options?.silent) {
       setLoading(true)
     }
     try {
-      const targetAttId = attendanceId || displayAttendance?.id || activeAttendance?.id
+      // 7. CORRIGIR O ATENDIMENTO USADO NO CARREGAMENTO
+      // Dê prioridade somente ao argumento recebido: const targetAttId = attendanceId
+      const targetAttId = attendanceId
 
       // Sincronizar attendance atual e quotes com fallback seguro
       const attendancePromise = (async (): Promise<Attendance | null> => {
@@ -697,7 +760,8 @@ export default function WhatsAppChatDrawer({
             console.warn('[WhatsAppChatDrawer] Erro ao buscar attendance especificado:', err)
           }
         }
-        // Fallback seguro se não houver attendanceId ou se o atendimento foi arquivado/apagado
+        // Fallback seguro se não houver attendanceId ou se o atendimento foi arquivado/apagado:
+        // busque o atendimento pelo clientId recebido
         try {
           const clientAtts = await attendancesService.getByClientId(clientId)
           const fallback = clientAtts.find((a) => !a.is_archived) || clientAtts[0] || null
@@ -743,10 +807,7 @@ export default function WhatsAppChatDrawer({
         rolesService.getAll(),
       ])
 
-      // Atualiza o attendance sincronizado
-      if (freshAttendance) {
-        setCurrentAttendance(freshAttendance)
-      }
+      if (!isCurrentRequest()) return
 
       // Buscar quotes do attendance resolvido
       const effectiveAttId = freshAttendance?.id || targetAttId
@@ -758,6 +819,8 @@ export default function WhatsAppChatDrawer({
           console.warn('[WhatsAppChatDrawer] Erro ao buscar orçamentos do atendimento:', quoteErr)
         }
       }
+
+      if (!isCurrentRequest()) return
 
       // Se a busca por attendance_id vier vazia ou não houver quotes vinculadas a ele,
       // buscar por client_id para garantir que orçamentos criados no cliente não sumam
@@ -779,8 +842,18 @@ export default function WhatsAppChatDrawer({
           )
         }
       }
+
+      if (!isCurrentRequest()) return
+
+      // Atualiza o attendance sincronizado
+      if (freshAttendance) {
+        setCurrentAttendance(freshAttendance)
+      }
+
+      // 6. NÃO MISTURAR MENSAGENS NO CARREGAMENTO INICIAL
+      // Na carga completa de uma nova conversa, substitua as mensagens: setMessages(msgList)
       if (msgList !== null) {
-        setMessages((prev) => mergeMessages(prev, msgList))
+        setMessages(msgList)
       }
       setTasks(taskList)
       if (freshClient) setCurrentClient(freshClient)
@@ -810,7 +883,8 @@ export default function WhatsAppChatDrawer({
     } catch (err) {
       console.error('Error loading chat drawer data:', err)
     } finally {
-      if (!options?.silent) {
+      // No finally, somente execute setLoading(false) se a requisição ainda for a atual
+      if (!options?.silent && isCurrentRequest()) {
         setLoading(false)
       }
     }
