@@ -811,6 +811,156 @@ export const productionService = {
   },
 
   /**
+   * Verifica se o pedido informado possui o MAIOR order_number atualmente cadastrado.
+   * Usado para proteger a numeração sequencial contra reutilização indevida.
+   */
+  async isHighestOrderNumber(orderId: string): Promise<boolean> {
+    if (!orderId) return false
+    try {
+      const records = await pb.collection('production_orders').getFullList<ProductionOrder>({
+        sort: '-created',
+        fields: 'id,order_number',
+        requestKey: null,
+      })
+
+      if (records.length === 0) return false
+
+      const targetOrder = records.find((r) => r.id === orderId)
+      if (!targetOrder) {
+        // Se não encontrou no lote, tenta buscar diretamente
+        const direct = await pb.collection('production_orders').getOne<ProductionOrder>(orderId, {
+          fields: 'id,order_number',
+          requestKey: null,
+        })
+        if (!direct) return false
+        records.push(direct)
+      }
+
+      const parseNum = (val: string) => {
+        const parsed = parseInt((val || '').replace(/\D/g, ''), 10)
+        return isNaN(parsed) ? 0 : parsed
+      }
+
+      let maxNum = -1
+      let maxOrderIds: string[] = []
+
+      for (const r of records) {
+        const num = parseNum(r.order_number)
+        if (num > maxNum) {
+          maxNum = num
+          maxOrderIds = [r.id]
+        } else if (num === maxNum) {
+          maxOrderIds.push(r.id)
+        }
+      }
+
+      return maxOrderIds.includes(orderId)
+    } catch (err) {
+      console.error('Erro ao verificar maior order_number:', err)
+      // Em caso de falha de consulta, por precaução defensiva, não assumir cegamente
+      return false
+    }
+  },
+
+  /**
+   * Exclui permanentemente um pedido de produção e suas dependências operacionais.
+   * Regras estritas:
+   * 1. Bloqueia se o pedido possuir o maior order_number do sistema (proteção de sequência).
+   * 2. Exclui dependências operacionais na ordem:
+   *    - production_order_message_attachments (production_order_id = orderId)
+   *    - production_logs (order_id = orderId)
+   *    - production_order_chat_messages (order_id = orderId)
+   *    - production_proofs (order_id = orderId)
+   *    - por fim production_orders.delete(orderId)
+   * 3. Trata 404 nas dependências de forma resiliente/idempotente.
+   * 4. PRESERVA: clients, attendances, quotes, archived_deals, messages, post_sales, evaluations.
+   */
+  async deleteOrderPermanently(orderId: string): Promise<{ success: boolean; message?: string }> {
+    if (!orderId || !orderId.trim()) {
+      throw new Error('ID do pedido não informado.')
+    }
+    const cleanOrderId = orderId.trim()
+
+    // 1. Proteção de Order Number: verificar se é o maior número existente
+    const isHighest = await this.isHighestOrderNumber(cleanOrderId)
+    if (isHighest) {
+      throw new Error(
+        'Este é o pedido mais recente e não pode ser excluído permanentemente neste momento, pois seu número poderia ser reutilizado na criação do próximo pedido.',
+      )
+    }
+
+    // Helper resiliente para exclusão de registros de uma collection
+    const deleteRelatedRecords = async (collectionName: string, filter: string) => {
+      try {
+        const records = await pb.collection(collectionName).getFullList<{ id: string }>({
+          filter,
+          fields: 'id',
+          requestKey: null,
+        })
+        for (const record of records) {
+          try {
+            await pb.collection(collectionName).delete(record.id)
+          } catch (delErr: any) {
+            // Tratar 404 como ok (já não existe / idempotente)
+            const status = delErr?.status || delErr?.statusCode || delErr?.response?.status
+            if (status !== 404) {
+              console.warn(`Aviso ao excluir item de ${collectionName} (${record.id}):`, delErr)
+            }
+          }
+        }
+      } catch (listErr: any) {
+        const status = listErr?.status || listErr?.statusCode || listErr?.response?.status
+        if (status !== 404) {
+          console.warn(`Aviso ao listar ${collectionName} com filtro ${filter}:`, listErr)
+        }
+      }
+    }
+
+    // 2. Dependências operacionais — ordem rigorosa:
+    // A) production_order_message_attachments (production_order_id = orderId)
+    await deleteRelatedRecords(
+      'production_order_message_attachments',
+      `production_order_id = "${cleanOrderId}"`,
+    )
+
+    // B) production_logs (order_id = orderId)
+    await deleteRelatedRecords('production_logs', `order_id = "${cleanOrderId}"`)
+
+    // C) production_order_chat_messages (order_id = orderId)
+    await deleteRelatedRecords('production_order_chat_messages', `order_id = "${cleanOrderId}"`)
+
+    // D) production_proofs (order_id = orderId)
+    await deleteRelatedRecords('production_proofs', `order_id = "${cleanOrderId}"`)
+
+    // E) Exclusão principal do production_orders
+    try {
+      await pb.collection('production_orders').delete(cleanOrderId)
+    } catch (orderDelErr: any) {
+      console.error(`Falha ao excluir production_orders (${cleanOrderId}):`, orderDelErr)
+      throw new Error(
+        orderDelErr?.message || 'Falha ao excluir o registro principal do pedido de produção.',
+      )
+    }
+
+    // Disparar eventos para sincronização da interface
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('production-order-deleted', { detail: { orderId: cleanOrderId } }),
+      )
+      window.dispatchEvent(
+        new CustomEvent('production-order-updated', {
+          detail: { orderId: cleanOrderId, deleted: true },
+        }),
+      )
+    }
+
+    return {
+      success: true,
+      message: 'Pedido de produção e dependências operacionais excluídos com sucesso.',
+    }
+  },
+
+  /**
    * Audit Log Transition
    */
   async logTransition(data: {

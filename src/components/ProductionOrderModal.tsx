@@ -46,7 +46,18 @@ import {
   Paperclip,
   Lock,
   Unlock,
+  Trash2,
 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog'
 import { useAuth } from '@/context/AuthContext'
 import type {
   ProductionOrder,
@@ -151,6 +162,11 @@ export default function ProductionOrderModal({
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false)
   const [chatClient, setChatClient] = useState<Client | null>(null)
   const [loadingChatClient, setLoadingChatClient] = useState(false)
+
+  // Admin Permanent Delete states
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deletingOrder, setDeletingOrder] = useState(false)
 
   const { isAdmin, roleSlug, hasPermission } = useAuth()
   const canManageArtRequirement =
@@ -587,6 +603,49 @@ export default function ProductionOrderModal({
     orderToEdit &&
     Boolean(orderToEdit.art_approved) &&
     Boolean(orderToEdit.approved_proof_id && orderToEdit.approved_proof_id.trim())
+
+  const expectedOrderNumberConfirm = (orderToEdit?.order_number || '').trim()
+
+  const handleOpenDeleteDialog = () => {
+    setDeleteConfirmText('')
+    setDeleteDialogOpen(true)
+  }
+
+  const handleExecutePermanentDelete = async () => {
+    if (!orderToEdit?.id || deletingOrder) return
+    if (deleteConfirmText.trim() !== expectedOrderNumberConfirm) {
+      toast({
+        title: 'Confirmação incorreta',
+        description: 'Digite exatamente o número do pedido para autorizar a exclusão.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setDeletingOrder(true)
+    try {
+      await productionService.deleteOrderPermanently(orderToEdit.id)
+
+      toast({
+        title: 'Pedido excluído',
+        description: `O pedido #${expectedOrderNumberConfirm} foi excluído permanentemente com sucesso.`,
+      })
+
+      setDeleteDialogOpen(false)
+      onSaved(orderToEdit.id)
+      onClose()
+    } catch (err: any) {
+      console.error('Erro ao excluir pedido permanentemente:', err)
+      toast({
+        title: 'Não foi possível excluir o pedido',
+        description:
+          err?.message || 'Ocorreu um erro ao excluir permanentemente o pedido de produção.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingOrder(false)
+    }
+  }
 
   const handleOpenWhatsAppChat = async () => {
     // Validação de permissão de visualização do WhatsApp:
@@ -1582,18 +1641,35 @@ export default function ProductionOrderModal({
                 </div>
               </div>
             </div>
-            <DialogFooter className="pt-3 flex flex-row items-center justify-between">
-              {orderToEdit && (
-                <a
-                  href={`${window.location.origin}/acompanhar/${orderToEdit.tracking_token}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold flex items-center gap-1"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Abrir Página Pública
-                </a>
-              )}
+            <DialogFooter className="pt-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {orderToEdit && (
+                  <a
+                    href={`${window.location.origin}/acompanhar/${orderToEdit.tracking_token}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold flex items-center gap-1"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Abrir Página Pública
+                  </a>
+                )}
+
+                {orderToEdit && isAdmin && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleOpenDeleteDialog}
+                    disabled={loading || deletingOrder}
+                    className="text-xs text-rose-600 border-rose-300 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-400 dark:text-rose-400 dark:border-rose-800 dark:hover:bg-rose-950/40"
+                    title="Exclusão administrativa permanente do pedido e dependências operacionais"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1 text-rose-600 dark:text-rose-400" />
+                    Excluir pedido
+                  </Button>
+                )}
+              </div>
+
               <div className="flex items-center gap-2 ml-auto flex-wrap sm:flex-nowrap">
                 {orderToEdit && (
                   <Button
@@ -1608,12 +1684,17 @@ export default function ProductionOrderModal({
                     {loadingChatClient ? 'Carregando...' : 'Falar com o cliente'}
                   </Button>
                 )}
-                <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onClose}
+                  disabled={loading || deletingOrder}
+                >
                   Cancelar
                 </Button>
                 <Button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || deletingOrder}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold min-w-[120px]"
                 >
                   {loading
@@ -2102,6 +2183,70 @@ export default function ProductionOrderModal({
           </div>
         )}
       </DialogContent>
+
+      {/* Diálogo Forte de Confirmação para Exclusão Permanente (Admin Only) */}
+      {orderToEdit && isAdmin && (
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent className="max-w-md">
+            <AlertDialogHeader>
+              <div className="flex items-center gap-2 text-rose-600">
+                <AlertTriangle className="h-5 w-5 shrink-0" />
+                <AlertDialogTitle className="text-base text-rose-600">
+                  Excluir permanentemente o pedido #{orderToEdit.order_number}?
+                </AlertDialogTitle>
+              </div>
+              <AlertDialogDescription className="text-xs text-slate-600 dark:text-slate-300 space-y-2 pt-1 text-left">
+                <span className="block leading-relaxed">
+                  Esta ação excluirá permanentemente o pedido e seu histórico operacional de
+                  produção, incluindo logs, chat interno e provas. Cliente, atendimento, orçamento,
+                  histórico comercial, mensagens, pós-venda e avaliações serão preservados. Esta
+                  ação não poderá ser desfeita.
+                </span>
+                <span className="block font-semibold text-slate-800 dark:text-slate-100 pt-1">
+                  Para confirmar, digite{' '}
+                  <span className="font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-rose-600">
+                    {expectedOrderNumberConfirm}
+                  </span>{' '}
+                  abaixo:
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="py-2">
+              <Input
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={expectedOrderNumberConfirm}
+                disabled={deletingOrder}
+                className="font-mono text-center tracking-wider text-sm border-rose-300 focus-visible:ring-rose-500"
+                autoFocus
+              />
+            </div>
+
+            <AlertDialogFooter className="flex flex-row items-center justify-end gap-2 pt-2">
+              <AlertDialogCancel
+                disabled={deletingOrder}
+                onClick={() => {
+                  setDeleteDialogOpen(false)
+                  setDeleteConfirmText('')
+                }}
+              >
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault()
+                  handleExecutePermanentDelete()
+                }}
+                disabled={deletingOrder || deleteConfirmText.trim() !== expectedOrderNumberConfirm}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-semibold focus:ring-rose-600 disabled:opacity-50"
+              >
+                {deletingOrder ? 'Excluindo...' : 'Excluir permanentemente'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
       {/* WhatsApp Chat Drawer vinculado ao cliente do pedido */}
       {orderToEdit && chatClient && (
