@@ -26,6 +26,7 @@ import {
   Layers,
   AlertCircle,
   BookOpen,
+  ClipboardList,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
@@ -233,6 +234,14 @@ export default function AppLayout() {
       to: '/producao',
       label: 'Produção',
       icon: Package,
+      badge: null,
+      badgeVariant: 'secondary',
+      visible: canAccessProduction,
+    },
+    {
+      to: '/pedidos',
+      label: 'Pedidos',
+      icon: ClipboardList,
       badge: null,
       badgeVariant: 'secondary',
       visible: canAccessProduction,

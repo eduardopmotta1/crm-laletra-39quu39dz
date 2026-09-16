@@ -10,6 +10,24 @@ import type {
 import { productionStagesService } from './productionStages'
 import { settingsService } from './settings'
 
+export interface OrdersPaginatedFilterOptions {
+  search?: string
+  stageInternalId?: string
+  situation?: 'all' | 'active' | 'completed' | 'archived'
+  period?: 'all' | 'today' | 'last_7_days' | 'last_30_days' | 'custom'
+  startDate?: string
+  endDate?: string
+  salesRepId?: string
+  productionRepId?: string
+}
+
+export interface OrdersIndicatorsResult {
+  ordersToday: number
+  inProduction: number
+  readyOrAwaitingPickup: number
+  completedToday: number
+}
+
 export interface CreateProductionOrderPayload {
   clientId?: string
   attendanceId?: string
@@ -1279,6 +1297,171 @@ export const productionService = {
       badgeClass:
         'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300',
       cardBorderClass: 'border-slate-200/90 hover:border-emerald-500/50',
+    }
+  },
+
+  /**
+   * Helper que constrói o filtro do PocketBase para a listagem paginada de pedidos
+   */
+  buildOrdersFilter(options: OrdersPaginatedFilterOptions = {}): string {
+    const filters: string[] = []
+
+    // 1. Busca textual: order_number ~, client_name ~, client_phone ~
+    if (options.search && options.search.trim()) {
+      const sanitized = options.search.replace(/[\\"]/g, '').trim()
+      if (sanitized) {
+        filters.push(
+          `(order_number ~ "${sanitized}" || client_name ~ "${sanitized}" || client_phone ~ "${sanitized}")`,
+        )
+      }
+    }
+
+    // 2. Filtro de Etapa (stage_internal_id)
+    if (options.stageInternalId && options.stageInternalId !== 'all') {
+      const sanitizedStage = options.stageInternalId.replace(/[\\"]/g, '').trim()
+      if (sanitizedStage) {
+        filters.push(`stage_internal_id = "${sanitizedStage}"`)
+      }
+    }
+
+    // 3. Filtro de Situação: Todos / Ativos / Concluídos / Arquivados
+    if (options.situation === 'active') {
+      filters.push(`is_completed = false && is_archived = false`)
+    } else if (options.situation === 'completed') {
+      filters.push(`is_completed = true`)
+    } else if (options.situation === 'archived') {
+      filters.push(`is_archived = true`)
+    }
+
+    // 4. Filtro de Período (base created)
+    if (options.period && options.period !== 'all') {
+      const now = new Date()
+      if (options.period === 'today') {
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+        filters.push(
+          `created >= "${startOfDay.toISOString()}" && created <= "${endOfDay.toISOString()}"`,
+        )
+      } else if (options.period === 'last_7_days') {
+        const past7 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0)
+        filters.push(`created >= "${past7.toISOString()}"`)
+      } else if (options.period === 'last_30_days') {
+        const past30 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29, 0, 0, 0)
+        filters.push(`created >= "${past30.toISOString()}"`)
+      } else if (options.period === 'custom') {
+        if (options.startDate) {
+          const s = new Date(`${options.startDate}T00:00:00`)
+          if (!isNaN(s.getTime())) {
+            filters.push(`created >= "${s.toISOString()}"`)
+          }
+        }
+        if (options.endDate) {
+          const e = new Date(`${options.endDate}T23:59:59.999`)
+          if (!isNaN(e.getTime())) {
+            filters.push(`created <= "${e.toISOString()}"`)
+          }
+        }
+      }
+    }
+
+    // 5. Filtro Vendedor (sales_rep_id)
+    if (options.salesRepId && options.salesRepId !== 'all') {
+      const sanitizedSales = options.salesRepId.replace(/[\\"]/g, '').trim()
+      if (sanitizedSales) {
+        filters.push(`sales_rep_id = "${sanitizedSales}"`)
+      }
+    }
+
+    // 6. Filtro Responsável da Produção (production_rep_id)
+    if (options.productionRepId && options.productionRepId !== 'all') {
+      const sanitizedProd = options.productionRepId.replace(/[\\"]/g, '').trim()
+      if (sanitizedProd) {
+        filters.push(`production_rep_id = "${sanitizedProd}"`)
+      }
+    }
+
+    return filters.join(' && ')
+  },
+
+  /**
+   * Paginação server-side obrigatória para a listagem /pedidos.
+   * Retorna items, page, perPage, totalItems, totalPages.
+   * NÃO usa getFullList. 50 registros por página padrão.
+   */
+  async getOrdersPaginated(
+    page = 1,
+    perPage = 50,
+    options: OrdersPaginatedFilterOptions = {},
+    sort = '-created',
+  ) {
+    const filter = this.buildOrdersFilter(options)
+    return await pb.collection('production_orders').getList<ProductionOrder>(page, perPage, {
+      filter: filter || undefined,
+      sort,
+      expand: 'sales_rep_id,production_rep_id,stage_id',
+      requestKey: null,
+    })
+  },
+
+  /**
+   * Indicadores superiores para a tela /pedidos.
+   * Representam a collection INTEIRA via queries server-side leves getList(1, 1).
+   * NUNCA calculados sobre os 50 registros da página.
+   * 1. Pedidos hoje: created dentro do dia atual
+   * 2. Em produção: stage_internal_id = "in_production" && is_completed = false && is_archived = false
+   * 3. Prontos/Aguardando retirada: (stage_internal_id = "ready" || stage_internal_id = "shipped") && is_completed = false && is_archived = false
+   * 4. Concluídos hoje: is_completed = true && completed_at dentro do dia atual
+   */
+  async getOrdersIndicatorsSummary(todayDate?: Date): Promise<OrdersIndicatorsResult> {
+    const now = todayDate || new Date()
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+    const startIso = startOfDay.toISOString()
+    const endIso = endOfDay.toISOString()
+
+    const [todayRes, inProdRes, readyRes, completedTodayRes] = await Promise.all([
+      // 1. Pedidos hoje
+      pb
+        .collection('production_orders')
+        .getList(1, 1, {
+          filter: `created >= "${startIso}" && created <= "${endIso}"`,
+          requestKey: null,
+        })
+        .catch(() => ({ totalItems: 0 })),
+
+      // 2. Em produção (ativo)
+      pb
+        .collection('production_orders')
+        .getList(1, 1, {
+          filter: `stage_internal_id = "in_production" && is_completed = false && is_archived = false`,
+          requestKey: null,
+        })
+        .catch(() => ({ totalItems: 0 })),
+
+      // 3. Prontos / Aguardando retirada (ativos nas etapas reais confirmadas em production_stages: ready e shipped)
+      pb
+        .collection('production_orders')
+        .getList(1, 1, {
+          filter: `(stage_internal_id = "ready" || stage_internal_id = "shipped") && is_completed = false && is_archived = false`,
+          requestKey: null,
+        })
+        .catch(() => ({ totalItems: 0 })),
+
+      // 4. Concluídos hoje (completed_at dentro do dia atual)
+      pb
+        .collection('production_orders')
+        .getList(1, 1, {
+          filter: `is_completed = true && completed_at >= "${startIso}" && completed_at <= "${endIso}"`,
+          requestKey: null,
+        })
+        .catch(() => ({ totalItems: 0 })),
+    ])
+
+    return {
+      ordersToday: todayRes.totalItems || 0,
+      inProduction: inProdRes.totalItems || 0,
+      readyOrAwaitingPickup: readyRes.totalItems || 0,
+      completedToday: completedTodayRes.totalItems || 0,
     }
   },
 }

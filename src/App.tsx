@@ -30,6 +30,7 @@ import PublicEvaluationPage from '@/pages/PublicEvaluationPage'
 import PublicQuotePage from '@/pages/PublicQuotePage'
 import PublicClientFormPage from '@/pages/PublicClientFormPage'
 import ProceduresPage from '@/pages/ProceduresPage'
+import OrdersListPage from '@/pages/OrdersListPage'
 import NotFound from '@/pages/NotFound'
 const App = () => (
   <BrowserRouter>
@@ -68,6 +69,7 @@ const App = () => (
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/kanban" element={<KanbanPage />} />
             <Route path="/producao" element={<ProductionKanbanPage />} />
+            <Route path="/pedidos" element={<OrdersListPage />} />
             <Route path="/clientes" element={<ClientsListPage />} />{' '}
             <Route path="/arquivados" element={<ArchivedDealsPage />} />
             <Route path="/pos-venda" element={<PostSalesDashboardPage />} />
