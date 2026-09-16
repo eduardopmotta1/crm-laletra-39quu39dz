@@ -79,6 +79,9 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
   let attendanceId = String(body.attendance_id || body.attendanceId || '').trim()
   const clientProvidedPhone = String(body.phone || body.to || '').trim()
   const postSaleId = String(body.post_sale_id || body.postSaleId || '').trim()
+  const replyToWhatsAppMessageIdRaw = String(
+    body.reply_to_whatsapp_message_id || body.replyToWhatsAppMessageId || '',
+  ).trim()
 
   if (!clientId) {
     return e.json(400, {
@@ -225,6 +228,56 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
     const targetAttendanceId = params.attendanceId || ''
     const sender = params.senderName || 'Atendente'
     const userSenderId = params.userId || ''
+    const replyWamid = params.replyToWhatsAppMessageId || ''
+
+    // Validação da mensagem original para citação:
+    // (1) procurar a mensagem original por whatsapp_message_id
+    // (2) verificar se pertence ao MESMO client_id
+    // (3) nunca confiar apenas no frontend
+    // (4) se pertencer a outro cliente, DESCARTAR a citação
+    // (5) não bloquear o envio normal por causa de citação inválida
+    let validatedReplyWamid = ''
+    let validatedOriginalMessageId = ''
+
+    if (replyWamid) {
+      try {
+        const foundOriginals = $app.findRecordsByFilter(
+          'messages',
+          "whatsapp_message_id = '" + replyWamid + "'",
+          '-created',
+          1,
+          0,
+        )
+        if (foundOriginals && foundOriginals.length > 0) {
+          const orig = foundOriginals[0]
+          const origClientId = String(orig.get('client_id') || '').trim()
+          if (origClientId === targetClient.id) {
+            validatedReplyWamid = replyWamid
+            validatedOriginalMessageId = orig.id
+            console.log(
+              '[WHATSAPP SEND] Citação validada com sucesso:',
+              validatedReplyWamid,
+              'OrigRecordId:',
+              validatedOriginalMessageId,
+            )
+          } else {
+            console.warn(
+              '[WHATSAPP SEND] Tentativa de citação de outro cliente detectada e descartada. Client esperado:',
+              targetClient.id,
+              'Client da msg:',
+              origClientId,
+            )
+          }
+        } else {
+          console.warn(
+            '[WHATSAPP SEND] Mensagem original de citação não encontrada localmente:',
+            replyWamid,
+          )
+        }
+      } catch (errSearchOrig) {
+        console.warn('[WHATSAPP SEND] Erro ao validar mensagem citada:', errSearchOrig)
+      }
+    }
 
     const url = 'https://graph.facebook.com/' + apiVersion + '/' + phoneId + '/messages'
     const payload = {
@@ -236,6 +289,13 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
         preview_url: false,
         body: textBody,
       },
+    }
+
+    // Context no NÍVEL PRINCIPAL do payload, como irmão de type e text. NÃO colocar dentro de text.
+    if (validatedReplyWamid) {
+      payload.context = {
+        message_id: validatedReplyWamid,
+      }
     }
 
     console.log('[WHATSAPP SEND] Enviando mensagem para ' + targetPhone + ' via ' + url)
@@ -298,6 +358,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
     if (isSuccess) {
       msgRec.set('status', 'sent')
       msgRec.set('whatsapp_message_id', wamid)
+      if (validatedReplyWamid) {
+        msgRec.set('reply_to_whatsapp_message_id', validatedReplyWamid)
+        if (validatedOriginalMessageId) {
+          msgRec.set('reply_to_message_id', validatedOriginalMessageId)
+        }
+      }
       $app.save(msgRec)
 
       try {
@@ -383,6 +449,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send', (e) => {
     attendanceId: attendanceId,
     senderName: senderName,
     userId: userId,
+    replyToWhatsAppMessageId: replyToWhatsAppMessageIdRaw,
   })
 
   if (sendResult.success) {

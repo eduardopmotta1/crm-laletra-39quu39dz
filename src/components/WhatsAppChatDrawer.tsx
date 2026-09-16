@@ -46,6 +46,7 @@ import {
   FileImage,
   Pencil,
   UserRoundPen,
+  Reply,
 } from 'lucide-react'
 import type {
   Client,
@@ -159,6 +160,8 @@ export default function WhatsAppChatDrawer({
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [inputMessage, setInputMessage] = useState('')
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null)
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null)
   const [attachmentNote, setAttachmentNote] = useState('')
   const [currentClient, setCurrentClient] = useState<Client | null>(client)
@@ -172,6 +175,7 @@ export default function WhatsAppChatDrawer({
     isDemoToken: boolean
   } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const chatInputRef = useRef<HTMLInputElement>(null)
 
   // Production Order modal from drawer
   const [orderModalOpen, setOrderModalOpen] = useState(false)
@@ -300,6 +304,8 @@ export default function WhatsAppChatDrawer({
     setAttendanceQuotes([])
     setSelectedAttachment(null)
     setInputMessage('')
+    setReplyingToMessage(null)
+    setHighlightedMessageId(null)
     setAttachmentNote('')
     setNewTaskTitle('')
     setNewTaskDueDate('')
@@ -914,6 +920,105 @@ export default function WhatsAppChatDrawer({
     }
   }
 
+  // Helper to get preview description for a message (text or media label)
+  const getMessagePreviewSnippet = (msg: Message): string => {
+    if (msg.file) {
+      const fileName = msg.file_name || msg.file
+      const isImg = isImageFile(fileName, msg.file_type)
+      const isPdf = isPdfFile(fileName, msg.file_type)
+      if (isImg) {
+        return msg.message_text && msg.message_text !== fileName
+          ? `📷 Foto • ${msg.message_text}`
+          : '📷 Foto'
+      }
+      if (isPdf) {
+        return msg.message_text && msg.message_text !== fileName
+          ? `📄 ${fileName} • ${msg.message_text}`
+          : `📄 ${fileName}`
+      }
+      return msg.message_text && msg.message_text !== fileName
+        ? `📎 ${fileName} • ${msg.message_text}`
+        : `📎 ${fileName}`
+    }
+    return msg.message_text || ''
+  }
+
+  // Helper to resolve sender display name for reply preview or citation box
+  const getMessageSenderDisplayName = (msg: Message): string => {
+    if (msg.direction === 'inbound') {
+      return msg.sender_name || displayClient.name || 'Cliente'
+    }
+    const senderUser =
+      msg.expand?.sent_by_user || (msg.sent_by_user ? usersMap[msg.sent_by_user] : null)
+    if (senderUser?.name) {
+      return senderUser.name
+    }
+    return msg.sender_name || 'Você'
+  }
+
+  // Helper to resolve quoted original message without individual API requests (Rule 12: Realtime/Polling/No N+1)
+  const resolveQuotedMessage = (msg: Message): Message | null => {
+    if (
+      !msg.reply_to_message_id &&
+      !msg.reply_to_whatsapp_message_id &&
+      !msg.expand?.reply_to_message_id
+    ) {
+      return null
+    }
+    // 1. Prioridade reply_to_message_id buscando na lista local messages
+    if (msg.reply_to_message_id) {
+      const found = messages.find((m) => m.id === msg.reply_to_message_id)
+      if (found) return found
+    }
+    // 2. Prioridade localizar pelo reply_to_whatsapp_message_id na lista local
+    if (msg.reply_to_whatsapp_message_id) {
+      const found = messages.find((m) => m.whatsapp_message_id === msg.reply_to_whatsapp_message_id)
+      if (found) return found
+    }
+    // 3. Expand, se disponível
+    if (msg.expand?.reply_to_message_id) {
+      return msg.expand.reply_to_message_id
+    }
+    // 4. Fallback sintético seguro se só tiver o WAMID
+    if (msg.reply_to_whatsapp_message_id) {
+      return {
+        id: `quoted_stub_${msg.reply_to_whatsapp_message_id}`,
+        client_id: msg.client_id,
+        direction: 'inbound',
+        message_text: 'Mensagem original',
+        sender_name: 'Mensagem',
+        whatsapp_message_id: msg.reply_to_whatsapp_message_id,
+        created: msg.created,
+        updated: msg.updated,
+      }
+    }
+    return null
+  }
+
+  // Scroll to original message when quote box is clicked (Rule 11)
+  const handleScrollToOriginalMessage = (targetMessageId?: string, targetWamid?: string) => {
+    if (!targetMessageId && !targetWamid) return
+    const targetElement = document.getElementById(
+      targetMessageId ? `msg-${targetMessageId}` : `msg-wamid-${targetWamid}`,
+    )
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const highlightId = targetMessageId || targetWamid || null
+      setHighlightedMessageId(highlightId)
+      setTimeout(() => {
+        setHighlightedMessageId((curr) => (curr === highlightId ? null : curr))
+      }, 2000)
+    }
+  }
+
+  // Handler to set message to reply to and focus chat input (Rule 7)
+  const handleStartReply = (msg: Message) => {
+    setReplyingToMessage(msg)
+    requestAnimationFrame(() => {
+      chatInputRef.current?.focus()
+    })
+  }
+
   // Helper to extract formatted sender metadata for team messages: "Nome • Setor • Horário"
   const formatSenderHeader = (msg: Message) => {
     const timeStr = formatDateTime(msg.created).split(' ')[1] || ''
@@ -1052,6 +1157,8 @@ export default function WhatsAppChatDrawer({
       return
     }
 
+    const replyTarget = replyingToMessage
+
     setSending(true)
     try {
       const res = await whatsappService.sendMessage({
@@ -1059,6 +1166,8 @@ export default function WhatsAppChatDrawer({
         attendanceId: effectiveAttendance?.id || activeAttendance?.id,
         messageText: textToSend,
         file: selectedAttachment,
+        replyToWhatsAppMessageId: replyTarget?.whatsapp_message_id || undefined,
+        replyToMessageId: replyTarget?.id || undefined,
       })
 
       if (!res.success || res.error) {
@@ -1068,6 +1177,7 @@ export default function WhatsAppChatDrawer({
       setInputMessage('')
       setSelectedAttachment(null)
       setAttachmentNote('')
+      setReplyingToMessage(null) // Sucesso no envio: limpa citação (Regra 9)
       if (fileInputRef.current) fileInputRef.current.value = ''
 
       // Inserir / mesclar a mensagem enviada de imediato no estado local com deduplicação por id / wamid
@@ -2392,14 +2502,25 @@ export default function WhatsAppChatDrawer({
                   messages.map((msg) => {
                     const isInbound = msg.direction === 'inbound'
                     const timeStr = formatDateTime(msg.created).split(' ')[1] || ''
+                    const isHighlighted =
+                      highlightedMessageId === msg.id ||
+                      (msg.whatsapp_message_id && highlightedMessageId === msg.whatsapp_message_id)
+                    const quotedMsg = resolveQuotedMessage(msg)
+
                     return (
                       <div
                         key={msg.id}
-                        className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}
+                        id={`msg-${msg.id}`}
+                        data-wamid={msg.whatsapp_message_id}
+                        className={`flex flex-col group relative transition-colors duration-500 rounded-xl p-1 -m-1 ${
+                          isHighlighted
+                            ? 'bg-amber-100/70 dark:bg-amber-950/50 ring-2 ring-amber-400/80'
+                            : ''
+                        } ${isInbound ? 'items-start' : 'items-end'}`}
                       >
-                        {/* Header above message bubble with sender identification */}
+                        {/* Header above message bubble with sender identification + Reply button */}
                         <div
-                          className={`flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1 px-1.5 ${
+                          className={`flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1 px-1.5 w-full ${
                             isInbound ? 'justify-start' : 'justify-end'
                           }`}
                         >
@@ -2430,6 +2551,17 @@ export default function WhatsAppChatDrawer({
                               {formatSenderHeader(msg)}
                             </span>
                           )}
+
+                          {/* Botão de Responder à mensagem no hover (Regra 7) */}
+                          <button
+                            type="button"
+                            onClick={() => handleStartReply(msg)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 ml-1 rounded hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 flex items-center gap-1 text-[10px]"
+                            title="Responder a esta mensagem"
+                          >
+                            <Reply className="h-3 w-3" />
+                            <span className="hidden sm:inline">Responder</span>
+                          </button>
                         </div>
 
                         <div
@@ -2439,6 +2571,31 @@ export default function WhatsAppChatDrawer({
                               : 'bg-[#d9fdd3] dark:bg-emerald-950 text-slate-900 dark:text-emerald-50 rounded-tr-none'
                           }`}
                         >
+                          {/* Citação / Quoted Message dentro do balão (Regra 10 & 11) */}
+                          {quotedMsg && (
+                            <div
+                              onClick={() =>
+                                handleScrollToOriginalMessage(
+                                  msg.reply_to_message_id || quotedMsg.id,
+                                  msg.reply_to_whatsapp_message_id || quotedMsg.whatsapp_message_id,
+                                )
+                              }
+                              className={`mb-2 p-2 rounded-lg cursor-pointer transition-colors border-l-4 text-[11px] leading-tight select-none ${
+                                isInbound
+                                  ? 'bg-slate-100 dark:bg-slate-900/70 border-emerald-500 text-slate-700 dark:text-slate-200 hover:bg-slate-200/70'
+                                  : 'bg-emerald-50/80 dark:bg-emerald-900/60 border-emerald-600 text-emerald-950 dark:text-emerald-100 hover:bg-emerald-100/80'
+                              }`}
+                              title="Clique para ir até a mensagem original"
+                            >
+                              <div className="font-semibold text-emerald-700 dark:text-emerald-300 mb-0.5 flex items-center gap-1">
+                                <Reply className="h-3 w-3 shrink-0 rotate-180" />
+                                <span>{getMessageSenderDisplayName(quotedMsg)}</span>
+                              </div>
+                              <p className="line-clamp-2 text-slate-600 dark:text-slate-300 break-words">
+                                {getMessagePreviewSnippet(quotedMsg)}
+                              </p>
+                            </div>
+                          )}
                           {/* Render Attached File if present */}
                           {msg.file &&
                             (() => {
@@ -2799,6 +2956,33 @@ export default function WhatsAppChatDrawer({
                       </button>
                     </div>
 
+                    {/* Quoted Message Preview Before Send (Rule 8) */}
+                    {replyingToMessage && (
+                      <div className="shrink-0 px-3.5 py-2 bg-slate-50 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-700/80 flex items-center justify-between text-xs animate-in fade-in duration-200">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1 border-l-4 border-emerald-500 pl-2.5 py-0.5">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400 text-xs">
+                              <Reply className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">
+                                Respondendo a {getMessageSenderDisplayName(replyingToMessage)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate mt-0.5">
+                              {getMessagePreviewSnippet(replyingToMessage)}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setReplyingToMessage(null)}
+                          className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors shrink-0 ml-2"
+                          title="Cancelar resposta"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+
                     {/* Selected Attachment Preview Before Send (Rule 3) */}
                     {selectedAttachment && (
                       <div className="shrink-0 px-3 py-2 bg-emerald-50 dark:bg-emerald-950/50 border-t border-emerald-200 dark:border-emerald-800/80 flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-200">
@@ -2873,14 +3057,17 @@ export default function WhatsAppChatDrawer({
                       )}
 
                       <Input
+                        ref={chatInputRef}
                         value={inputMessage}
                         onChange={(e) => setInputMessage(e.target.value)}
                         placeholder={
-                          selectedAttachment
-                            ? 'Adicione uma legenda opcional para o arquivo...'
-                            : within24h
-                              ? 'Digite sua resposta para o cliente...'
-                              : 'Janela fechada — use um Template Oficial ou envie texto...'
+                          replyingToMessage
+                            ? `Respondendo a ${getMessageSenderDisplayName(replyingToMessage)}...`
+                            : selectedAttachment
+                              ? 'Adicione uma legenda opcional para o arquivo...'
+                              : within24h
+                                ? 'Digite sua resposta para o cliente...'
+                                : 'Janela fechada — use um Template Oficial ou envie texto...'
                         }
                         className="flex-1 text-xs bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
                       />

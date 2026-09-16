@@ -338,15 +338,20 @@ export interface Message {
   sender_name?: string
   sent_by_user?: string
   whatsapp_message_id?: string
-  status?: 'sent' | 'delivered' | 'read' | 'failed'
+  status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   file?: string
   file_name?: string
   file_size?: number
   file_type?: string
+  public_media_token?: string
+  public_media_expires_at?: string
+  reply_to_whatsapp_message_id?: string
+  reply_to_message_id?: string
   expand?: {
     client_id?: Client
     attendance_id?: Attendance
     sent_by_user?: User
+    reply_to_message_id?: Message
   }
   created: string
   updated: string

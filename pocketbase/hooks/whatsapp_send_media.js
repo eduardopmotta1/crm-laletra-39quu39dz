@@ -185,6 +185,10 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
 
   let originalFileName = rawFileName
 
+  const replyToWhatsAppMessageIdRaw = String(
+    body.reply_to_whatsapp_message_id || body.replyToWhatsAppMessageId || '',
+  ).trim()
+
   let mimeType = String(
     body.file_type || body.fileType || (uploadedFile.type ? uploadedFile.type : ''),
   )
@@ -689,6 +693,50 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
 
   console.log('[WHATSAPP SEND MEDIA] URL pública controlada validada para a Meta:', publicMediaUrl)
 
+  // Validação da mensagem original para citação de mídia:
+  let validatedReplyWamid = ''
+  let validatedOriginalMessageId = ''
+
+  if (replyToWhatsAppMessageIdRaw) {
+    try {
+      const foundOriginals = $app.findRecordsByFilter(
+        'messages',
+        "whatsapp_message_id = '" + replyToWhatsAppMessageIdRaw + "'",
+        '-created',
+        1,
+        0,
+      )
+      if (foundOriginals && foundOriginals.length > 0) {
+        const orig = foundOriginals[0]
+        const origClientId = String(orig.get('client_id') || '').trim()
+        if (origClientId === clientId) {
+          validatedReplyWamid = replyToWhatsAppMessageIdRaw
+          validatedOriginalMessageId = orig.id
+          console.log(
+            '[WHATSAPP SEND MEDIA] Citação validada com sucesso:',
+            validatedReplyWamid,
+            'OrigRecordId:',
+            validatedOriginalMessageId,
+          )
+        } else {
+          console.warn(
+            '[WHATSAPP SEND MEDIA] Citação descartada: pertence a outro cliente. Esperado:',
+            clientId,
+            'Msg client:',
+            origClientId,
+          )
+        }
+      } else {
+        console.warn(
+          '[WHATSAPP SEND MEDIA] Mensagem original de citação não encontrada localmente:',
+          replyToWhatsAppMessageIdRaw,
+        )
+      }
+    } catch (errSearchOrig) {
+      console.warn('[WHATSAPP SEND MEDIA] Erro ao validar mensagem citada:', errSearchOrig)
+    }
+  }
+
   // 12. REQUISITO 5: DISPARAR PARA A META VIA JSON PURO /messages USANDO 'link'
   // Imagem: {"messaging_product":"whatsapp","to":"<telefone>","type":"image","image":{"link":"<URL_PUBLICA>"}} (+caption)
   // PDF: {"messaging_product":"whatsapp","to":"<telefone>","type":"document","document":{"link":"<URL_PUBLICA>","filename":"<file_name>"}} (+caption)
@@ -700,6 +748,14 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
     recipient_type: 'individual',
     to: phoneNormalized,
     type: mediaCategory,
+  }
+
+  // IMPORTANTE: context no NÍVEL PRINCIPAL do messagePayload (irmão de type, recipient_type, to, image/document).
+  // NUNCA colocar context dentro de image ou document.
+  if (validatedReplyWamid) {
+    messagePayload.context = {
+      message_id: validatedReplyWamid,
+    }
   }
 
   if (mediaCategory === 'image') {
@@ -812,6 +868,12 @@ routerAdd('POST', '/backend/v1/crm/whatsapp/send-media', (e) => {
   try {
     localMessage.set('status', 'sent')
     localMessage.set('whatsapp_message_id', wamid)
+    if (validatedReplyWamid) {
+      localMessage.set('reply_to_whatsapp_message_id', validatedReplyWamid)
+      if (validatedOriginalMessageId) {
+        localMessage.set('reply_to_message_id', validatedOriginalMessageId)
+      }
+    }
     $app.save(localMessage)
   } catch (updSuccessErr) {
     console.error(

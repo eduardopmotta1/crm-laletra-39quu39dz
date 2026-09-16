@@ -8,6 +8,8 @@ export interface SendMessagePayload {
   senderName?: string
   file?: File | null
   postSaleId?: string
+  replyToWhatsAppMessageId?: string
+  replyToMessageId?: string
 }
 
 export interface SendWhatsAppMessageResponse {
@@ -82,12 +84,14 @@ export const whatsappService = {
     text?: string,
     attendanceId?: string,
     attachmentFile?: File | null,
+    replyToWhatsAppMessageIdParam?: string,
   ): Promise<SendWhatsAppMessageResponse> {
     const authRecord = pb.authStore.record
     let clientId: string
     let messageText: string
     let attId: string | undefined = attendanceId
     let fileToUpload: File | null = attachmentFile || null
+    let replyToWhatsAppMessageId: string | undefined = replyToWhatsAppMessageIdParam
     // Official authenticated sender source: always resolve real authenticated user name
     const senderRealName = authRecord?.name?.trim() || authRecord?.email || 'Atendente'
     let senderName: string = senderRealName
@@ -101,6 +105,9 @@ export const whatsappService = {
       attId = clientIdOrPayload.attendanceId
       if (clientIdOrPayload.file) {
         fileToUpload = clientIdOrPayload.file
+      }
+      if (clientIdOrPayload.replyToWhatsAppMessageId) {
+        replyToWhatsAppMessageId = clientIdOrPayload.replyToWhatsAppMessageId
       }
       // If user is authenticated, prioritize the real authenticated user's name
       if (authRecord?.id) {
@@ -229,6 +236,9 @@ export const whatsappService = {
         if (messageText) {
           formData.append('caption', messageText)
         }
+        if (replyToWhatsAppMessageId) {
+          formData.append('reply_to_whatsapp_message_id', replyToWhatsAppMessageId)
+        }
         // Identificador aleatório para prevenção de clique duplo/retry
         const reqId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
         formData.append('request_id', reqId)
@@ -279,6 +289,7 @@ export const whatsappService = {
           message_text: messageText,
           post_sale_id:
             typeof clientIdOrPayload === 'object' ? clientIdOrPayload.postSaleId : undefined,
+          reply_to_whatsapp_message_id: replyToWhatsAppMessageId || undefined,
         },
       })
 

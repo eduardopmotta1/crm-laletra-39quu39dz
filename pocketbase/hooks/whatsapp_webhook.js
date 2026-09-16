@@ -243,6 +243,7 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
           const msgType = String(msg.type || '').trim()
           const msgTimestamp = msg.timestamp ? String(msg.timestamp) : ''
           const fromWaId = String(msg.from || '').trim()
+          const replyContextId = String((msg.context && msg.context.id) || '').trim()
 
           // Nome do remetente pelo contato do payload se existir
           let profileName = ''
@@ -808,6 +809,55 @@ routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
             newMsgRecord.set('status', 'delivered')
             if (metaMsgId) {
               newMsgRecord.set('whatsapp_message_id', metaMsgId)
+            }
+
+            // Tratamento de citação / resposta recebida (msg.context.id):
+            // (1) Se existir replyContextId, preencher reply_to_whatsapp_message_id
+            // (2) Procurar mensagem local cujo whatsapp_message_id seja igual
+            // (3) Validar que pertence ao mesmo cliente
+            // (4) Se encontrar e pertencer ao mesmo cliente, preencher reply_to_message_id
+            // REGRA CRÍTICA: se a mensagem original não existir localmente, NÃO abortar — salvar somente reply_to_whatsapp_message_id
+            if (replyContextId) {
+              newMsgRecord.set('reply_to_whatsapp_message_id', replyContextId)
+              try {
+                const origRecords = $app.findRecordsByFilter(
+                  'messages',
+                  "whatsapp_message_id = '" + replyContextId + "'",
+                  '-created',
+                  1,
+                  0,
+                )
+                if (origRecords && origRecords.length > 0) {
+                  const origMsg = origRecords[0]
+                  const origClientId = String(origMsg.get('client_id') || '').trim()
+                  if (!clientId || origClientId === clientId) {
+                    newMsgRecord.set('reply_to_message_id', origMsg.id)
+                    console.log(
+                      '[WHATSAPP WEBHOOK POST] Resposta vinculada à mensagem local:',
+                      origMsg.id,
+                      'WAMID original:',
+                      replyContextId,
+                    )
+                  } else {
+                    console.warn(
+                      '[WHATSAPP WEBHOOK POST] Citação com client_id divergente. Msg client:',
+                      clientId,
+                      'Orig client:',
+                      origClientId,
+                    )
+                  }
+                } else {
+                  console.log(
+                    '[WHATSAPP WEBHOOK POST] Mensagem original da citação não encontrada localmente:',
+                    replyContextId,
+                  )
+                }
+              } catch (errSearchOrig) {
+                console.warn(
+                  '[WHATSAPP WEBHOOK POST] Erro não-bloqueante ao resolver citação:',
+                  errSearchOrig,
+                )
+              }
             }
 
             let generatedFileName = ''
