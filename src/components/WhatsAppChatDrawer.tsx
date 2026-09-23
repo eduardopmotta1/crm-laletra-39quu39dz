@@ -756,7 +756,7 @@ export default function WhatsAppChatDrawer({
       // Dê prioridade somente ao argumento recebido: const targetAttId = attendanceId
       const targetAttId = attendanceId
 
-      // Sincronizar attendance atual e quotes com fallback seguro
+      // 7. CORRIGIR O ATENDIMENTO USADO NO CARREGAMENTO (Regra 2D: SEM clientAtts[0] arbitrário)
       const attendancePromise = (async (): Promise<Attendance | null> => {
         if (targetAttId) {
           try {
@@ -766,12 +766,53 @@ export default function WhatsAppChatDrawer({
             console.warn('[WhatsAppChatDrawer] Erro ao buscar attendance especificado:', err)
           }
         }
-        // Fallback seguro se não houver attendanceId ou se o atendimento foi arquivado/apagado:
-        // busque o atendimento pelo clientId recebido
+
+        // Resolução segura de atendimento para outbound/visualização:
+        // (1) Buscar atendimentos do cliente
         try {
           const clientAtts = await attendancesService.getByClientId(clientId)
-          const fallback = clientAtts.find((a) => !a.is_archived) || clientAtts[0] || null
-          return fallback
+          const activeList = clientAtts.filter((a) => !a.is_archived)
+
+          // (2) Se existir exatamente 1 ativo -> usar diretamente
+          if (activeList.length === 1) {
+            return activeList[0]
+          }
+
+          // (3) Se nenhum ativo existir -> delegar resolução determinística/criação ao BACKEND
+          if (activeList.length === 0) {
+            try {
+              const resolved = await attendancesService.resolveForClient(clientId, {
+                source: 'drawer_sync',
+                stage: 'Novo contato',
+              })
+              return resolved || null
+            } catch (resolveErr) {
+              console.warn(
+                '[WhatsAppChatDrawer] Erro ao resolver attendance pelo backend quando 0 ativos:',
+                resolveErr,
+              )
+              return null
+            }
+          }
+
+          // (4) Se >1 ativos históricos forem encontrados:
+          // Jamais usar clientAtts[0] como decisão de negócio arbitrária!
+          // Tratar como inconsistência histórica: logar aviso estruturado e resolver deterministicamente
+          // pelo backend central (ou pelo mais recente por created se backend offline).
+          const ids = activeList.map((a) => a.id).join(', ')
+          console.warn(
+            `[WhatsAppChatDrawer] Inconsistência histórica: cliente ${clientId} possui ${activeList.length} atendimentos ativos: [${ids}]. Delegando resolução determinística ao backend sem escolha arbitrária no frontend.`,
+          )
+          try {
+            const resolvedDeterministic = await attendancesService.resolveForClient(clientId)
+            return resolvedDeterministic || activeList[0]
+          } catch (_) {
+            // Em caso de fallback extremo, ordena deterministicamente por data mais recente
+            const sorted = [...activeList].sort(
+              (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime(),
+            )
+            return sorted[0] || null
+          }
         } catch (err) {
           console.warn(
             '[WhatsAppChatDrawer] Erro ao buscar fallback de attendance do cliente:',

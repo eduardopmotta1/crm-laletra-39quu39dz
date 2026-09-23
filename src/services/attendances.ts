@@ -89,9 +89,53 @@ export const attendancesService = {
       console.warn(`[attendancesService] Could not resolve client ${clientId}:`, err)
     }
 
-    // 1b. Proteção de concorrência / idempotência no cliente:
-    // Se o cliente já possui atendimento ativo e não foi explicitamente solicitado duplicar,
-    // reutiliza o atendimento ativo mais recente para evitar cards duplicados no Kanban.
+    // 2. ETAPA 2A: Centralização no BACKEND com transação SQLite e lock atômico
+    // Chama o endpoint POST /backend/v1/crm/attendances/resolve
+    try {
+      const response = await pb.send<{
+        success: boolean
+        action: 'reused' | 'created' | 'historical_inconsistency_resolved'
+        attendance: Attendance
+        attendance_id: string
+      }>('/backend/v1/crm/attendances/resolve', {
+        method: 'POST',
+        body: {
+          client_id: targetClientId,
+          stage: data.stage || 'Novo contato',
+          assigned_to: data.assigned_to,
+          product_interest: data.product_interest,
+          quote_value: data.quote_value,
+          notes: data.notes,
+          source: data.source || 'manual',
+        },
+      })
+
+      if (response && response.attendance) {
+        // Log transition se foi um attendance recém-criado
+        if (response.action === 'created') {
+          try {
+            await dealsService.logTransition({
+              attendanceId: response.attendance.id,
+              clientId: targetClientId,
+              fromStage: undefined,
+              toStage: data.stage || 'Novo contato',
+              changeType: 'manual',
+              notes: `Novo atendimento criado (${data.product_interest || 'Geral'})`,
+            })
+          } catch (transErr) {
+            console.warn('[attendancesService] Error logging transition for attendance:', transErr)
+          }
+        }
+        return response.attendance
+      }
+    } catch (endpointErr) {
+      console.warn(
+        `[attendancesService.createForClient] Endpoint backend falhou, aplicando fallback local protegido:`,
+        endpointErr,
+      )
+    }
+
+    // 3. Fallback defensivo local caso o backend esteja indisponível (ex: ambiente offline ou erro de rota transitório)
     if (!data.allowDuplicateActive) {
       try {
         const existingActive = await pb.collection('attendances').getList<Attendance>(1, 1, {
@@ -113,7 +157,6 @@ export const attendancesService = {
     const stage = data.stage || 'Novo contato'
     const todayDateStr = new Date().toISOString().split('T')[0]
 
-    // 2. Criar attendance vinculado ao client canônico
     const payload: Partial<Attendance> = {
       client_id: targetClientId,
       stage,
@@ -127,7 +170,6 @@ export const attendancesService = {
 
     const record = await pb.collection('attendances').create<Attendance>(payload)
 
-    // 3. Atualizar o cliente para refletir o novo ciclo comercial ativo
     try {
       const clientRec = await pb.collection('clients').getOne(targetClientId)
       const hasPurchasesBefore = (clientRec.total_purchases || 0) > 0
@@ -153,7 +195,6 @@ export const attendancesService = {
       )
     }
 
-    // 4. Log stage transition
     try {
       await dealsService.logTransition({
         attendanceId: record.id,
@@ -168,6 +209,27 @@ export const attendancesService = {
     }
 
     return record
+  },
+
+  /**
+   * Resolve de forma centralizada e atômica o atendimento ativo do cliente.
+   * Chama o backend /backend/v1/crm/attendances/resolve garantindo:
+   * 1. Reutilização de attendance ativo existente;
+   * 2. Criação única sob lock transacional se não houver ativo;
+   * 3. Resolução determinística e aviso estruturado se houver >1 ativos históricos;
+   * 4. Nunca usa clientAtts[0] arbitrário.
+   */
+  async resolveForClient(
+    clientId: string,
+    options?: {
+      stage?: KanbanStage
+      assigned_to?: string
+      product_interest?: string
+      notes?: string
+      source?: string
+    },
+  ): Promise<Attendance> {
+    return this.createForClient(clientId, { ...options, allowDuplicateActive: false })
   },
 
   /**

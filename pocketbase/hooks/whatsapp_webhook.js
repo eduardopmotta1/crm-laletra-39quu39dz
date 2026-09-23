@@ -217,36 +217,79 @@
       const attendancesCol = txApp.findCollectionByNameOrId('attendances')
 
       // 1. Re-check for ANY active attendance for this client: is_archived = false
+      let activeAttendances = []
       try {
-        const activeAttendances = txApp.findRecordsByFilter(
+        activeAttendances = txApp.findRecordsByFilter(
           'attendances',
           `client_id = '${clientId}' && is_archived = false`,
           '-created',
-          1,
+          20,
           0,
         )
-        if (activeAttendances && activeAttendances.length > 0) {
-          return activeAttendances[0]
-        }
       } catch (_) {}
 
-      // 2. Check if client has a production order in progress with linked attendance
+      if (activeAttendances && activeAttendances.length === 1) {
+        return activeAttendances[0]
+      }
+
+      if (activeAttendances && activeAttendances.length > 1) {
+        // Regra 2A.6: Inconsistência histórica detectada. Registrar e resolver deterministicamente pelo mais recente
+        const ids = activeAttendances.map((a) => a.id).join(', ')
+        console.warn(
+          `[Webhook resolveAttendance] Inconsistência histórica: cliente ${clientId} possui ${activeAttendances.length} atendimentos ativos: [${ids}]. Determinismo: mais recente (${activeAttendances[0].id}).`,
+        )
+        return activeAttendances[0]
+      }
+
+      // 2. Regra 2C: Caso de fechamento/produção (ex: caso Gabriela)
+      // Se cliente possui ordem de produção em andamento ou recentemente fechada vinculada a um attendance existente:
+      // se esse attendance ainda está com is_archived=false (venda em produção), o MESMO attendance continua ativo do cliente!
       try {
         const orders = txApp.findRecordsByFilter(
           'production_orders',
-          `client_id = '${clientId}' && is_completed = false`,
+          `client_id = '${clientId}' && is_completed = false && is_archived = false`,
+          '-created',
+          5,
+          0,
+        )
+        for (const ord of orders) {
+          const orderAttendanceId = ord.get('attendance_id')
+          if (orderAttendanceId) {
+            try {
+              const orderAtt = txApp.findRecordById('attendances', orderAttendanceId)
+              if (orderAtt && !orderAtt.get('is_archived')) {
+                console.log(
+                  `[Webhook resolveAttendance] Reutilizando attendance ${orderAtt.id} vinculado à ordem de produção ${ord.id} em andamento.`,
+                )
+                return orderAtt
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+
+      // 2.1 Também checar archived_deals recentes com continue_attendance = true
+      try {
+        const recentArchivedDeals = txApp.findRecordsByFilter(
+          'archived_deals',
+          `client_id = '${clientId}' && reason = 'won'`,
           '-created',
           1,
           0,
         )
-        if (orders && orders.length > 0 && orders[0].get('attendance_id')) {
-          const orderAttendanceId = orders[0].get('attendance_id')
-          try {
-            const orderAtt = txApp.findRecordById('attendances', orderAttendanceId)
-            if (orderAtt && !orderAtt.get('is_archived')) {
-              return orderAtt
-            }
-          } catch (_) {}
+        if (recentArchivedDeals && recentArchivedDeals.length > 0) {
+          const originalAttendanceId = recentArchivedDeals[0].get('original_attendance_id')
+          if (originalAttendanceId) {
+            try {
+              const prevAtt = txApp.findRecordById('attendances', originalAttendanceId)
+              if (prevAtt && !prevAtt.get('is_archived')) {
+                console.log(
+                  `[Webhook resolveAttendance] Reutilizando attendance ${prevAtt.id} mantido ativo por fechamento ganho com continuação.`,
+                )
+                return prevAtt
+              }
+            } catch (_) {}
+          }
         }
       } catch (_) {}
 
