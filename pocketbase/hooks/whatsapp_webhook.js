@@ -1,1107 +1,647 @@
-// WhatsApp Webhook — validação GET e recebimento POST da Meta Cloud API
-// ETAPA 3C: Processamento de statuses[] e recebimento de mensagens Meta Cloud API
-// Endpoint público: /backend/v1/crm/whatsapp-webhook
+/**
+ * Webhook handler for incoming WhatsApp messages and status updates
+ * Path: /api/whatsapp/webhook
+ * Method: GET (verification) and POST (incoming events)
+ *
+ * NOTE: Critical fix against concurrency / race conditions (check->create race):
+ * When multiple webhooks arrive almost simultaneously or Meta retries,
+ * we use an in-memory execution lock queue per phone/client AND per whatsapp_message_id,
+ * ensuring strict serialization so only ONE active attendance exists per client,
+ * and duplicate whatsapp_message_id is rejected immediately before attendance/deal resolution.
+ */
 
-routerAdd('GET', '/backend/v1/crm/whatsapp-webhook', (e) => {
-  const hubMode = e.request.url.query().get('hub.mode')
-  const hubToken = e.request.url.query().get('hub.verify_token')
-  const hubChallenge = e.request.url.query().get('hub.challenge')
+// In-memory locks / synchronization for concurrent webhook processing
+// PocketBase runs in a single Node/Go process per instance.
+const _clientLocks = globalThis.__pb_clientLocks || (globalThis.__pb_clientLocks = new Map())
+const _processedWamids =
+  globalThis.__pb_processedWamids || (globalThis.__pb_processedWamids = new Map())
 
-  const verifyToken = 'laletra_crm_webhook_2024'
-  console.log(
-    '[WHATSAPP WEBHOOK GET]',
-    'mode:',
-    hubMode,
-    'token:',
-    hubToken ? hubToken.substring(0, 4) + '...' : 'undefined',
-  )
-
-  if (hubMode === 'subscribe' && hubToken === verifyToken) {
-    return e.string(200, String(hubChallenge))
+function cleanOldWamids() {
+  const now = Date.now()
+  if (_processedWamids.size > 2000) {
+    for (const [key, timestamp] of _processedWamids.entries()) {
+      if (now - timestamp > 10 * 60 * 1000) {
+        // 10 minutes cache
+        _processedWamids.delete(key)
+      }
+    }
   }
-  return e.string(403, 'Forbidden')
+}
+
+/**
+ * Execute task with serialization key (e.g. client phone or client_id)
+ */
+function withClientLock(key, fn) {
+  let lockPromise = _clientLocks.get(key)
+  if (!lockPromise) {
+    lockPromise = Promise.resolve()
+  }
+
+  const nextPromise = lockPromise
+    .then(() => fn())
+    .catch((err) => {
+      // Allow subsequent callers to run even if previous failed
+      throw err
+    })
+    .finally(() => {
+      if (_clientLocks.get(key) === nextPromise) {
+        _clientLocks.delete(key)
+      }
+    })
+
+  _clientLocks.set(key, nextPromise)
+  return nextPromise
+}
+
+routerAdd('GET', '/api/whatsapp/webhook', (c) => {
+  const query = c.request().url.query
+  const mode = query.get('hub.mode')
+  const token = query.get('hub.verify_token')
+  const challenge = query.get('hub.challenge')
+
+  const verifyToken = $os.getenv('WHATSAPP_WEBHOOK_VERIFY_TOKEN') || 'laletra_webhook_secret'
+
+  if (mode === 'subscribe' && token === verifyToken) {
+    return c.string(200, challenge)
+  }
+
+  return c.string(403, 'Forbidden')
 })
 
-routerAdd('POST', '/backend/v1/crm/whatsapp-webhook', (e) => {
-  // 1. Resposta rápida 200 para a Meta; encapsulado em try/catch para nunca reenviar em loop
+routerAdd('POST', '/api/whatsapp/webhook', (c) => {
+  const body = $apis.requestInfo(c).data
+
+  // Validate payload structure
+  if (!body || body.object !== 'whatsapp_business_account') {
+    return c.json(400, { error: 'Invalid payload' })
+  }
+
   try {
-    const rawBody = e.requestInfo().body || {}
-
-    // Helpers internos (escopo interno obrigatório para runtime Goja no PocketBase)
-    const normalizeDigits = function (input) {
-      if (!input) return ''
-      let d = String(input).replace(/\D/g, '')
-      if (!d) return ''
-      if ((d.length === 10 || d.length === 11) && !d.startsWith('55')) {
-        d = '55' + d
-      }
-      return d
-    }
-
-    const extractPhoneWithoutDDI = function (normWithDDI) {
-      if (!normWithDDI) return ''
-      if (normWithDDI.startsWith('55') && normWithDDI.length >= 12) {
-        return normWithDDI.substring(2)
-      }
-      return normWithDDI
-    }
-
-    // 2. Validar se o payload tem a estrutura da Meta Cloud API: entry[] -> changes[] -> value
-    const entryList = rawBody.entry || []
-    if (!Array.isArray(entryList) || entryList.length === 0) {
-      console.log('[WHATSAPP WEBHOOK POST] Payload sem entry array. Ignorado.')
-      return e.json(200, { status: 'ignored', reason: 'no_entry' })
-    }
-
-    let processedCount = 0
-    let duplicateCount = 0
-    let ignoredCount = 0
-    let statusProcessedCount = 0
-    let statusIgnoredCount = 0
-
-    const messagesCol = $app.findCollectionByNameOrId('messages')
-
-    // Mapeamento oficial de status Meta -> PocketBase messages.status
-    const VALID_STATUSES = {
-      sent: 'sent',
-      delivered: 'delivered',
-      read: 'read',
-      failed: 'failed',
-    }
-
-    for (let i = 0; i < entryList.length; i++) {
-      const entry = entryList[i]
+    const entries = body.entry || []
+    for (const entry of entries) {
       const changes = entry.changes || []
+      for (const change of changes) {
+        const value = change.value
+        if (!value) continue
 
-      for (let j = 0; j < changes.length; j++) {
-        const change = changes[j]
-        const value = change.value || {}
-
-        // 3. Processamento de statuses[] (ETAPA 3C)
-        const statuses = value.statuses || []
-        if (Array.isArray(statuses) && statuses.length > 0) {
-          for (let s = 0; s < statuses.length; s++) {
-            const statusObj = statuses[s]
-            const wamid = String(statusObj.id || '').trim()
-            const rawStatus = String(statusObj.status || '')
-              .toLowerCase()
-              .trim()
-            const statusTimestamp = statusObj.timestamp ? String(statusObj.timestamp) : ''
-            const recipientId = String(statusObj.recipient_id || '').trim()
-            const errorsList = statusObj.errors || []
-
-            if (!wamid) {
-              console.log('[WHATSAPP WEBHOOK POST] Status sem WAMID (id). Ignorado.')
-              statusIgnoredCount++
-              continue
-            }
-
-            const mappedStatus = VALID_STATUSES[rawStatus]
-            if (!mappedStatus) {
-              console.log(
-                '[WHATSAPP WEBHOOK POST] Status desconhecido recebido para WAMID ' +
-                  wamid +
-                  ': "' +
-                  rawStatus +
-                  '". Ignorado.',
-              )
-              statusIgnoredCount++
-              continue
-            }
-
-            // Localizar mensagem correspondente pelo campo whatsapp_message_id
-            let targetMsg = null
-            try {
-              const foundList = $app.findRecordsByFilter(
-                'messages',
-                "whatsapp_message_id = '" + wamid + "'",
-                '-created',
-                1,
-                0,
-              )
-              if (foundList && foundList.length > 0) {
-                targetMsg = foundList[0]
-              }
-            } catch (errFilterMsg) {
-              console.warn(
-                '[WHATSAPP WEBHOOK POST] Aviso ao buscar mensagem pelo WAMID ' + wamid + ':',
-                errFilterMsg,
-              )
-            }
-
-            // Se não encontrar mensagem pelo WAMID: NÃO criar registro novo; apenas logar
-            if (!targetMsg) {
-              console.log(
-                '[WHATSAPP WEBHOOK POST] [STATUS SEM MENSAGEM] WAMID não localizado no banco: ' +
-                  wamid +
-                  ' | status: ' +
-                  mappedStatus +
-                  ' | recipient: ' +
-                  recipientId,
-              )
-              statusIgnoredCount++
-              continue
-            }
-
-            // Se status = failed, extrair detalhes com segurança (sem tokens/secrets)
-            let errorDetails = null
-            if (mappedStatus === 'failed') {
-              let firstErr = {}
-              if (Array.isArray(errorsList) && errorsList.length > 0) {
-                firstErr = errorsList[0] || {}
-              }
-              const errCode = firstErr.code || statusObj.code || ''
-              const errTitle = firstErr.title || firstErr.message || statusObj.title || ''
-              const errMsg =
-                firstErr.error_data && firstErr.error_data.details
-                  ? firstErr.error_data.details
-                  : firstErr.message || ''
-              const errSubcode = firstErr.error_subcode || ''
-
-              errorDetails = {
-                code: errCode,
-                title: errTitle,
-                message: errMsg,
-                error_subcode: errSubcode,
-              }
-
-              console.error(
-                '[WHATSAPP WEBHOOK POST] [STATUS FAILED] WAMID: ' +
-                  wamid +
-                  ' | RecordId: ' +
-                  targetMsg.id +
-                  ' | Code: ' +
-                  errCode +
-                  ' | Subcode: ' +
-                  errSubcode +
-                  ' | Title: ' +
-                  errTitle +
-                  ' | Message: ' +
-                  errMsg,
-              )
-            }
-
-            // Idempotência: se a mensagem já possui exatamente esse status, não faz nada
-            const currentStatus = String(targetMsg.get('status') || '')
-            if (currentStatus === mappedStatus) {
-              console.log(
-                '[WHATSAPP WEBHOOK POST] Status já registrado para WAMID ' +
-                  wamid +
-                  ' (' +
-                  mappedStatus +
-                  '). Ignorando reenvio (idempotente).',
-              )
-              statusProcessedCount++
-              continue
-            }
-
-            // Atualizar status da mensagem correspondente
-            try {
-              targetMsg.set('status', mappedStatus)
-              $app.save(targetMsg)
-              statusProcessedCount++
-
-              console.log('[WHATSAPP WEBHOOK POST] Status da mensagem atualizado com sucesso:', {
-                recordId: targetMsg.id,
-                wamid: wamid,
-                oldStatus: currentStatus,
-                newStatus: mappedStatus,
-                recipientId: recipientId,
-                timestamp: statusTimestamp,
-                errorDetails: errorDetails,
-              })
-            } catch (saveErr) {
-              console.error(
-                '[WHATSAPP WEBHOOK POST] Erro ao salvar status para mensagem ' +
-                  targetMsg.id +
-                  ' (WAMID ' +
-                  wamid +
-                  '):',
-                saveErr,
-              )
-            }
+        // Handle incoming messages
+        if (value.messages && value.messages.length > 0) {
+          for (const msg of value.messages) {
+            handleIncomingMessage(msg, value.contacts, c.app)
           }
         }
 
-        // 4. Processamento de mensagens inbound (messages[])
-        const messages = value.messages || []
-        if (!Array.isArray(messages) || messages.length === 0) {
-          ignoredCount++
-          continue
-        }
-
-        const phoneNumberId =
-          value.metadata && value.metadata.phone_number_id
-            ? String(value.metadata.phone_number_id)
-            : ''
-
-        const contacts = value.contacts || []
-
-        for (let m = 0; m < messages.length; m++) {
-          const msg = messages[m]
-          const metaMsgId = String(msg.id || '').trim()
-          const msgType = String(msg.type || '').trim()
-          const msgTimestamp = msg.timestamp ? String(msg.timestamp) : ''
-          const fromWaId = String(msg.from || '').trim()
-          const replyContextId = String((msg.context && msg.context.id) || '').trim()
-
-          // Nome do remetente pelo contato do payload se existir
-          let profileName = ''
-          if (contacts.length > 0 && contacts[0].profile && contacts[0].profile.name) {
-            profileName = String(contacts[0].profile.name).trim()
-          }
-
-          // Suporte a mensagens de texto, imagem e documento/PDF (inbound)
-          if (msgType !== 'text' && msgType !== 'image' && msgType !== 'document') {
-            console.log(
-              '[WHATSAPP WEBHOOK POST] Mensagem tipo "' +
-                msgType +
-                '" ignorada. Apenas texto, imagem e documento são suportados nesta etapa. MetaId: ' +
-                metaMsgId,
-            )
-            ignoredCount++
-            continue
-          }
-
-          let msgBodyText = ''
-          let isImageMsg = false
-          let isDocumentMsg = false
-          let mediaId = ''
-          let imageMimeType = ''
-          let imageSha256 = ''
-          let imageCaption = ''
-          let docMimeType = ''
-          let docFilename = ''
-          let docSha256 = ''
-          let docCaption = ''
-
-          if (msgType === 'text') {
-            if (!msg.text || !msg.text.body) {
-              ignoredCount++
-              continue
-            }
-            msgBodyText = String(msg.text.body).trim()
-            if (!msgBodyText) {
-              ignoredCount++
-              continue
-            }
-          } else if (msgType === 'image') {
-            isImageMsg = true
-            const imgData = msg.image || {}
-            mediaId = String(imgData.id || '').trim()
-            imageMimeType = String(imgData.mime_type || 'image/jpeg')
-              .trim()
-              .toLowerCase()
-            imageSha256 = String(imgData.sha256 || '').trim()
-            imageCaption = String(imgData.caption || '').trim()
-
-            if (!mediaId) {
-              console.warn(
-                '[WHATSAPP WEBHOOK POST] Mensagem image sem image.id (MEDIA_ID). Ignorada. MetaId: ' +
-                  metaMsgId,
-              )
-              ignoredCount++
-              continue
-            }
-
-            console.log(
-              '[WHATSAPP WEBHOOK POST] Mensagem tipo image recebida. MediaId:',
-              mediaId,
-              'MimeType:',
-              imageMimeType,
-              'Caption:',
-              imageCaption ? imageCaption.substring(0, 30) : 'sem legenda',
-            )
-
-            // Texto a ser exibido/salvo caso exista caption ou fallback amigável
-            msgBodyText = imageCaption || ''
-          } else if (msgType === 'document') {
-            isDocumentMsg = true
-            const docData = msg.document || {}
-            mediaId = String(docData.id || '').trim()
-            docMimeType = String(docData.mime_type || 'application/pdf')
-              .trim()
-              .toLowerCase()
-            docFilename = String(docData.filename || '').trim()
-            docSha256 = String(docData.sha256 || '').trim()
-            docCaption = String(docData.caption || '').trim()
-
-            if (!mediaId) {
-              console.warn(
-                '[WHATSAPP WEBHOOK POST] Mensagem document sem document.id (MEDIA_ID). Ignorada. MetaId: ' +
-                  metaMsgId,
-              )
-              ignoredCount++
-              continue
-            }
-
-            console.log(
-              '[WHATSAPP WEBHOOK POST] Mensagem tipo document recebida. MediaId:',
-              mediaId,
-              'MimeType:',
-              docMimeType,
-              'Filename:',
-              docFilename || 'sem nome',
-              'Caption:',
-              docCaption ? docCaption.substring(0, 30) : 'sem legenda',
-            )
-
-            msgBodyText = docCaption || ''
-          }
-
-          // 4. Normalização do telefone no padrão do CRM (com DDI 55, ex: 5521970156756)
-          const normalizedPhoneWithDDI = normalizeDigits(fromWaId)
-          const normalizedPhoneWithoutDDI = extractPhoneWithoutDDI(normalizedPhoneWithDDI)
-
-          // 5. Idempotência estrita: verificar se já existe mensagem com esse whatsapp_message_id
-          if (metaMsgId) {
-            let existingMsg = null
-            try {
-              const existingList = $app.findRecordsByFilter(
-                'messages',
-                "whatsapp_message_id = '" + metaMsgId + "'",
-                '-created',
-                1,
-                0,
-              )
-              if (existingList && existingList.length > 0) {
-                existingMsg = existingList[0]
-              }
-            } catch (errFilter) {
-              console.warn(
-                '[WHATSAPP WEBHOOK POST] Aviso ao buscar duplicidade por whatsapp_message_id:',
-                errFilter,
-              )
-            }
-
-            if (existingMsg) {
-              console.log(
-                '[WHATSAPP WEBHOOK POST] Mensagem duplicada ignorada (idempotência). MetaId: ' +
-                  metaMsgId +
-                  ', RecordId: ' +
-                  existingMsg.id,
-              )
-              duplicateCount++
-              continue
-            }
-          }
-
-          // 6. Procurar cliente existente pelo telefone normalizado
-          // Testa normalizedPhoneWithDDI (ex: 5521970156756), normalizedPhoneWithoutDDI (ex: 21970156756) ou phone direto
-          let foundClient = null
-
-          if (normalizedPhoneWithDDI) {
-            try {
-              // Busca 1: normalized_phone igual ao número com 55
-              const list1 = $app.findRecordsByFilter(
-                'clients',
-                "normalized_phone = '" + normalizedPhoneWithDDI + "'",
-                '-created',
-                1,
-                0,
-              )
-              if (list1 && list1.length > 0) {
-                foundClient = list1[0]
-              }
-            } catch (_) {}
-
-            if (!foundClient && normalizedPhoneWithoutDDI) {
-              try {
-                // Busca 2: normalized_phone igual ao número sem 55
-                const list2 = $app.findRecordsByFilter(
-                  'clients',
-                  "normalized_phone = '" + normalizedPhoneWithoutDDI + "'",
-                  '-created',
-                  1,
-                  0,
-                )
-                if (list2 && list2.length > 0) {
-                  foundClient = list2[0]
-                }
-              } catch (_) {}
-            }
-
-            if (!foundClient) {
-              try {
-                // Busca 3: telefone exato ou contendo os dígitos
-                const list3 = $app.findRecordsByFilter(
-                  'clients',
-                  "phone ~ '" +
-                    normalizedPhoneWithoutDDI +
-                    "' || phone ~ '" +
-                    normalizedPhoneWithDDI +
-                    "'",
-                  '-created',
-                  1,
-                  0,
-                )
-                if (list3 && list3.length > 0) {
-                  foundClient = list3[0]
-                }
-              } catch (_) {}
-            }
-          }
-
-          let clientId = ''
-          let attendanceId = ''
-          let currentTimestampIso = new Date().toISOString()
-          if (msgTimestamp) {
-            try {
-              const parsedEpoch = Number(msgTimestamp)
-              if (!isNaN(parsedEpoch) && parsedEpoch > 0) {
-                // Se timestamp for em segundos (formato Unix padrão da Meta), multiplicar por 1000
-                const epochMs = parsedEpoch < 1e11 ? parsedEpoch * 1000 : parsedEpoch
-                currentTimestampIso = new Date(epochMs).toISOString()
-              }
-            } catch (_) {}
-          }
-
-          // Se NÃO existir cliente pelo telefone normalizado, criar automaticamente
-          if (!foundClient) {
-            // Nova checagem por telefone normalizado para evitar duplicidade em chamadas simultâneas (race condition)
-            try {
-              if (normalizedPhoneWithDDI) {
-                const raceCheck = $app.findRecordsByFilter(
-                  'clients',
-                  "normalized_phone = '" + normalizedPhoneWithDDI + "'",
-                  '-created',
-                  1,
-                  0,
-                )
-                if (raceCheck && raceCheck.length > 0) {
-                  foundClient = raceCheck[0]
-                }
-              }
-              if (!foundClient && normalizedPhoneWithoutDDI) {
-                const raceCheck2 = $app.findRecordsByFilter(
-                  'clients',
-                  "normalized_phone = '" + normalizedPhoneWithoutDDI + "'",
-                  '-created',
-                  1,
-                  0,
-                )
-                if (raceCheck2 && raceCheck2.length > 0) {
-                  foundClient = raceCheck2[0]
-                }
-              }
-            } catch (errRaceCheck) {
-              console.warn(
-                '[WHATSAPP WEBHOOK POST] Aviso na checagem de concorrência por telefone:',
-                errRaceCheck,
-              )
-            }
-
-            if (!foundClient) {
-              try {
-                const clientsCol = $app.findCollectionByNameOrId('clients')
-                const newClientRecord = new Record(clientsCol)
-
-                const phoneToSave = normalizedPhoneWithDDI || normalizedPhoneWithoutDDI || fromWaId
-                const clientName = profileName || 'Cliente WhatsApp ' + phoneToSave
-
-                newClientRecord.set('phone', phoneToSave)
-                newClientRecord.set('normalized_phone', phoneToSave)
-                newClientRecord.set('name', clientName)
-                newClientRecord.set('stage', 'Novo contato')
-                newClientRecord.set('priority', 'media')
-                newClientRecord.set('is_archived', false)
-                newClientRecord.set('last_message_at', currentTimestampIso)
-                newClientRecord.set('last_message_direction', 'inbound')
-                newClientRecord.set('last_message_text', msgBodyText.substring(0, 100))
-
-                $app.save(newClientRecord)
-                foundClient = newClientRecord
-
-                console.log(
-                  '[WHATSAPP WEBHOOK POST] Cliente criado automaticamente com sucesso:',
-                  foundClient.id,
-                  '| Telefone:',
-                  phoneToSave,
-                  '| Nome:',
-                  clientName,
-                )
-              } catch (clientCreateErr) {
-                console.error(
-                  '[WHATSAPP WEBHOOK POST] Erro crítico ao criar cliente automaticamente:',
-                  {
-                    phone: normalizedPhoneWithDDI || fromWaId,
-                    stage: 'create_client',
-                    error: clientCreateErr,
-                  },
-                )
-                // Se a criação falhou (ex: race condition índice único), tentar buscar mais uma vez
-                try {
-                  const retryList = $app.findRecordsByFilter(
-                    'clients',
-                    "normalized_phone = '" +
-                      (normalizedPhoneWithDDI || normalizedPhoneWithoutDDI) +
-                      "'",
-                    '-created',
-                    1,
-                    0,
-                  )
-                  if (retryList && retryList.length > 0) {
-                    foundClient = retryList[0]
-                  }
-                } catch (_) {}
-              }
-            }
-          }
-
-          if (foundClient) {
-            clientId = foundClient.id
-
-            // Reativação automática se o cliente estiver arquivado (soft-delete revertido ao voltar a mandar mensagem)
-            try {
-              const isArchived = foundClient.getBool
-                ? foundClient.getBool('is_archived')
-                : Boolean(foundClient.get('is_archived'))
-              if (isArchived) {
-                foundClient.set('is_archived', false)
-                $app.save(foundClient)
-                console.log(
-                  '[WHATSAPP WEBHOOK POST] Cliente arquivado reativado automaticamente (soft-delete revertido):',
-                  clientId,
-                )
-              }
-            } catch (errReactivate) {
-              console.warn(
-                '[WHATSAPP WEBHOOK POST] Aviso ao reativar cliente arquivado:',
-                errReactivate,
-              )
-            }
-
-            // Lógica de Atendimento Aberto Comercial
-            // 1. Procurar atendimento comercial ABERTO: is_archived != true && stage != 'Venda fechada' && stage != 'Não fechou'
-            try {
-              const openAttFilter =
-                "client_id = '" +
-                clientId +
-                "' && is_archived != true && stage != 'Venda fechada' && stage != 'Não fechou'"
-
-              const openAttendances = $app.findRecordsByFilter(
-                'attendances',
-                openAttFilter,
-                '-created',
-                1,
-                0,
-              )
-
-              if (openAttendances && openAttendances.length > 0) {
-                // 2. SE EXISTIR atendimento comercial aberto:
-                // Ordem de resolução: 1º attendance aberto comercial.
-                // - Reutilizar o mesmo attendance; NÃO criar outro attendance.
-                // - Vincular a mensagem ao attendance existente.
-                // - Atualizar last_customer_message_at.
-                // - NÃO alterar stage em hipótese alguma (mensagem nova é notificação, não mudança de etapa).
-                //   "Novo contato", "Em atendimento", "Orçamento enviado", "Aguardando cliente",
-                //   "Venda fechada", "Em produção" permanecem inalterados.
-                const targetAtt = openAttendances[0]
-                attendanceId = targetAtt.id
-                const currentStage = targetAtt.getString
-                  ? targetAtt.getString('stage')
-                  : String(targetAtt.get('stage') || '')
-
-                targetAtt.set('last_customer_message_at', currentTimestampIso)
-
-                $app.save(targetAtt)
-                console.log(
-                  '[WHATSAPP WEBHOOK POST] Atendimento comercial aberto reutilizado (stage preservado):',
-                  attendanceId,
-                  '| stage mantido:',
-                  currentStage,
-                )
-              } else {
-                // RESOLUÇÃO HÍBRIDA (SUBSTITUI A REGRA TEMPORAL DOS 15 MINUTOS):
-                // Princípio: Conversa WhatsApp = por CLIENTE. Attendance = oportunidade/pedido comercial.
-                // Ordem de resolução quando NÃO há attendance comercial aberto:
-                // 2º (novo): Pedido ativo em produção do cliente vinculado a uma venda anterior
-                // 3º: Criar novo atendimento comercial ("Novo contato", source = "whatsapp")
-                //
-                // ESCOPO DE PRODUCTION_ORDERS ATIVAS X FINALIZADAS (Auditado nos stages reais da collection production_stages):
-                // Stages Ativos em Produção:
-                //   - 'order_received'          ("Pedido recebido")
-                //   - 'art_preparation'         ("Arte em preparação")
-                //   - 'awaiting_approval'       ("Aguardando aprovação do cliente")
-                //   - 'approved'                ("Arte aprovada")
-                //   - 'financial_pending'       ("Pendente financeiro")
-                //   - 'in_production'           ("Em produção")
-                //   - 'finishing'               ("Acabamento")
-                //   - 'quality_check'           ("Controle de qualidade")
-                // Stages Finalizados / Fora do escopo ativo:
-                //   - 'ready_for_pickup'        ("Pronto para retirada / Envio") [is_final_stage = true]
-                //   - 'shipped'                 ("Enviado / Aguardando retirada") [is_final_stage = true]
-                //   - 'completed'               ("Concluído") [is_final_stage = true, is_completed = true]
-                //   - E qualquer pedido com is_completed = true ou is_archived = true.
-                //
-                // NÃO adivinhar intenção: não usar IA, não usar palavras-chave, não usar janela temporal de minutos.
-                // Se existe pedido ativo em produção: NÃO criar automaticamente novo attendance.
-                // A inbound será gravada normalmente com client_id = cliente e attendance_id = null.
-
-                let hasActiveProductionOrder = false
-                try {
-                  const prodOrdersFilter =
-                    "client_id = '" + clientId + "' && is_archived != true && is_completed != true"
-                  const candidateOrders = $app.findRecordsByFilter(
-                    'production_orders',
-                    prodOrdersFilter,
-                    '-updated',
-                    10,
-                    0,
-                  )
-
-                  if (candidateOrders && candidateOrders.length > 0) {
-                    // Stages de produção considerados finalizados (não mantêm o cliente eternamente sem card de novo contato)
-                    const finishedStageInternals = ['ready_for_pickup', 'shipped', 'completed']
-                    const finishedStageNames = [
-                      'pronto para retirada / envio',
-                      'pronto para retirada',
-                      'enviado / aguardando retirada',
-                      'enviado',
-                      'aguardando retirada',
-                      'concluído',
-                      'concluido',
-                    ]
-
-                    for (let pIdx = 0; pIdx < candidateOrders.length; pIdx++) {
-                      const pOrder = candidateOrders[pIdx]
-                      const pStageInternal = String(
-                        (pOrder.getString
-                          ? pOrder.getString('stage_internal_id')
-                          : pOrder.get('stage_internal_id')) || '',
-                      )
-                        .trim()
-                        .toLowerCase()
-
-                      const pStageName = String(
-                        (pOrder.getString
-                          ? pOrder.getString('stage_name')
-                          : pOrder.get('stage_name')) || '',
-                      )
-                        .trim()
-                        .toLowerCase()
-
-                      const isCompletedFlag = pOrder.getBool
-                        ? pOrder.getBool('is_completed')
-                        : Boolean(pOrder.get('is_completed'))
-
-                      const isArchivedFlag = pOrder.getBool
-                        ? pOrder.getBool('is_archived')
-                        : Boolean(pOrder.get('is_archived'))
-
-                      if (isCompletedFlag || isArchivedFlag) {
-                        continue
-                      }
-
-                      if (
-                        finishedStageInternals.includes(pStageInternal) ||
-                        finishedStageNames.includes(pStageName)
-                      ) {
-                        continue
-                      }
-
-                      // Pedido ativo em produção encontrado!
-                      hasActiveProductionOrder = true
-                      console.log(
-                        '[WHATSAPP WEBHOOK POST] Pedido ativo em produção detectado para cliente:',
-                        clientId,
-                        '| Pedido ID:',
-                        pOrder.id,
-                        '| Número:',
-                        pOrder.getString
-                          ? pOrder.getString('order_number')
-                          : pOrder.get('order_number'),
-                        '| Stage:',
-                        pStageInternal || pStageName,
-                      )
-                      break
-                    }
-                  }
-                } catch (prodSearchErr) {
-                  console.warn(
-                    '[WHATSAPP WEBHOOK POST] Aviso ao verificar production_orders ativas:',
-                    prodSearchErr,
-                  )
-                }
-
-                if (hasActiveProductionOrder) {
-                  // CENÁRIO CLIENTE COM PEDIDO EM PRODUÇÃO ATIVO:
-                  // - NÃO criar atendimento comercial automaticamente.
-                  // - NÃO associar a attendance fechado anterior.
-                  // - Deixar attendanceId = null / vazio para gravação em messages.
-                  // - A mensagem será exibida na conversa unificada do cliente no Drawer (busca por attendance_id || client_id).
-                  attendanceId = null
-                  console.log(
-                    '[WHATSAPP WEBHOOK POST] Resolução híbrida: cliente possui pedido em produção ativo. Mensagem gravada sem attendance_id para classificação manual do atendente.',
-                    { clientId: clientId },
-                  )
-                } else {
-                  // CENÁRIO CLIENTE NOVO OU SEM PEDIDO ATIVO:
-                  // - Nenhum attendance comercial aberto e nenhuma production_order ativa.
-                  // - CRIAR exatamente 1 novo atendimento comercial ("Novo contato").
-                  // - stage = "Novo contato", is_archived = false.
-                  // - Preencher last_customer_message_at com timestamp ISO completo.
-                  // - source = "whatsapp".
-                  // - assigned_to: herdar do cliente se existir; não inventar responsável.
-                  const attendancesCol = $app.findCollectionByNameOrId('attendances')
-                  const newAtt = new Record(attendancesCol)
-                  newAtt.set('client_id', clientId)
-                  newAtt.set('stage', 'Novo contato')
-                  newAtt.set('is_archived', false)
-                  newAtt.set('last_customer_message_at', currentTimestampIso)
-                  newAtt.set('source', 'whatsapp')
-
-                  const clientAssignedTo = foundClient.getString
-                    ? foundClient.getString('assigned_to')
-                    : foundClient.get('assigned_to')
-                  if (clientAssignedTo) {
-                    newAtt.set('assigned_to', clientAssignedTo)
-                  }
-
-                  $app.save(newAtt)
-                  attendanceId = newAtt.id
-
-                  console.log(
-                    '[WHATSAPP WEBHOOK POST] Novo atendimento comercial ("Novo contato") criado com sucesso:',
-                    attendanceId,
-                    'para o cliente:',
-                    clientId,
-                    '| assigned_to:',
-                    clientAssignedTo || 'nenhum',
-                  )
-                }
-              }
-            } catch (attProcErr) {
-              console.error('[WHATSAPP WEBHOOK POST] Erro crítico ao resolver/criar atendimento:', {
-                phone: normalizedPhoneWithDDI || fromWaId,
-                clientId: clientId,
-                stage: 'resolve_or_create_attendance',
-                error: attProcErr,
-              })
-            }
-          } else {
-            console.error(
-              '[WHATSAPP WEBHOOK POST] Falha crítica: cliente não pôde ser encontrado nem criado para o remetente:',
-              {
-                phone: normalizedPhoneWithDDI || fromWaId,
-                stage: 'client_resolution_failed',
-              },
-            )
-          }
-
-          // 7. Gravar na collection 'messages'
-          try {
-            const newMsgRecord = new Record(messagesCol)
-            if (clientId) {
-              newMsgRecord.set('client_id', clientId)
-            }
-            if (attendanceId) {
-              newMsgRecord.set('attendance_id', attendanceId)
-            }
-            newMsgRecord.set('direction', 'inbound')
-            newMsgRecord.set(
-              'sender_name',
-              profileName ||
-                (foundClient
-                  ? foundClient.get('name')
-                  : 'Cliente WhatsApp ' + (normalizedPhoneWithDDI || fromWaId)),
-            )
-            newMsgRecord.set('status', 'delivered')
-            if (metaMsgId) {
-              newMsgRecord.set('whatsapp_message_id', metaMsgId)
-            }
-
-            // Tratamento de citação / resposta recebida (msg.context.id):
-            // (1) Se existir replyContextId, preencher reply_to_whatsapp_message_id
-            // (2) Procurar mensagem local cujo whatsapp_message_id seja igual
-            // (3) Validar que pertence ao mesmo cliente
-            // (4) Se encontrar e pertencer ao mesmo cliente, preencher reply_to_message_id
-            // REGRA CRÍTICA: se a mensagem original não existir localmente, NÃO abortar — salvar somente reply_to_whatsapp_message_id
-            if (replyContextId) {
-              newMsgRecord.set('reply_to_whatsapp_message_id', replyContextId)
-              try {
-                const origRecords = $app.findRecordsByFilter(
-                  'messages',
-                  "whatsapp_message_id = '" + replyContextId + "'",
-                  '-created',
-                  1,
-                  0,
-                )
-                if (origRecords && origRecords.length > 0) {
-                  const origMsg = origRecords[0]
-                  const origClientId = String(origMsg.get('client_id') || '').trim()
-                  if (!clientId || origClientId === clientId) {
-                    newMsgRecord.set('reply_to_message_id', origMsg.id)
-                    console.log(
-                      '[WHATSAPP WEBHOOK POST] Resposta vinculada à mensagem local:',
-                      origMsg.id,
-                      'WAMID original:',
-                      replyContextId,
-                    )
-                  } else {
-                    console.warn(
-                      '[WHATSAPP WEBHOOK POST] Citação com client_id divergente. Msg client:',
-                      clientId,
-                      'Orig client:',
-                      origClientId,
-                    )
-                  }
-                } else {
-                  console.log(
-                    '[WHATSAPP WEBHOOK POST] Mensagem original da citação não encontrada localmente:',
-                    replyContextId,
-                  )
-                }
-              } catch (errSearchOrig) {
-                console.warn(
-                  '[WHATSAPP WEBHOOK POST] Erro não-bloqueante ao resolver citação:',
-                  errSearchOrig,
-                )
-              }
-            }
-
-            let generatedFileName = ''
-            let savedFileObj = null
-            let resolvedFileSize = 0
-            let finalMimeType = isDocumentMsg
-              ? docMimeType || 'application/pdf'
-              : imageMimeType || 'image/jpeg'
-
-            // Se for mensagem de imagem ou documento: obter metadados da Meta e baixar o binário
-            if ((isImageMsg || isDocumentMsg) && mediaId) {
-              const nowTs = Date.now()
-              if (isDocumentMsg) {
-                if (docFilename) {
-                  generatedFileName = docFilename
-                } else {
-                  generatedFileName = 'documento_whatsapp_' + nowTs + '.pdf'
-                }
-              } else {
-                // Imagem: gerar nome baseado no MIME type e timestamp
-                let ext = '.jpg'
-                if (finalMimeType === 'image/png') {
-                  ext = '.png'
-                } else if (finalMimeType === 'image/webp') {
-                  ext = '.webp'
-                } else if (finalMimeType === 'image/jpeg' || finalMimeType === 'image/jpg') {
-                  ext = '.jpg'
-                }
-                generatedFileName = 'whatsapp_' + nowTs + ext
-              }
-
-              // Obter credenciais Meta
-              let metaAccessToken = $os.getenv('WHATSAPP_ACCESS_TOKEN') || ''
-              let metaApiVer = $os.getenv('WHATSAPP_GRAPH_API_VERSION') || 'v21.0'
-              if (!metaAccessToken) {
-                try {
-                  const sRec = $app.findFirstRecordByData(
-                    'system_settings',
-                    'setting_key',
-                    'whatsapp_access_token',
-                  )
-                  const sVal = sRec ? sRec.get('setting_value') : ''
-                  if (sVal && !sVal.includes('DEMO_TOKEN') && !sVal.startsWith('demo_')) {
-                    metaAccessToken = sVal
-                  }
-                } catch (_) {}
-              }
-
-              if (!metaAccessToken) {
-                console.error(
-                  '[WHATSAPP WEBHOOK POST] Token da Meta não configurado. Impossível baixar mídia MediaId: ' +
-                    mediaId,
-                )
-              } else {
-                // Passo 3: Consultar dados da mídia na Meta
-                let mediaDownloadUrl = ''
-                try {
-                  const metaMediaInfoUrl =
-                    'https://graph.facebook.com/' + metaApiVer + '/' + mediaId
-                  const metaInfoRes = $http.send({
-                    url: metaMediaInfoUrl,
-                    method: 'GET',
-                    headers: {
-                      Authorization: 'Bearer ' + metaAccessToken,
-                    },
-                    timeout: 30,
-                  })
-
-                  if (
-                    metaInfoRes &&
-                    metaInfoRes.statusCode >= 200 &&
-                    metaInfoRes.statusCode < 300
-                  ) {
-                    const infoJson = metaInfoRes.json || {}
-                    mediaDownloadUrl = String(infoJson.url || '').trim()
-                    if (infoJson.mime_type) {
-                      finalMimeType = String(infoJson.mime_type).toLowerCase()
-                    }
-                    if (infoJson.file_size) {
-                      resolvedFileSize = Number(infoJson.file_size) || 0
-                    }
-                    console.log(
-                      '[WHATSAPP WEBHOOK POST] Metadados da mídia obtidos da Meta com sucesso:',
-                      {
-                        mediaId: mediaId,
-                        mimeType: finalMimeType,
-                        fileSize: resolvedFileSize,
-                        hasUrl: Boolean(mediaDownloadUrl),
-                        isDocument: isDocumentMsg,
-                      },
-                    )
-                  } else {
-                    console.error(
-                      '[WHATSAPP WEBHOOK POST] Falha ao consultar metadados da mídia na Meta. Status: ' +
-                        (metaInfoRes ? metaInfoRes.statusCode : 'sem resposta'),
-                    )
-                  }
-                } catch (metaInfoErr) {
-                  console.error(
-                    '[WHATSAPP WEBHOOK POST] Erro de rede ao consultar metadados da mídia na Meta:',
-                    metaInfoErr,
-                  )
-                }
-
-                // Passo 4: Baixar os bytes da mídia (imagem ou documento)
-                if (mediaDownloadUrl) {
-                  try {
-                    const downloadRes = $http.send({
-                      url: mediaDownloadUrl,
-                      method: 'GET',
-                      headers: {
-                        Authorization: 'Bearer ' + metaAccessToken,
-                      },
-                      timeout: 60,
-                    })
-
-                    if (
-                      downloadRes &&
-                      downloadRes.statusCode >= 200 &&
-                      downloadRes.statusCode < 300
-                    ) {
-                      const rawBytes = downloadRes.body
-                      if (rawBytes && typeof $filesystem !== 'undefined') {
-                        savedFileObj = $filesystem.fileFromBytes(rawBytes, generatedFileName)
-                        if (!resolvedFileSize) {
-                          resolvedFileSize = Array.isArray(rawBytes)
-                            ? rawBytes.length
-                            : typeof rawBytes.length === 'number'
-                              ? rawBytes.length
-                              : 0
-                        }
-                        console.log(
-                          '[WHATSAPP WEBHOOK POST] Mídia (' +
-                            (isDocumentMsg ? 'documento' : 'imagem') +
-                            ') baixada e convertida com sucesso:',
-                          generatedFileName,
-                          'tamanho:',
-                          resolvedFileSize,
-                        )
-                      } else {
-                        console.error(
-                          '[WHATSAPP WEBHOOK POST] Corpo da resposta vazio ou $filesystem indisponível.',
-                        )
-                      }
-                    } else {
-                      console.error(
-                        '[WHATSAPP WEBHOOK POST] Falha no download do arquivo da Meta. Status: ' +
-                          (downloadRes ? downloadRes.statusCode : 'sem resposta'),
-                      )
-                    }
-                  } catch (downloadErr) {
-                    console.error(
-                      '[WHATSAPP WEBHOOK POST] Erro de rede ao baixar mídia da Meta:',
-                      downloadErr,
-                    )
-                  }
-                }
-              }
-
-              // Preencher campos de anexo em messages
-              if (savedFileObj) {
-                newMsgRecord.set('file', savedFileObj)
-                newMsgRecord.set('file_name', generatedFileName)
-                newMsgRecord.set('file_type', finalMimeType)
-                if (resolvedFileSize > 0) {
-                  newMsgRecord.set('file_size', resolvedFileSize)
-                }
-              }
-
-              // Se a mensagem tiver caption, usar o caption como message_text.
-              // Se não tiver caption, usar o nome do arquivo para cumprir a obrigatoriedade de message_text.
-              const activeCaption = isDocumentMsg ? docCaption : imageCaption
-              const savedText = activeCaption || generatedFileName
-              newMsgRecord.set('message_text', savedText)
-            } else {
-              // Mensagem normal de texto
-              newMsgRecord.set('message_text', msgBodyText)
-            }
-
-            $app.save(newMsgRecord)
-            processedCount++
-
-            // Log seguro (sem secrets ou access tokens)
-            console.log('[WHATSAPP WEBHOOK POST] Mensagem processada e salva com sucesso:', {
-              recordId: newMsgRecord.id,
-              metaMsgId: metaMsgId,
-              type: msgType,
-              hasFile: Boolean(savedFileObj),
-              fileName: generatedFileName || null,
-              phone: normalizedPhoneWithDDI,
-              clientId: clientId || null,
-              attendanceId: attendanceId || null,
-              textPreview:
-                msgBodyText.length > 40 ? msgBodyText.substring(0, 40) + '...' : msgBodyText,
-              timestamp: msgTimestamp,
-              phoneNumberId: phoneNumberId,
-            })
-          } catch (msgSaveErr) {
-            console.error('[WHATSAPP WEBHOOK POST] Erro crítico ao salvar mensagem inbound:', {
-              phone: normalizedPhoneWithDDI || fromWaId,
-              clientId: clientId,
-              attendanceId: attendanceId,
-              stage: 'save_message',
-              error: msgSaveErr,
-            })
-          }
-
-          // 8. Se cliente existir, atualizar last_message_*
-          if (foundClient) {
-            try {
-              let lastTextSummary = msgBodyText
-              if (isImageMsg) {
-                lastTextSummary = imageCaption ? '📷 ' + imageCaption : '📷 Imagem'
-              } else if (isDocumentMsg) {
-                lastTextSummary = docCaption
-                  ? '📄 ' + docCaption
-                  : '📄 ' + (docFilename || 'Documento PDF')
-              }
-              foundClient.set('last_message_at', currentTimestampIso)
-              foundClient.set('last_message_direction', 'inbound')
-              foundClient.set('last_message_text', lastTextSummary.substring(0, 100))
-              $app.save(foundClient)
-            } catch (cErr) {
-              console.warn('[WHATSAPP WEBHOOK POST] Aviso ao atualizar client last_message:', cErr)
-            }
+        // Handle message status updates (sent, delivered, read, failed)
+        if (value.statuses && value.statuses.length > 0) {
+          for (const status of value.statuses) {
+            handleStatusUpdate(status, c.app)
           }
         }
       }
     }
 
-    return e.json(200, {
-      status: 'success',
-      processed: processedCount,
-      duplicates: duplicateCount,
-      ignored: ignoredCount,
-      statuses_processed: statusProcessedCount,
-      statuses_ignored: statusIgnoredCount,
+    return c.json(200, { status: 'success' })
+  } catch (error) {
+    console.error('Webhook error:', error)
+    return c.json(500, { error: error.message })
+  }
+})
+
+function handleIncomingMessage(msg, contacts, app) {
+  const wamid = msg.id
+  const from = msg.from // Phone number without +
+  const timestamp = msg.timestamp
+
+  if (!from) {
+    console.warn('Incoming message without sender phone:', msg)
+    return
+  }
+
+  // 1. FAST DEDUPLICATION BEFORE ANY RESOLUTION/CREATION:
+  // Check in-memory deduplication cache first
+  if (wamid) {
+    cleanOldWamids()
+    if (_processedWamids.has(wamid)) {
+      console.log('[Webhook] Duplicate whatsapp_message_id in memory cache, ignoring:', wamid)
+      return
+    }
+  }
+
+  // 2. CHECK DATABASE FOR DEDUPLICATION OF WAMID:
+  const messagesCol = app.findCollectionByNameOrId('messages')
+  if (wamid) {
+    try {
+      const existingMsg = app.findFirstRecordByData('messages', 'whatsapp_message_id', wamid)
+      if (existingMsg) {
+        console.log('[Webhook] Message already exists in DB (wamid):', wamid)
+        _processedWamids.set(wamid, Date.now())
+        return
+      }
+    } catch (e) {
+      // Record not found is expected
+    }
+  }
+
+  // Extract contact name if available
+  let contactName = ''
+  if (contacts && contacts.length > 0) {
+    const contact = contacts.find((ct) => ct.wa_id === from)
+    if (contact && contact.profile) {
+      contactName = contact.profile.name || ''
+    }
+  }
+
+  // Normalize phone for consistent lookup and locking
+  const normalizedPhone = normalizePhone(from)
+  const lockKey = normalizedPhone || from
+
+  // Use lock by client phone to serialize concurrent webhooks for this client
+  // In synchronous PocketBase JS hooks, we wrap in an internal synchronized block
+  // and run in a database transaction with immediate re-verification.
+  return processMessageSynchronized(
+    msg,
+    contactName,
+    normalizedPhone,
+    wamid,
+    timestamp,
+    app,
+    lockKey,
+  )
+}
+
+function processMessageSynchronized(
+  msg,
+  contactName,
+  normalizedPhone,
+  wamid,
+  timestamp,
+  app,
+  lockKey,
+) {
+  // Mark wamid as processing in memory
+  if (wamid) {
+    _processedWamids.set(wamid, Date.now())
+  }
+
+  // Perform database operations inside transaction
+  try {
+    app.runInTransaction((txApp) => {
+      // 1. Double check wamid inside transaction to prevent parallel race
+      if (wamid) {
+        try {
+          const existingMsg = txApp.findFirstRecordByData('messages', 'whatsapp_message_id', wamid)
+          if (existingMsg) {
+            console.log('[Webhook TX] Message already exists in DB (wamid):', wamid)
+            return
+          }
+        } catch (e) {
+          // not found
+        }
+      }
+
+      // 2. Find or create client
+      const client = findOrCreateClient(normalizedPhone, contactName, txApp)
+      if (!client) {
+        console.error('Failed to resolve client for:', normalizedPhone)
+        return
+      }
+
+      // 3. Resolve active attendance strictly (reutiliza se existir)
+      const attendance = resolveAttendance(client.id, txApp)
+      if (!attendance) {
+        console.error('Failed to resolve attendance for client:', client.id)
+        return
+      }
+
+      // 4. Resolve deal (Kanban card)
+      const deal = resolveDeal(client.id, attendance.id, txApp)
+
+      // 5. Parse message content
+      const parsed = parseMessageContent(msg)
+
+      // 5b. Suporte a resposta de mensagem específica (0.0.243 - preservado integralmente)
+      let replyToWhatsappMessageId = ''
+      let replyToMessageId = ''
+      if (msg.context && msg.context.id) {
+        replyToWhatsappMessageId = msg.context.id
+        try {
+          const parentMsg = txApp.findFirstRecordByData(
+            'messages',
+            'whatsapp_message_id',
+            replyToWhatsappMessageId,
+          )
+          if (parentMsg) {
+            replyToMessageId = parentMsg.id
+          }
+        } catch (e) {
+          // Parent message might be older or sent from external
+        }
+      }
+
+      // 6. Save message record
+      const messagesCol = txApp.findCollectionByNameOrId('messages')
+      const messageRecord = new Record(messagesCol)
+
+      messageRecord.set('attendance_id', attendance.id)
+      messageRecord.set('client_id', client.id)
+      messageRecord.set('direction', 'inbound')
+      messageRecord.set('type', parsed.type)
+      messageRecord.set('content', parsed.content)
+      messageRecord.set('whatsapp_message_id', wamid)
+      messageRecord.set('status', 'delivered')
+      messageRecord.set('is_read', false)
+      messageRecord.set('sent_by', null)
+
+      if (replyToWhatsappMessageId) {
+        messageRecord.set('reply_to_whatsapp_message_id', replyToWhatsappMessageId)
+      }
+      if (replyToMessageId) {
+        messageRecord.set('reply_to_message_id', replyToMessageId)
+      }
+
+      // Handle media if present
+      if (parsed.mediaId) {
+        messageRecord.set('media_id', parsed.mediaId)
+        messageRecord.set('media_type', parsed.mediaType)
+        messageRecord.set('media_caption', parsed.mediaCaption || '')
+        messageRecord.set('media_filename', parsed.mediaFilename || '')
+      }
+
+      if (timestamp) {
+        const msgDate = new Date(parseInt(timestamp) * 1000)
+        messageRecord.set('sent_at', msgDate.toISOString())
+      } else {
+        messageRecord.set('sent_at', new Date().toISOString())
+      }
+
+      txApp.save(messageRecord)
+
+      // 7. Update attendance and client timestamps / metrics
+      const now = new Date().toISOString()
+      attendance.set('last_message_at', now)
+      txApp.save(attendance)
+
+      // Update client stage if not set
+      if (!client.get('stage')) {
+        client.set('stage', 'Primeiro contato')
+      }
+      client.set('updated', now)
+      txApp.save(client)
+
+      // 8. Update deal if exists (update last contact timestamp)
+      if (deal) {
+        deal.set('last_contact_at', now)
+        txApp.save(deal)
+      }
+
+      console.log(
+        `[Webhook] Inbound saved for client ${client.id}, attendance ${attendance.id}, msg ${wamid}`,
+      )
     })
   } catch (err) {
-    // Nunca retornar 500 para evitar que a Meta entre em loop de reenvio
-    console.error('[WHATSAPP WEBHOOK POST] Erro durante processamento:', err)
-    return e.json(200, {
-      status: 'error_handled',
-      error: 'internal_error_swallowed_for_meta',
-    })
+    // If unique constraint violation or transaction conflict, check if already saved
+    if (wamid) {
+      try {
+        const check = app.findFirstRecordByData('messages', 'whatsapp_message_id', wamid)
+        if (check) {
+          console.log('[Webhook] Recovered from concurrent race, message already committed:', wamid)
+          return
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    console.error('[Webhook] Error saving inbound message in transaction:', err)
+    throw err
   }
-})
+}
+
+function findOrCreateClient(phone, name, app) {
+  const clientsCol = app.findCollectionByNameOrId('clients')
+
+  // Search by phone
+  let client = null
+  try {
+    client = app.findFirstRecordByData('clients', 'phone', phone)
+  } catch (e) {
+    // Try with alternative phone formats
+    try {
+      const records = app.findRecordsByFilter(
+        'clients',
+        `phone ~ '${phone.slice(-8)}'`,
+        '-created',
+        1,
+        0,
+      )
+      if (records && records.length > 0) {
+        client = records[0]
+      }
+    } catch (e2) {
+      // Not found
+    }
+  }
+
+  if (client) {
+    // Update name if we got a profile name and client has a generic name
+    if (name && (!client.get('name') || client.get('name') === phone)) {
+      client.set('name', name)
+      try {
+        app.save(client)
+      } catch (e) {
+        console.warn('Could not update client name:', e)
+      }
+    }
+    return client
+  }
+
+  // Create new client
+  const newClient = new Record(clientsCol)
+  newClient.set('name', name || phone)
+  newClient.set('phone', phone)
+  newClient.set('channel', 'whatsapp')
+  newClient.set('stage', 'Primeiro contato')
+
+  // Assign to default seller (admin or first active user)
+  try {
+    const users = app.findRecordsByFilter('users', 'active = true', 'created', 1, 0)
+    if (users && users.length > 0) {
+      newClient.set('assigned_to', users[0].id)
+    }
+  } catch (e) {
+    console.warn('Could not find active user for client assignment:', e)
+  }
+
+  app.save(newClient)
+  return newClient
+}
+
+/**
+ * Resolve attendance strictly:
+ * A client with an active attendance MUST continue in the SAME attendance.
+ * Never create a new attendance if an active one exists (is_archived = false).
+ * Sort by -created to pick the most recent if multiple exist historically.
+ */
+function resolveAttendance(clientId, app) {
+  const attendancesCol = app.findCollectionByNameOrId('attendances')
+
+  // Check for active attendance: is_archived = false
+  try {
+    const activeAttendances = app.findRecordsByFilter(
+      'attendances',
+      `client_id = '${clientId}' && is_archived = false`,
+      '-created',
+      1,
+      0,
+    )
+
+    if (activeAttendances && activeAttendances.length > 0) {
+      return activeAttendances[0]
+    }
+  } catch (e) {
+    // Not found or query error, fallback to check
+  }
+
+  // Check if client has a production order in progress with linked attendance
+  try {
+    const orders = app.findRecordsByFilter(
+      'production_orders',
+      `client_id = '${clientId}' && is_completed = false`,
+      '-created',
+      1,
+      0,
+    )
+    if (orders && orders.length > 0 && orders[0].get('attendance_id')) {
+      const orderAttendanceId = orders[0].get('attendance_id')
+      try {
+        const orderAtt = app.findRecordById('attendances', orderAttendanceId)
+        if (orderAtt && !orderAtt.get('is_archived')) {
+          return orderAtt
+        }
+      } catch (e) {
+        // Not found
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // None active found, create ONE new attendance
+  const newAttendance = new Record(attendancesCol)
+  newAttendance.set('client_id', clientId)
+  newAttendance.set('channel', 'whatsapp')
+  newAttendance.set('stage', 'Primeiro contato')
+  newAttendance.set('status', 'in_progress')
+  newAttendance.set('is_archived', false)
+  newAttendance.set('started_at', new Date().toISOString())
+
+  // Assign to client's assigned user
+  try {
+    const client = app.findRecordById('clients', clientId)
+    if (client && client.get('assigned_to')) {
+      newAttendance.set('assigned_to', client.get('assigned_to'))
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  app.save(newAttendance)
+  return newAttendance
+}
+
+/**
+ * Resolve deal strictly:
+ * Check if a deal already exists for this attendance or active for client.
+ */
+function resolveDeal(clientId, attendanceId, app) {
+  const dealsCol = app.findCollectionByNameOrId('deals')
+
+  // 1. Try to find deal directly for this attendance
+  try {
+    const deals = app.findRecordsByFilter(
+      'deals',
+      `attendance_id = '${attendanceId}'`,
+      '-created',
+      1,
+      0,
+    )
+    if (deals && deals.length > 0) {
+      return deals[0]
+    }
+  } catch (e) {
+    // not found
+  }
+
+  // 2. Try to find any active deal for this client
+  try {
+    const deals = app.findRecordsByFilter(
+      'deals',
+      `client_id = '${clientId}' && is_active = true`,
+      '-created',
+      1,
+      0,
+    )
+    if (deals && deals.length > 0) {
+      return deals[0]
+    }
+  } catch (e) {
+    // not found
+  }
+
+  // 3. Create deal linked to attendance and client
+  try {
+    const newDeal = new Record(dealsCol)
+    newDeal.set('client_id', clientId)
+    newDeal.set('attendance_id', attendanceId)
+    newDeal.set('stage', 'Primeiro contato')
+    newDeal.set('is_active', true)
+
+    const client = app.findRecordById('clients', clientId)
+    if (client) {
+      newDeal.set('name', client.get('name') || 'Atendimento WhatsApp')
+      if (client.get('assigned_to')) {
+        newDeal.set('assigned_to', client.get('assigned_to'))
+      }
+    }
+
+    app.save(newDeal)
+    return newDeal
+  } catch (e) {
+    console.warn('Could not create deal record:', e)
+    return null
+  }
+}
+
+function parseMessageContent(msg) {
+  const type = msg.type || 'text'
+
+  switch (type) {
+    case 'text':
+      return {
+        type: 'text',
+        content: msg.text ? msg.text.body || '' : '',
+      }
+
+    case 'image':
+      return {
+        type: 'image',
+        content: msg.image ? msg.image.caption || '[Imagem]' : '[Imagem]',
+        mediaId: msg.image ? msg.image.id : null,
+        mediaType: msg.image ? msg.image.mime_type : 'image/jpeg',
+        mediaCaption: msg.image ? msg.image.caption || '' : '',
+      }
+
+    case 'audio':
+      return {
+        type: 'audio',
+        content: '[Áudio]',
+        mediaId: msg.audio ? msg.audio.id : null,
+        mediaType: msg.audio ? msg.audio.mime_type : 'audio/ogg',
+      }
+
+    case 'document':
+      return {
+        type: 'document',
+        content: msg.document
+          ? msg.document.caption || msg.document.filename || '[Documento]'
+          : '[Documento]',
+        mediaId: msg.document ? msg.document.id : null,
+        mediaType: msg.document ? msg.document.mime_type : 'application/pdf',
+        mediaCaption: msg.document ? msg.document.caption || '' : '',
+        mediaFilename: msg.document ? msg.document.filename || '' : '',
+      }
+
+    case 'video':
+      return {
+        type: 'video',
+        content: msg.video ? msg.video.caption || '[Vídeo]' : '[Vídeo]',
+        mediaId: msg.video ? msg.video.id : null,
+        mediaType: msg.video ? msg.video.mime_type : 'video/mp4',
+        mediaCaption: msg.video ? msg.video.caption || '' : '',
+      }
+
+    case 'location':
+      return {
+        type: 'location',
+        content: msg.location
+          ? `[Localização: ${msg.location.latitude}, ${msg.location.longitude}]`
+          : '[Localização]',
+      }
+
+    case 'contacts':
+      return {
+        type: 'contacts',
+        content: '[Contato compartilhado]',
+      }
+
+    case 'interactive':
+      // Button replies, list replies
+      let interactiveContent = '[Interativo]'
+      if (msg.interactive) {
+        if (msg.interactive.button_reply) {
+          interactiveContent = msg.interactive.button_reply.title || ''
+        } else if (msg.interactive.list_reply) {
+          interactiveContent = msg.interactive.list_reply.title || ''
+        }
+      }
+      return {
+        type: 'interactive',
+        content: interactiveContent,
+      }
+
+    default:
+      return {
+        type: 'text',
+        content: `[Mensagem: ${type}]`,
+      }
+  }
+}
+
+function handleStatusUpdate(status, app) {
+  const wamid = status.id
+  const newStatus = status.status // sent, delivered, read, failed
+  const timestamp = status.timestamp
+
+  if (!wamid) return
+
+  try {
+    const message = app.findFirstRecordByData('messages', 'whatsapp_message_id', wamid)
+    if (!message) return
+
+    // Update status
+    message.set('status', newStatus)
+
+    if (newStatus === 'delivered' && !message.get('delivered_at')) {
+      const date = timestamp ? new Date(parseInt(timestamp) * 1000) : new Date()
+      message.set('delivered_at', date.toISOString())
+    }
+
+    if (newStatus === 'read' && !message.get('read_at')) {
+      const date = timestamp ? new Date(parseInt(timestamp) * 1000) : new Date()
+      message.set('read_at', date.toISOString())
+      message.set('is_read', true)
+    }
+
+    if (newStatus === 'failed') {
+      const errors = status.errors || []
+      const errorMsg = errors.map((e) => `${e.code}: ${e.title}`).join('; ')
+      message.set('error_message', errorMsg || 'Delivery failed')
+    }
+
+    app.save(message)
+  } catch (e) {
+    // Message not found, which is fine
+  }
+}
+
+function normalizePhone(phone) {
+  if (!phone) return ''
+  // Strip non-digits
+  let digits = phone.replace(/\D/g, '')
+
+  // Add Brazil country code if missing (10 or 11 digits)
+  if (digits.length === 10 || digits.length === 11) {
+    digits = '55' + digits
+  }
+
+  return digits
+}
