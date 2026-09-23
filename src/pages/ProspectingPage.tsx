@@ -170,9 +170,15 @@ export default function ProspectingPage() {
           centerLat = geoResults[0].lat
           centerLng = geoResults[0].lng
           setActiveCenter({ lat: centerLat, lng: centerLng })
+        } else {
+          toast({
+            title: 'Endereço não localizado',
+            description:
+              'Não foi possível encontrar a cidade/endereço informado. Verifique o nome digitado.',
+            variant: 'destructive',
+          })
         }
       }
-
       // 2. Buscar empresas via placesService
       const rawPlaces = await placesService.searchPlaces({
         lat: centerLat,

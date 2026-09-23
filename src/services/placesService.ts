@@ -55,97 +55,217 @@ export function calculateHaversineDistance(
 }
 
 /**
- * Normaliza e categoriza termos em português para Overpass OSM Tags quando possível,
- * mas mantendo busca flexível por nome/tag.
+ * Normaliza termos em português removendo acentos e pontuações para análise de intenção
  */
-function buildOverpassQuery(
+export function normalizeSearchTerm(term: string): string {
+  return term
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
+
+/**
+ * Mapeia termos em português (singular, plural, variações) para seletores OSM formais.
+ * Cobre estritamente todos os exemplos pedidos pelo usuário:
+ * - escola/escolas/colegio/colégios → amenity=school
+ * - creche/creches → amenity=kindergarten
+ * - universidade/faculdade → amenity=university / college
+ * - restaurante/restaurantes → amenity=restaurant
+ * - pizzaria/pizzarias → amenity=restaurant + busca complementar por cuisine/name
+ * - academia/academias → leisure=fitness_centre
+ * - farmácia/farmácias → amenity=pharmacy
+ * - clínica/clínicas → amenity=clinic
+ * - dentista/dentistas → amenity=dentist
+ * - hospital/hospitais → amenity=hospital
+ * - bar/bares → amenity=bar
+ * - café/cafeteria → amenity=cafe
+ * - hotel/hotéis → tourism=hotel
+ * - pousada/pousadas → tourism=guest_house
+ * - supermercado/mercado → shop=supermarket e shop=convenience
+ * - pet shop → shop=pet
+ * - salão de beleza → shop=hairdresser / beauty
+ * - oficina → shop=car_repair
+ * + gráficas, imobiliárias, escritórios, etc.
+ */
+export function mapPortugueseToOsmSelectors(segment: string): {
+  selectors: string[]
+  isKnownCategory: boolean
+} {
+  const norm = normalizeSearchTerm(segment)
+  const selectors: string[] = []
+
+  // 1. Escolas / Colégios
+  if (/\b(escola|escolas|colegio|colegios|ensino)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="school"]')
+  }
+
+  // 2. Creches
+  if (/\b(creche|creches|maternal|infantil|kindergarten)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="kindergarten"]')
+  }
+
+  // 3. Universidade / Faculdade
+  if (/\b(universidade|universidades|faculdade|faculdades)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="university"]')
+    selectors.push('nwr["amenity"="college"]')
+  }
+
+  // 4. Restaurantes
+  if (/\b(restaurante|restaurantes|gastronomia|comida)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="restaurant"]')
+  }
+
+  // 5. Pizzarias (amenity=restaurant + cuisine=pizza / name~pizza)
+  if (/\b(pizzaria|pizzarias|pizza|pizzas)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="restaurant"]["cuisine"~"pizza",i]')
+    selectors.push('nwr["amenity"="restaurant"]["name"~"pizza",i]')
+    selectors.push('nwr["amenity"="fast_food"]["cuisine"~"pizza",i]')
+    selectors.push('nwr["cuisine"="pizza"]')
+  }
+
+  // 6. Academias
+  if (/\b(academia|academias|fitness|crossfit|musculacao|ginastica)\b/.test(norm)) {
+    selectors.push('nwr["leisure"="fitness_centre"]')
+    selectors.push('nwr["leisure"="sports_centre"]')
+  }
+
+  // 7. Farmácia / Farmácias
+  if (/\b(farmacia|farmacias|drogaria|drogarias|medicamento|medicamentos)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="pharmacy"]')
+  }
+
+  // 8. Clínica / Clínicas
+  if (/\b(clinica|clinicas|consultorio|consultorios)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="clinic"]')
+    selectors.push('nwr["healthcare"="clinic"]')
+  }
+
+  // 9. Dentista / Dentistas
+  if (/\b(dentista|dentistas|odontologia|odontologico|odonto)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="dentist"]')
+    selectors.push('nwr["healthcare"="dentist"]')
+  }
+
+  // 10. Hospital / Hospitais
+  if (/\b(hospital|hospitais|pronto socorro|upa)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="hospital"]')
+  }
+
+  // 11. Bar / Bares
+  if (/\b(bar|bares|pub|pubs|botequim|boteco)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="bar"]')
+    selectors.push('nwr["amenity"="pub"]')
+  }
+
+  // 12. Café / Cafeteria
+  if (/\b(cafe|cafes|cafeteria|cafeterias)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="cafe"]')
+  }
+
+  // 13. Hotel / Hotéis
+  if (/\b(hotel|hoteis)\b/.test(norm)) {
+    selectors.push('nwr["tourism"="hotel"]')
+  }
+
+  // 14. Pousada / Pousadas
+  if (/\b(pousada|pousadas|hospedagem)\b/.test(norm)) {
+    selectors.push('nwr["tourism"="guest_house"]')
+  }
+
+  // 15. Supermercado / Mercado
+  if (/\b(supermercado|supermercados|mercado|mercados|mercearia|mercearias)\b/.test(norm)) {
+    selectors.push('nwr["shop"="supermarket"]')
+    selectors.push('nwr["shop"="convenience"]')
+    selectors.push('nwr["shop"="grocery"]')
+  }
+
+  // 16. Pet shop
+  if (/\b(pet|petshop|pet shop|veterinaria|veterinario|veterinarios)\b/.test(norm)) {
+    selectors.push('nwr["shop"="pet"]')
+    selectors.push('nwr["amenity"="veterinary"]')
+  }
+
+  // 17. Salão de beleza / Cabeleireiro
+  if (
+    /\b(salao|saloes|beleza|cabeleireiro|cabeleireiros|estetica|barbearia|barbeiro)\b/.test(norm)
+  ) {
+    selectors.push('nwr["shop"="hairdresser"]')
+    selectors.push('nwr["shop"="beauty"]')
+  }
+
+  // 18. Oficina / Mecânica
+  if (/\b(oficina|oficinas|mecanica|mecanico|auto eletrica|lanternagem|borracharia)\b/.test(norm)) {
+    selectors.push('nwr["shop"="car_repair"]')
+  }
+
+  // 19. Gráfica / Comunicação Visual (core do CRM Laletra)
+  if (/\b(grafica|graficas|impressao|copiadora|comunicacao visual)\b/.test(norm)) {
+    selectors.push('nwr["shop"="copyshop"]')
+    selectors.push('nwr["craft"="printer"]')
+  }
+
+  // 20. Imobiliária
+  if (/\b(imobiliaria|imobiliarias|corretor)\b/.test(norm)) {
+    selectors.push('nwr["office"="estate_agent"]')
+  }
+
+  // 21. Advogado / Advocacia
+  if (/\b(advogado|advogados|advocacia|juridico)\b/.test(norm)) {
+    selectors.push('nwr["office"="lawyer"]')
+  }
+
+  // 22. Lanchonete / Fast food
+  if (/\b(lanchonete|lanchonetes|fast food|lanche|lanches|hamburgueria)\b/.test(norm)) {
+    selectors.push('nwr["amenity"="fast_food"]')
+  }
+
+  const isKnownCategory = selectors.length > 0
+  return { selectors, isKnownCategory }
+}
+
+/**
+ * Monta consulta Overpass QL eficiente e segura para nós, ways e relations com center.
+ * Evita filtros sem índice global [~"name|..."] que causam timeout 504 no Overpass.
+ */
+export function buildOverpassQuery(
   lat: number,
   lng: number,
   radiusMeters: number,
   segment: string,
 ): string {
-  const cleanSeg = segment.trim().toLowerCase()
-
-  // Se o usuário digitou palavras comuns, podemos enriquecer os seletores do OpenStreetMap
+  const { selectors, isKnownCategory } = mapPortugueseToOsmSelectors(segment)
+  const around = `(around:${radiusMeters},${lat},${lng})`
   const clauses: string[] = []
 
-  // Cláusulas básicas de amenidade/loja/escritório que contenham nome correspondente
-  // Overpass QL regex case insensitive: [~"name"~"termo",i]
-  const escaped = cleanSeg.replace(/["\\]/g, '')
-
-  // Mapeamentos comuns para filtros de amenities/shop/craft/office
-  if (cleanSeg.includes('escola') || cleanSeg.includes('colegio')) {
-    clauses.push(`nwr["amenity"="school"](around:${radiusMeters},${lat},${lng});`)
-    clauses.push(`nwr["amenity"="college"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (cleanSeg.includes('academia') || cleanSeg.includes('fitness')) {
-    clauses.push(`nwr["leisure"="fitness_centre"](around:${radiusMeters},${lat},${lng});`)
-    clauses.push(`nwr["leisure"="sports_centre"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (
-    cleanSeg.includes('restaurante') ||
-    cleanSeg.includes('bar') ||
-    cleanSeg.includes('comida') ||
-    cleanSeg.includes('pizzaria') ||
-    cleanSeg.includes('lanchonete')
-  ) {
-    clauses.push(`nwr["amenity"="restaurant"](around:${radiusMeters},${lat},${lng});`)
-    clauses.push(`nwr["amenity"="fast_food"](around:${radiusMeters},${lat},${lng});`)
-    clauses.push(`nwr["amenity"="cafe"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (cleanSeg.includes('dentista') || cleanSeg.includes('odont') || cleanSeg.includes('clinica')) {
-    clauses.push(`nwr["amenity"="dentist"](around:${radiusMeters},${lat},${lng});`)
-    clauses.push(`nwr["amenity"="clinic"](around:${radiusMeters},${lat},${lng});`)
-    clauses.push(`nwr["healthcare"="clinic"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (cleanSeg.includes('farmacia') || cleanSeg.includes('drogaria')) {
-    clauses.push(`nwr["amenity"="pharmacy"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (
-    cleanSeg.includes('grafica') ||
-    cleanSeg.includes('impressao') ||
-    cleanSeg.includes('comunicacao visual')
-  ) {
-    clauses.push(`nwr["shop"="copyshop"](around:${radiusMeters},${lat},${lng});`)
-    clauses.push(`nwr["craft"="printer"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (cleanSeg.includes('hotel') || cleanSeg.includes('pousada')) {
-    clauses.push(`nwr["tourism"="hotel"](around:${radiusMeters},${lat},${lng});`)
-    clauses.push(`nwr["tourism"="guest_house"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (cleanSeg.includes('imobiliaria')) {
-    clauses.push(`nwr["office"="estate_agent"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (cleanSeg.includes('advoc') || cleanSeg.includes('advogado')) {
-    clauses.push(`nwr["office"="lawyer"](around:${radiusMeters},${lat},${lng});`)
-  }
-  if (cleanSeg.includes('mecanic') || cleanSeg.includes('oficina') || cleanSeg.includes('auto')) {
-    clauses.push(`nwr["shop"="car_repair"](around:${radiusMeters},${lat},${lng});`)
+  if (isKnownCategory) {
+    // 1. Categoria mapeada com sucesso: usa tags OSM diretas (indexadas e ultra-rápidas)
+    for (const sel of selectors) {
+      clauses.push(`${sel}${around};`)
+    }
+    // Adiciona busca complementar de nome se o usuário digitou mais de uma palavra
+    const cleanEscaped = segment.trim().replace(/["\\]/g, '')
+    if (cleanEscaped.length >= 3 && !clauses.some((c) => c.includes(cleanEscaped))) {
+      clauses.push(`nwr["name"~"${cleanEscaped}",i]${around};`)
+    }
+  } else {
+    // 2. Termo livre fora do mapeamento: fallback seguro e otimizado por nome e categorias genéricas
+    const escaped = segment.trim().replace(/["\\]/g, '')
+    clauses.push(`nwr["name"~"${escaped}",i]${around};`)
+    clauses.push(`nwr["amenity"][~"name"~"${escaped}",i]${around};`)
+    clauses.push(`nwr["shop"][~"name"~"${escaped}",i]${around};`)
+    clauses.push(`nwr["craft"][~"name"~"${escaped}",i]${around};`)
+    clauses.push(`nwr["office"][~"name"~"${escaped}",i]${around};`)
+    clauses.push(`nwr["tourism"][~"name"~"${escaped}",i]${around};`)
+    clauses.push(`nwr["leisure"][~"name"~"${escaped}",i]${around};`)
   }
 
-  // Busca geral por nome nas categorias comerciais principais do OpenStreetMap
-  clauses.push(`nwr["name"~"${escaped}",i](around:${radiusMeters},${lat},${lng});`)
-  clauses.push(
-    `nwr["shop"]["name"](around:${radiusMeters},${lat},${lng})[~"name|shop|amenity|description"~"${escaped}",i];`,
-  )
-  clauses.push(
-    `nwr["amenity"]["name"](around:${radiusMeters},${lat},${lng})[~"name|amenity|description"~"${escaped}",i];`,
-  )
-  clauses.push(
-    `nwr["office"]["name"](around:${radiusMeters},${lat},${lng})[~"name|office|description"~"${escaped}",i];`,
-  )
-  clauses.push(
-    `nwr["craft"]["name"](around:${radiusMeters},${lat},${lng})[~"name|craft|description"~"${escaped}",i];`,
-  )
-
-  // Monta a query Overpass completa com timeout seguro e limite de resultados
-  return `
-[out:json][timeout:25];
+  // Monta a query Overpass completa com timeout de 25s e limitação de resultados
+  return `[out:json][timeout:25];
 (
   ${clauses.join('\n  ')}
 );
-out center 100;
-`
+out tags center 150;`
 }
 
 export const placesService = {
@@ -231,6 +351,8 @@ export const placesService = {
     const query = buildOverpassQuery(lat, lng, radiusMeters, segment)
     const overpassEndpoints = [
       'https://overpass-api.de/api/interpreter',
+      'https://lz4.overpass-api.de/api/interpreter',
+      'https://z.overpass-api.de/api/interpreter',
       'https://overpass.kumi.systems/api/interpreter',
     ]
 
@@ -240,7 +362,7 @@ export const placesService = {
     for (const endpoint of overpassEndpoints) {
       try {
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 20000)
+        const timeoutId = setTimeout(() => controller.abort(), 15000)
 
         const res = await fetch(endpoint, {
           method: 'POST',
@@ -260,6 +382,8 @@ export const placesService = {
             fetchSuccess = true
             break
           }
+        } else {
+          console.warn(`Overpass endpoint ${endpoint} returned status: ${res.status}`)
         }
       } catch (endpointErr) {
         console.warn(`Overpass endpoint ${endpoint} failed, trying next...`, endpointErr)
@@ -276,9 +400,6 @@ export const placesService = {
 
     for (const el of elements) {
       const tags = el.tags || {}
-      const name = tags.name || tags['name:pt'] || tags['brand'] || tags['operator']
-      if (!name) continue // Ignorar nós sem nome legível
-
       // Coordenadas: nós têm .lat/.lon; ways/relations têm .center
       const itemLat = el.lat ?? el.center?.lat
       const itemLng = el.lon ?? el.center?.lon
@@ -289,7 +410,7 @@ export const placesService = {
       seenIds.add(placeId)
 
       // Categoria humana
-      const category =
+      const rawCategory =
         tags.amenity ||
         tags.shop ||
         tags.office ||
@@ -298,6 +419,17 @@ export const placesService = {
         tags.healthcare ||
         tags.tourism ||
         segment
+
+      // Nome do estabelecimento: tags.name, variações, ou fallback descritivo do tipo/rua
+      let name =
+        tags.name || tags['name:pt'] || tags['name:en'] || tags['brand'] || tags['operator']
+      if (!name) {
+        const street = tags['addr:street'] || ''
+        const suburb = tags['addr:suburb'] || tags['addr:neighbourhood'] || tags['addr:city'] || ''
+        const typeLabel = rawCategory ? rawCategory.replace(/_/g, ' ') : 'Estabelecimento'
+        const locationLabel = street ? `(${street})` : suburb ? `(${suburb})` : `(#${el.id})`
+        name = `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} ${locationLabel}`
+      }
 
       // Monta endereço público retornado
       const street = tags['addr:street'] || ''
@@ -343,7 +475,7 @@ export const placesService = {
       places.push({
         id: placeId,
         name: name.trim(),
-        category: category.replace(/_/g, ' '),
+        category: rawCategory.replace(/_/g, ' '),
         address,
         street,
         neighborhood,
