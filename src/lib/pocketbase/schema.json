@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T22:59:01.828Z",
+  "generatedAt": "2026-09-23T23:06:52.213Z",
   "collections": [
     {
       "name": "users",
@@ -636,8 +636,8 @@
         "CREATE INDEX idx_messages_client ON messages (client_id, created ASC)",
         "CREATE INDEX `idx_messages_public_media_token` ON `messages` (public_media_token)",
         "CREATE INDEX `idx_messages_whatsapp_message_id` ON `messages` (whatsapp_message_id)",
-        "CREATE UNIQUE INDEX `idx_messages_whatsapp_id_unique` ON `messages` (whatsapp_message_id) WHERE whatsapp_message_id != '' AND whatsapp_message_id IS NOT NULL",
-        "CREATE INDEX `idx_messages_wamid_fast_search` ON `messages` (whatsapp_message_id) WHERE whatsapp_message_id != '' AND whatsapp_message_id IS NOT NULL"
+        "CREATE INDEX `idx_messages_wamid_fast_search` ON `messages` (whatsapp_message_id) WHERE whatsapp_message_id != '' AND whatsapp_message_id IS NOT NULL",
+        "CREATE UNIQUE INDEX `idx_messages_whatsapp_id_unique` ON `messages` (whatsapp_message_id) WHERE whatsapp_message_id != '' AND whatsapp_message_id IS NOT NULL"
       ]
     },
     {

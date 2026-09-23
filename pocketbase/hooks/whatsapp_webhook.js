@@ -22,16 +22,22 @@
     let challenge = ''
 
     try {
-      const q = c.request.url.query()
-      mode = q.get('hub.mode') || ''
-      token = q.get('hub.verify_token') || ''
-      challenge = q.get('hub.challenge') || ''
-    } catch (_) {
+      if (typeof c.queryParam === 'function') {
+        mode = c.queryParam('hub.mode') || ''
+        token = c.queryParam('hub.verify_token') || ''
+        challenge = c.queryParam('hub.challenge') || ''
+      }
+    } catch (_) {}
+
+    if (!mode && !token && !challenge) {
       try {
-        const q = c.request().url.query()
-        mode = q.get('hub.mode') || ''
-        token = q.get('hub.verify_token') || ''
-        challenge = q.get('hub.challenge') || ''
+        const req = typeof c.request === 'function' ? c.request() : c.request
+        if (req && req.url && typeof req.url.query === 'function') {
+          const q = req.url.query()
+          mode = q.get('hub.mode') || ''
+          token = q.get('hub.verify_token') || ''
+          challenge = q.get('hub.challenge') || ''
+        }
       } catch (_) {}
     }
 
