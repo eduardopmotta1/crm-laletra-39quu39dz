@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T23:06:52.213Z",
+  "generatedAt": "2026-09-23T23:16:37.167Z",
   "collections": [
     {
       "name": "users",
@@ -361,6 +361,63 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "origin",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "prospecting_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "Nao contatado",
+            "Contato iniciado",
+            "Respondeu",
+            "Interessado",
+            "Orcamento",
+            "Convertido",
+            "Sem interesse"
+          ]
+        },
+        {
+          "name": "external_place_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "latitude",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "longitude",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "website",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "business_category",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "prospecting_date",
+          "type": "date",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -370,7 +427,8 @@
         "CREATE INDEX idx_clients_last_msg ON clients (last_message_at DESC)",
         "CREATE INDEX `idx_clients_is_archived` ON `clients` (is_archived)",
         "CREATE UNIQUE INDEX `idx_clients_normalized_phone_unique` ON `clients` (normalized_phone) WHERE normalized_phone != ''",
-        "CREATE UNIQUE INDEX `idx_clients_public_token` ON `clients` (public_token) WHERE public_token != ''"
+        "CREATE UNIQUE INDEX `idx_clients_public_token` ON `clients` (public_token) WHERE public_token != ''",
+        "CREATE INDEX `idx_clients_place_id` ON `clients` (external_place_id)"
       ]
     },
     {

@@ -19,6 +19,7 @@ export type PermissionModule =
   | 'financial'
   | 'postsale'
   | 'pending'
+  | 'prospecting'
   | 'reports'
   | 'settings'
 
@@ -533,6 +534,32 @@ export const PERMISSION_MODULES: ModuleGroup[] = [
         label: 'Marcar como resolvida',
         description: 'Concluir pendência com justificativa de ação tomada',
         module: 'pending',
+      },
+    ],
+  },
+  {
+    id: 'prospecting',
+    title: 'Prospecção Comercial',
+    description: 'Busca de estabelecimentos no mapa, raio de atuação e captação de leads',
+    icon: 'Compass',
+    permissions: [
+      {
+        key: 'prospecting_view',
+        label: 'Acessar módulo de prospecção',
+        description: 'Permite abrir o mapa e buscar empresas na região',
+        module: 'prospecting',
+      },
+      {
+        key: 'prospecting_add_crm',
+        label: 'Adicionar empresas ao CRM',
+        description: 'Cadastrar leads prospectados individualmente ou em lote',
+        module: 'prospecting',
+      },
+      {
+        key: 'prospecting_whatsapp',
+        label: 'Iniciar WhatsApp com prospect',
+        description: 'Disparar mensagens modelo para empresas mapeadas',
+        module: 'prospecting',
       },
     ],
   },

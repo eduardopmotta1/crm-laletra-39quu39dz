@@ -173,8 +173,58 @@ export interface Client {
   address_city?: string
   address_state?: string
   public_token?: string
+  // Campos do módulo de Prospecção
+  origin?: string
+  prospecting_status?:
+    | 'Nao contatado'
+    | 'Contato iniciado'
+    | 'Respondeu'
+    | 'Interessado'
+    | 'Orcamento'
+    | 'Convertido'
+    | 'Sem interesse'
+  external_place_id?: string
+  latitude?: number
+  longitude?: number
+  website?: string
+  business_category?: string
+  prospecting_date?: string
   created: string
   updated: string
+}
+
+export type ProspectingStatus =
+  | 'Nao contatado'
+  | 'Contato iniciado'
+  | 'Respondeu'
+  | 'Interessado'
+  | 'Orcamento'
+  | 'Convertido'
+  | 'Sem interesse'
+
+export interface ProspectingPlace {
+  id: string // ID do provedor (ex: overpass:node/12345 ou google:ChIJ...)
+  name: string
+  category: string
+  address: string
+  street?: string
+  neighborhood?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  lat: number
+  lng: number
+  distanceKm: number
+  phone?: string | null
+  normalizedPhone?: string | null
+  whatsappAvailable: boolean
+  website?: string | null
+  email?: string | null
+  provider: 'openstreetmap' | 'google_places'
+  rawTags?: Record<string, string>
+  crmStatus?: 'nao_cadastrado' | 'cadastrado'
+  existingClient?: Client | null
+  matchReason?: 'place_id' | 'phone' | 'website' | 'name_address'
 }
 
 export interface PublicClientProfileData {

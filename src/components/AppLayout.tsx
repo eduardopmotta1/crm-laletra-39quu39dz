@@ -27,6 +27,7 @@ import {
   AlertCircle,
   BookOpen,
   ClipboardList,
+  Compass,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
@@ -181,6 +182,11 @@ export default function AppLayout() {
     hasPermission('reports_attendance') ||
     hasPermission('reports_commercial') ||
     hasPermission('reports_revenue')
+  const canAccessProspecting =
+    isAdmin ||
+    hasPermission('prospecting_view') ||
+    hasPermission('attendance_view') ||
+    hasPermission('clients_view')
   const canAccessKanban = isAdmin || hasPermission('attendance_view')
   const canAccessProduction = isAdmin || hasPermission('production_view')
   const canAccessClients = isAdmin || hasPermission('clients_view')
@@ -229,6 +235,13 @@ export default function AppLayout() {
       badge: urgentCount > 0 ? `${urgentCount} SLA` : null,
       badgeVariant: 'destructive',
       visible: canAccessKanban,
+    },
+    {
+      to: '/prospeccao',
+      label: 'PROSPECÇÃO',
+      icon: Compass,
+      badge: null,
+      visible: canAccessProspecting,
     },
     {
       to: '/producao',
