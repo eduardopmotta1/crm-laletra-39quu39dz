@@ -72,6 +72,7 @@ export const attendancesService = {
       quote_value?: number
       notes?: string
       source?: string
+      allowDuplicateActive?: boolean
     },
   ): Promise<Attendance> {
     // 1. Validar e resolver client canônico
@@ -86,6 +87,27 @@ export const attendancesService = {
       }
     } catch (err) {
       console.warn(`[attendancesService] Could not resolve client ${clientId}:`, err)
+    }
+
+    // 1b. Proteção de concorrência / idempotência no cliente:
+    // Se o cliente já possui atendimento ativo e não foi explicitamente solicitado duplicar,
+    // reutiliza o atendimento ativo mais recente para evitar cards duplicados no Kanban.
+    if (!data.allowDuplicateActive) {
+      try {
+        const existingActive = await pb.collection('attendances').getList<Attendance>(1, 1, {
+          filter: `client_id = "${targetClientId}" && is_archived = false`,
+          sort: '-created',
+          requestKey: null,
+        })
+        if (existingActive.items && existingActive.items.length > 0) {
+          console.warn(
+            `[attendancesService.createForClient] Reutilizando attendance ativo existente ${existingActive.items[0].id} para client ${targetClientId} em vez de duplicar.`,
+          )
+          return existingActive.items[0]
+        }
+      } catch (checkErr) {
+        // Ignora erro de consulta defensivo e segue para criação
+      }
     }
 
     const stage = data.stage || 'Novo contato'
@@ -159,6 +181,7 @@ export const attendancesService = {
     quote_value?: number
     notes?: string
     source?: string
+    allowDuplicateActive?: boolean
   }): Promise<Attendance> {
     return this.createForClient(data.client_id, data)
   },
