@@ -17,10 +17,23 @@
 
 ;['/backend/v1/whatsapp/webhook', '/backend/v1/crm/whatsapp-webhook'].forEach((routePath) => {
   routerAdd('GET', routePath, (c) => {
-    const query = c.request().url.query
-    const mode = query.get('hub.mode')
-    const token = query.get('hub.verify_token')
-    const challenge = query.get('hub.challenge')
+    let mode = ''
+    let token = ''
+    let challenge = ''
+
+    try {
+      const q = c.request.url.query()
+      mode = q.get('hub.mode') || ''
+      token = q.get('hub.verify_token') || ''
+      challenge = q.get('hub.challenge') || ''
+    } catch (_) {
+      try {
+        const q = c.request().url.query()
+        mode = q.get('hub.mode') || ''
+        token = q.get('hub.verify_token') || ''
+        challenge = q.get('hub.challenge') || ''
+      } catch (_) {}
+    }
 
     const verifyToken = $os.getenv('WHATSAPP_WEBHOOK_VERIFY_TOKEN') || 'laletra_webhook_secret'
 
@@ -604,8 +617,34 @@
       }
     }
 
-    // Parse body
-    const body = $apis.requestInfo(c).data
+    // Parse body safely (PocketBase request context)
+    let body = null
+    try {
+      if (typeof $apis !== 'undefined' && typeof $apis.requestInfo === 'function') {
+        const reqInfo = $apis.requestInfo(c)
+        body = reqInfo ? reqInfo.data || reqInfo.body : null
+      }
+    } catch (_) {}
+
+    if (!body && typeof c.requestInfo === 'function') {
+      try {
+        const reqInfo = c.requestInfo()
+        body = reqInfo ? reqInfo.data || reqInfo.body : null
+      } catch (_) {}
+    }
+
+    if (!body && c.request) {
+      try {
+        const req = c.request()
+        if (req && typeof req.body === 'function') {
+          const raw = req.body()
+          if (raw) {
+            body = JSON.parse(raw)
+          }
+        }
+      } catch (_) {}
+    }
+
     if (!body || body.object !== 'whatsapp_business_account') {
       return c.json(400, { error: 'Invalid payload' })
     }
