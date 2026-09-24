@@ -21,8 +21,16 @@
  */
 
 routerAdd('POST', '/backend/v1/crm/attendances/resolve', (c) => {
-  const reqInfo = $apis.requestInfo(c)
-  const body = reqInfo.data || {}
+  let body = {}
+  try {
+    if (typeof c.requestInfo === 'function') {
+      const reqInfo = c.requestInfo()
+      body = reqInfo ? reqInfo.data || reqInfo.body || {} : {}
+    } else if (typeof $apis !== 'undefined' && typeof $apis.requestInfo === 'function') {
+      const reqInfo = $apis.requestInfo(c)
+      body = reqInfo ? reqInfo.data || reqInfo.body || {} : {}
+    }
+  } catch (_) {}
   const clientId = String(body.client_id || body.clientId || '').trim()
 
   if (!clientId) {

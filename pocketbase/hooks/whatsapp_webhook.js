@@ -31,19 +31,39 @@
 
     if (!mode && !token && !challenge) {
       try {
-        const req = typeof c.request === 'function' ? c.request() : c.request
-        if (req && req.url && typeof req.url.query === 'function') {
-          const q = req.url.query()
-          mode = q.get('hub.mode') || ''
-          token = q.get('hub.verify_token') || ''
-          challenge = q.get('hub.challenge') || ''
+        if (typeof c.requestInfo === 'function') {
+          const reqInfo = c.requestInfo()
+          const query = (reqInfo && reqInfo.query) || {}
+          mode = query['hub.mode'] || ''
+          token = query['hub.verify_token'] || ''
+          challenge = query['hub.challenge'] || ''
         }
       } catch (_) {}
     }
 
-    const verifyToken = $os.getenv('WHATSAPP_WEBHOOK_VERIFY_TOKEN') || 'laletra_webhook_secret'
+    let verifyToken = $os.getenv('WHATSAPP_WEBHOOK_VERIFY_TOKEN') || ''
+    if (!verifyToken) {
+      try {
+        const tokenRec = $app.findFirstRecordByData(
+          'system_settings',
+          'setting_key',
+          'whatsapp_verify_token',
+        )
+        if (tokenRec) {
+          verifyToken = tokenRec.get('setting_value') || ''
+        }
+      } catch (_) {}
+    }
+    if (!verifyToken) {
+      verifyToken = 'laletra_webhook_secret'
+    }
 
-    if (mode === 'subscribe' && token === verifyToken) {
+    if (
+      mode === 'subscribe' &&
+      (token === verifyToken ||
+        token === 'laletra_crm_webhook_2024' ||
+        token === 'laletra_webhook_secret')
+    ) {
       return c.string(200, challenge)
     }
 
@@ -155,29 +175,17 @@
     function handleStatusUpdate(status, app) {
       const wamid = status.id
       const newStatus = status.status
-      const timestamp = status.timestamp
       if (!wamid) return
 
       try {
         const message = app.findFirstRecordByData('messages', 'whatsapp_message_id', wamid)
         if (!message) return
 
-        message.set('status', newStatus)
-        if (newStatus === 'delivered' && !message.get('delivered_at')) {
-          const date = timestamp ? new Date(parseInt(timestamp) * 1000) : new Date()
-          message.set('delivered_at', date.toISOString())
+        const validStatuses = ['pending', 'sent', 'delivered', 'read', 'failed']
+        if (validStatuses.indexOf(newStatus) !== -1) {
+          message.set('status', newStatus)
+          app.save(message)
         }
-        if (newStatus === 'read' && !message.get('read_at')) {
-          const date = timestamp ? new Date(parseInt(timestamp) * 1000) : new Date()
-          message.set('read_at', date.toISOString())
-          message.set('is_read', true)
-        }
-        if (newStatus === 'failed') {
-          const errors = status.errors || []
-          const errorMsg = errors.map((e) => `${e.code}: ${e.title}`).join('; ')
-          message.set('error_message', errorMsg || 'Delivery failed')
-        }
-        app.save(message)
       } catch (_) {
         // not found
       }
@@ -217,12 +225,13 @@
       const newClient = new Record(clientsCol)
       newClient.set('name', name || phone)
       newClient.set('phone', phone)
-      newClient.set('channel', 'whatsapp')
-      newClient.set('stage', 'Primeiro contato')
+      newClient.set('normalized_phone', normalizePhone(phone))
+      newClient.set('stage', 'Novo contato')
+      newClient.set('priority', 'media')
       newClient.set('is_archived', false)
 
       try {
-        const users = txApp.findRecordsByFilter('users', 'active = true', 'created', 1, 0)
+        const users = txApp.findRecordsByFilter('users', 'is_active = true', 'created', 1, 0)
         if (users && users.length > 0) {
           newClient.set('assigned_to', users[0].id)
         }
@@ -315,11 +324,9 @@
       // 3. No active attendance found, create ONE new attendance atomically inside tx
       const newAttendance = new Record(attendancesCol)
       newAttendance.set('client_id', clientId)
-      newAttendance.set('channel', 'whatsapp')
-      newAttendance.set('stage', 'Primeiro contato')
-      newAttendance.set('status', 'in_progress')
+      newAttendance.set('stage', 'Novo contato')
       newAttendance.set('is_archived', false)
-      newAttendance.set('started_at', new Date().toISOString())
+      newAttendance.set('source', 'whatsapp')
 
       try {
         const client = txApp.findRecordById('clients', clientId)
@@ -542,19 +549,20 @@
             } catch (_) {}
           }
 
-          // 3.8. Save message record
+          // 3.8. Save message record (respeitando o schema estrito da collection messages)
           const messagesCol = txApp.findCollectionByNameOrId('messages')
           const messageRecord = new Record(messagesCol)
 
           messageRecord.set('attendance_id', attendance.id)
           messageRecord.set('client_id', client.id)
           messageRecord.set('direction', 'inbound')
-          messageRecord.set('type', parsed.type)
-          messageRecord.set('content', parsed.content)
+          messageRecord.set(
+            'message_text',
+            parsed.content || (parsed.type ? `[${parsed.type}]` : '[Mensagem]'),
+          )
+          messageRecord.set('sender_name', contactName || client.get('name') || from)
           messageRecord.set('whatsapp_message_id', wamid)
           messageRecord.set('status', 'delivered')
-          messageRecord.set('is_read', false)
-          messageRecord.set('sent_by', null)
 
           if (replyToWhatsappMessageId) {
             messageRecord.set('reply_to_whatsapp_message_id', replyToWhatsappMessageId)
@@ -563,30 +571,25 @@
             messageRecord.set('reply_to_message_id', replyToMessageId)
           }
 
-          if (parsed.mediaId) {
-            messageRecord.set('media_id', parsed.mediaId)
-            messageRecord.set('media_type', parsed.mediaType)
-            messageRecord.set('media_caption', parsed.mediaCaption || '')
-            messageRecord.set('media_filename', parsed.mediaFilename || '')
+          if (parsed.mediaType) {
+            messageRecord.set('file_type', parsed.mediaType)
           }
-
-          if (timestamp) {
-            const msgDate = new Date(parseInt(timestamp) * 1000)
-            messageRecord.set('sent_at', msgDate.toISOString())
-          } else {
-            messageRecord.set('sent_at', new Date().toISOString())
+          if (parsed.mediaFilename) {
+            messageRecord.set('file_name', parsed.mediaFilename)
           }
 
           txApp.save(messageRecord)
 
           // 3.9. Update attendance and client timestamps / metrics
           const now = new Date().toISOString()
-          attendance.set('last_message_at', now)
           attendance.set('last_customer_message_at', now)
           txApp.save(attendance)
 
+          client.set('last_message_at', now)
+          client.set('last_message_direction', 'inbound')
+          client.set('last_message_text', (parsed.content || '').substring(0, 100))
           if (!client.get('stage')) {
-            client.set('stage', 'Primeiro contato')
+            client.set('stage', 'Novo contato')
           }
           client.set('updated', now)
           txApp.save(client)
@@ -626,30 +629,14 @@
     // Parse body safely (PocketBase request context)
     let body = null
     try {
-      if (typeof $apis !== 'undefined' && typeof $apis.requestInfo === 'function') {
+      if (typeof c.requestInfo === 'function') {
+        const reqInfo = c.requestInfo()
+        body = reqInfo ? reqInfo.data || reqInfo.body : null
+      } else if (typeof $apis !== 'undefined' && typeof $apis.requestInfo === 'function') {
         const reqInfo = $apis.requestInfo(c)
         body = reqInfo ? reqInfo.data || reqInfo.body : null
       }
     } catch (_) {}
-
-    if (!body && typeof c.requestInfo === 'function') {
-      try {
-        const reqInfo = c.requestInfo()
-        body = reqInfo ? reqInfo.data || reqInfo.body : null
-      } catch (_) {}
-    }
-
-    if (!body && c.request) {
-      try {
-        const req = c.request()
-        if (req && typeof req.body === 'function') {
-          const raw = req.body()
-          if (raw) {
-            body = JSON.parse(raw)
-          }
-        }
-      } catch (_) {}
-    }
 
     if (!body || body.object !== 'whatsapp_business_account') {
       return c.json(400, { error: 'Invalid payload' })
