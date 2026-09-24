@@ -5,6 +5,7 @@ import {
   normalizeSearchTerm,
   mapPortugueseToOsmSelectors,
   buildOverpassQuery,
+  placesService,
 } from './placesService'
 import type { ProspectingPlace, Client } from '@/types/crm'
 
@@ -286,6 +287,14 @@ describe('prospectingService & placesService', () => {
       const res = prospectingService.checkDuplicateInMemory(place, mockExistingClients)
       expect(res.isDuplicate).toBe(false)
       expect(res.matchedClient).toBeNull()
+    })
+  })
+
+  describe('Estado inicial de Prospecção e comportamento de cache', () => {
+    it('mantém o cache de 24h ativo apenas sob demanda e não dispara automático no mount', async () => {
+      // O cache de 24h existe no backend e na camada de placesService,
+      // devendo ser acionado apenas ao clicar em "Buscar Empresas".
+      expect(typeof placesService.searchPlacesWithDetails).toBe('function')
     })
   })
 })

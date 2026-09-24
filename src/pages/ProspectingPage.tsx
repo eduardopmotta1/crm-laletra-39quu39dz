@@ -66,12 +66,12 @@ const RADIUS_OPTIONS = [
 export default function ProspectingPage() {
   const { user } = useAuth()
 
-  // Parâmetros de pesquisa
-  const [locationQuery, setLocationQuery] = useState('Cachoeiras de Macacu - RJ')
+  // Parâmetros de pesquisa (Estado inicial limpo: localização e segmento vazios, raio 20km)
+  const [locationQuery, setLocationQuery] = useState('')
   const [selectedRadius, setSelectedRadius] = useState<number>(20)
-  const [segmentQuery, setSegmentQuery] = useState('Escolas')
+  const [segmentQuery, setSegmentQuery] = useState('')
 
-  // Coordenadas ativas (Default: Cachoeiras de Macacu - RJ: -22.4633, -42.6536)
+  // Coordenadas de referência para exibição inicial do mapa (sem disparar busca)
   const [activeCenter, setActiveCenter] = useState<{ lat: number; lng: number }>({
     lat: -22.4633,
     lng: -42.6536,
@@ -124,11 +124,6 @@ export default function ProspectingPage() {
   // Visualização de Cliente Existente
   const [clientFormModalOpen, setClientFormModalOpen] = useState(false)
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
-
-  // 1. Executar busca inicial
-  useEffect(() => {
-    handleSearch(false, false)
-  }, [])
 
   // Geocodificação sob demanda ao digitar localização com debounce
   useEffect(() => {
