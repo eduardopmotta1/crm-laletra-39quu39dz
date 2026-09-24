@@ -277,7 +277,7 @@ export default function ProspectingMap({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 ${className}`}
+      className={`relative z-0 isolate overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 ${className}`}
     >
       <div ref={containerRef} className="w-full h-full min-h-[380px]" />
       {/* Legenda do Mapa */}
