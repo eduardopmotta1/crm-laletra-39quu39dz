@@ -126,8 +126,8 @@ routerAdd('POST', '/backend/v1/crm/prospecting/places:search', (e) => {
     }
   }
 
-  const reqInfo = $apis.requestInfo(e)
-  const body = reqInfo.data || {}
+  const reqInfo = e.requestInfo()
+  const body = reqInfo.data || reqInfo.body || {}
   const segment = String(body.segment || '').trim()
   const lat = parseFloat(body.lat)
   const lng = parseFloat(body.lng)
@@ -485,8 +485,8 @@ routerAdd('POST', '/backend/v1/crm/prospecting/places:details', (e) => {
     }
   }
 
-  const reqInfo = $apis.requestInfo(e)
-  const body = reqInfo.data || {}
+  const reqInfo = e.requestInfo()
+  const body = reqInfo.data || reqInfo.body || {}
   const placeId = String(body.placeId || body.id || '').trim()
 
   if (!placeId) {
