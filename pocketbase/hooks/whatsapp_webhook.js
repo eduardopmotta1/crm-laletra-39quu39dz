@@ -87,6 +87,13 @@
       }
     }
 
+    function truncateWamid(wamid) {
+      if (!wamid) return ''
+      const str = String(wamid)
+      if (str.length <= 24) return str
+      return str.substring(0, 16) + '...' + str.substring(str.length - 6)
+    }
+
     function normalizePhone(phone) {
       if (!phone) return ''
       let digits = String(phone).replace(/\D/g, '')
@@ -435,18 +442,21 @@
       const wamid = msg.id
       const from = msg.from
       const timestamp = msg.timestamp
+      const shortWamid = truncateWamid(wamid)
 
       if (!from) {
-        console.warn('Incoming message without sender phone:', msg)
+        console.warn('[Webhook Inbound] Incoming message without sender phone:', shortWamid)
         return
       }
 
-      // 1. FAST DEDUPLICATION BEFORE ANY RESOLUTION/CREATION:
-      // Check in-memory cache
+      // 1. DEDUPLICATION CHECK (SOMENTE LEITURA — NÃO MARCA COMO PROCESSADO ANTES DO COMMIT)
       if (wamid) {
         cleanOldWamids()
         if (_processedWamids.has(wamid)) {
-          console.log('[Webhook] Duplicate whatsapp_message_id in memory cache, ignoring:', wamid)
+          console.log(
+            '[Webhook Dedupe] Ignorando WAMID já processado no cache de memória:',
+            shortWamid,
+          )
           return
         }
       }
@@ -460,7 +470,10 @@
             wamid,
           )
           if (existingMsg) {
-            console.log('[Webhook] Message already exists in DB (wamid):', wamid)
+            console.log(
+              '[Webhook Dedupe] Mensagem já existe no banco de dados (wamid):',
+              shortWamid,
+            )
             _processedWamids.set(wamid, Date.now())
             return
           }
@@ -479,15 +492,14 @@
       }
 
       const normalizedPhone = normalizePhone(from)
-
-      // Mark in memory cache immediately
-      if (wamid) {
-        _processedWamids.set(wamid, Date.now())
-      }
+      console.log(
+        `[Webhook Inbound] Processando msg ${shortWamid} do telefone final ${normalizedPhone.slice(-4)}`,
+      )
 
       // 3. EXECUTE CRITICAL SECTION INSIDE SQLITE TRANSACTION
       // PocketBase runInTransaction executes an exclusive write transaction.
       // Inside txApp, all operations are serialized.
+      let transactionSucceeded = false
       try {
         appInstance.runInTransaction((txApp) => {
           // 3.1. Advisory client lock
@@ -504,7 +516,11 @@
                 wamid,
               )
               if (existingMsgInTx) {
-                console.log('[Webhook TX] Message already persisted by concurrent worker:', wamid)
+                console.log(
+                  '[Webhook TX] Mensagem já persistida concorrentemente no banco:',
+                  shortWamid,
+                )
+                transactionSucceeded = true
                 return
               }
             } catch (_) {
@@ -515,14 +531,14 @@
           // 3.3. Find or create client
           const client = findOrCreateClient(normalizedPhone, contactName, txApp)
           if (!client) {
-            console.error('Failed to resolve client for:', normalizedPhone)
+            console.error('[Webhook TX] Falha ao resolver cliente para:', normalizedPhone.slice(-4))
             return
           }
 
           // 3.4. Resolve active attendance strictly (reutiliza se existir)
           const attendance = resolveAttendance(client.id, txApp)
           if (!attendance) {
-            console.error('Failed to resolve attendance for client:', client.id)
+            console.error('[Webhook TX] Falha ao resolver attendance para client:', client.id)
             return
           }
 
@@ -599,13 +615,20 @@
             txApp.save(deal)
           }
 
+          transactionSucceeded = true
           console.log(
-            `[Webhook] Inbound saved for client ${client.id}, attendance ${attendance.id}, msg ${wamid}`,
+            `[Webhook Commit] Inbound persistido com sucesso: client=${client.id}, attendance=${attendance.id}, msg=${shortWamid}`,
           )
         })
+
+        // REGRA DE OURO: Marcar no cache de WAMIDs SOMENTE APÓS COMMIT BEM SUCEDIDO
+        if (transactionSucceeded && wamid) {
+          _processedWamids.set(wamid, Date.now())
+        }
       } catch (err) {
-        // If error occurred, check if message was already committed concurrently
+        // Em caso de falha/rollback, se o WAMID chegou a ser colocado no cache, remover para permitir retry da Meta
         if (wamid) {
+          _processedWamids.delete(wamid)
           try {
             const check = appInstance.findFirstRecordByData(
               'messages',
@@ -614,14 +637,18 @@
             )
             if (check) {
               console.log(
-                '[Webhook] Recovered from concurrent race, message already committed:',
-                wamid,
+                '[Webhook Rollback-Check] Mensagem já havia sido commitada por worker paralelo:',
+                shortWamid,
               )
+              _processedWamids.set(wamid, Date.now())
               return
             }
           } catch (_) {}
         }
-        console.error('[Webhook] Error saving inbound message in transaction:', err)
+        console.error(
+          '[Webhook Error] Falha ao salvar mensagem inbound na transação (' + shortWamid + '):',
+          err,
+        )
         throw err
       }
     }
@@ -645,6 +672,9 @@
     try {
       const entries = body.entry || []
       const appInstance = c.app || $app
+      let incomingCount = 0
+      let statusCount = 0
+      let firstMsgShortWamid = ''
 
       for (const entry of entries) {
         const changes = entry.changes || []
@@ -654,6 +684,10 @@
 
           // Handle incoming messages
           if (value.messages && value.messages.length > 0) {
+            incomingCount += value.messages.length
+            if (!firstMsgShortWamid && value.messages[0].id) {
+              firstMsgShortWamid = truncateWamid(value.messages[0].id)
+            }
             for (const msg of value.messages) {
               handleIncomingMessage(msg, value.contacts, appInstance)
             }
@@ -661,12 +695,19 @@
 
           // Handle message status updates (sent, delivered, read, failed)
           if (value.statuses && value.statuses.length > 0) {
+            statusCount += value.statuses.length
             for (const status of value.statuses) {
               handleStatusUpdate(status, appInstance)
             }
           }
         }
       }
+
+      console.log(
+        `[Webhook POST] Processado: entries=${entries.length}, msgs=${incomingCount}${
+          firstMsgShortWamid ? ' (primeiro=' + firstMsgShortWamid + ')' : ''
+        }, statuses=${statusCount}`,
+      )
 
       return c.json(200, { status: 'success' })
     } catch (error) {

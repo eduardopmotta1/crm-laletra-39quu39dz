@@ -192,7 +192,7 @@ async function processIncomingWebhookSimulated(
   const from = payloadMsg.from
   const normalizedPhone = from.startsWith('55') ? from : '55' + from
 
-  // 1. FAST DEDUPLICATION IN-MEMORY:
+  // 1. FAST DEDUPLICATION IN-MEMORY (READ ONLY):
   if (wamid) {
     if (db.processedWamids.has(wamid)) {
       return { status: 'ignored_in_memory_dedupe' }
@@ -212,128 +212,140 @@ async function processIncomingWebhookSimulated(
     }
   }
 
-  // Marcar na memória imediatamente
-  if (wamid) {
-    db.processedWamids.set(wamid, Date.now())
-  }
-
   // 3. SEÇÃO CRÍTICA TRANSACIONADA (SERIALIZADA PELO SQLite SINGLE-WRITER)
-  return await db.runInTransaction(async (txApp) => {
-    // 3.1 Re-check WAMID dentro da transação
-    if (wamid) {
-      try {
-        const checkInsideTx = txApp.findFirstRecordByData('messages', 'whatsapp_message_id', wamid)
-        if (checkInsideTx) {
-          return { status: 'ignored_tx_recheck' }
+  let txOk = false
+  try {
+    const res = await db.runInTransaction(async (txApp) => {
+      // 3.1 Re-check WAMID dentro da transação
+      if (wamid) {
+        try {
+          const checkInsideTx = txApp.findFirstRecordByData(
+            'messages',
+            'whatsapp_message_id',
+            wamid,
+          )
+          if (checkInsideTx) {
+            return { status: 'ignored_tx_recheck' }
+          }
+        } catch {
+          /* intentionally ignored */
         }
-      } catch {
-        /* intentionally ignored */
       }
-    }
 
-    // 3.2 Find or create client
-    let client: MockDbRecord
-    try {
-      client = txApp.findFirstRecordByData('clients', 'phone', normalizedPhone)
-    } catch (_) {
-      client = createRecord('clients', {
-        name: contactName || normalizedPhone,
-        phone: normalizedPhone,
-        stage: 'Primeiro contato',
-        is_archived: false,
-      })
-      txApp.save(client)
-    }
+      // 3.2 Find or create client
+      let client: MockDbRecord
+      try {
+        client = txApp.findFirstRecordByData('clients', 'phone', normalizedPhone)
+      } catch (_) {
+        client = createRecord('clients', {
+          name: contactName || normalizedPhone,
+          phone: normalizedPhone,
+          stage: 'Primeiro contato',
+          is_archived: false,
+        })
+        txApp.save(client)
+      }
 
-    // 3.3 Strict resolution of active attendance (Reutilizar se existir ativo)
-    let attendance: MockDbRecord
-    const activeAttendances = txApp.findRecordsByFilter(
-      'attendances',
-      `client_id = '${client.id}' && is_archived = false`,
-      '-created',
-      1,
-    )
+      // 3.3 Strict resolution of active attendance (Reutilizar se existir ativo)
+      let attendance: MockDbRecord
+      const activeAttendances = txApp.findRecordsByFilter(
+        'attendances',
+        `client_id = '${client.id}' && is_archived = false`,
+        '-created',
+        1,
+      )
 
-    if (activeAttendances.length > 0) {
-      attendance = activeAttendances[0]
-    } else {
-      attendance = createRecord('attendances', {
-        client_id: client.id,
-        channel: 'whatsapp',
-        stage: 'Primeiro contato',
-        status: 'in_progress',
-        is_archived: false,
-        started_at: new Date().toISOString(),
-      })
-      txApp.save(attendance)
-    }
+      if (activeAttendances.length > 0) {
+        attendance = activeAttendances[0]
+      } else {
+        attendance = createRecord('attendances', {
+          client_id: client.id,
+          channel: 'whatsapp',
+          stage: 'Primeiro contato',
+          status: 'in_progress',
+          is_archived: false,
+          started_at: new Date().toISOString(),
+        })
+        txApp.save(attendance)
+      }
 
-    // 3.4 Resolve deal (1 deal ativo para o attendance)
-    let deal: MockDbRecord
-    const deals = txApp.findRecordsByFilter(
-      'deals',
-      `attendance_id = '${attendance.id}'`,
-      '-created',
-      1,
-    )
-    if (deals.length > 0) {
-      deal = deals[0]
-    } else {
-      deal = createRecord('deals', {
-        client_id: client.id,
+      // 3.4 Resolve deal (1 deal ativo para o attendance)
+      let deal: MockDbRecord
+      const deals = txApp.findRecordsByFilter(
+        'deals',
+        `attendance_id = '${attendance.id}'`,
+        '-created',
+        1,
+      )
+      if (deals.length > 0) {
+        deal = deals[0]
+      } else {
+        deal = createRecord('deals', {
+          client_id: client.id,
+          attendance_id: attendance.id,
+          stage: 'Primeiro contato',
+          is_active: true,
+        })
+        txApp.save(deal)
+      }
+
+      // 3.5 Context reply-to support (0.0.243)
+      let replyToWhatsappMessageId = ''
+      let replyToMessageId = ''
+      if (payloadMsg.context && payloadMsg.context.id) {
+        replyToWhatsappMessageId = payloadMsg.context.id
+        try {
+          const parent = txApp.findFirstRecordByData(
+            'messages',
+            'whatsapp_message_id',
+            replyToWhatsappMessageId,
+          )
+          if (parent) {
+            replyToMessageId = parent.id
+          }
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
+      // 3.6 Save message
+      const message = createRecord('messages', {
         attendance_id: attendance.id,
-        stage: 'Primeiro contato',
-        is_active: true,
+        client_id: client.id,
+        direction: 'inbound',
+        type: 'text',
+        content: payloadMsg.text?.body || '',
+        whatsapp_message_id: wamid,
+        status: 'delivered',
+        is_read: false,
+        reply_to_whatsapp_message_id: replyToWhatsappMessageId || undefined,
+        reply_to_message_id: replyToMessageId || undefined,
       })
-      txApp.save(deal)
-    }
+      txApp.save(message)
 
-    // 3.5 Context reply-to support (0.0.243)
-    let replyToWhatsappMessageId = ''
-    let replyToMessageId = ''
-    if (payloadMsg.context && payloadMsg.context.id) {
-      replyToWhatsappMessageId = payloadMsg.context.id
-      try {
-        const parent = txApp.findFirstRecordByData(
-          'messages',
-          'whatsapp_message_id',
-          replyToWhatsappMessageId,
-        )
-        if (parent) {
-          replyToMessageId = parent.id
-        }
-      } catch {
-        /* intentionally ignored */
+      attendance.set('last_message_at', new Date().toISOString())
+      attendance.set('last_customer_message_at', new Date().toISOString())
+      txApp.save(attendance)
+
+      txOk = true
+      return {
+        status: 'saved',
+        messageId: message.id,
+        attendanceId: attendance.id,
+        dealId: deal.id,
+        clientId: client.id,
       }
-    }
-
-    // 3.6 Save message
-    const message = createRecord('messages', {
-      attendance_id: attendance.id,
-      client_id: client.id,
-      direction: 'inbound',
-      type: 'text',
-      content: payloadMsg.text?.body || '',
-      whatsapp_message_id: wamid,
-      status: 'delivered',
-      is_read: false,
-      reply_to_whatsapp_message_id: replyToWhatsappMessageId || undefined,
-      reply_to_message_id: replyToMessageId || undefined,
     })
-    txApp.save(message)
-
-    attendance.set('last_message_at', new Date().toISOString())
-    attendance.set('last_customer_message_at', new Date().toISOString())
-    txApp.save(attendance)
-
-    return {
-      status: 'saved',
-      messageId: message.id,
-      attendanceId: attendance.id,
-      dealId: deal.id,
-      clientId: client.id,
+    if (txOk && wamid) {
+      db.processedWamids.set(wamid, Date.now())
     }
-  })
+    return res
+  } catch (err) {
+    if (wamid) {
+      db.processedWamids.delete(wamid)
+    }
+    throw err
+  }
 }
 
 describe('Testes Obrigatórios de Concorrência e Idempotência — Webhook WhatsApp', () => {

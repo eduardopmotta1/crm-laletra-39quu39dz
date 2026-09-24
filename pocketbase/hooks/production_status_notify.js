@@ -343,11 +343,11 @@ onRecordAfterUpdateSuccess((e) => {
         logRec.set('change_type', 'automatic')
         logRec.set(
           'notes',
-          'Notificação automática retida: cliente fora da janela oficial de 24h (exige Template Oficial Meta). ' +
+          'Notificação automática retida: cliente fora da janela oficial de 24h (exige Template Oficial Meta / requires_template). ' +
             transitionMarker,
         )
         logRec.set('whatsapp_sent', false)
-        logRec.set('whatsapp_status', 'requires_template')
+        logRec.set('whatsapp_status', 'nao_enviado')
         logRec.set('whatsapp_message', renderedMessage)
         $app.save(logRec)
       } catch (logErr) {

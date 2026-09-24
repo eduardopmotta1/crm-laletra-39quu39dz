@@ -323,11 +323,11 @@ onRecordAfterCreateSuccess((e) => {
           'notes',
           'Prova V' +
             versionNumber +
-            ' enviada ao cliente para aprovação. Notificação retida: cliente fora da janela de 24h (exige Template Oficial Meta). ' +
+            ' enviada ao cliente para aprovação. Notificação retida: cliente fora da janela de 24h (exige Template Oficial Meta / requires_template). ' +
             coordinationMarker,
         )
         logRec.set('whatsapp_sent', false)
-        logRec.set('whatsapp_status', 'requires_template')
+        logRec.set('whatsapp_status', 'nao_enviado')
         logRec.set('whatsapp_message', renderedMessage)
         $app.save(logRec)
       } catch (logErr) {
