@@ -75,11 +75,18 @@ export const prospectingService = {
         requestKey: null,
       }))
 
-    // 1. Checagem por ID externo (Place ID)
-    if (place.id) {
-      const matchPlace = clients.find(
-        (c) => c.external_place_id && c.external_place_id.trim() === place.id.trim(),
-      )
+    // 1. Checagem por ID externo (google_place_id / external_place_id)
+    const placeIdToMatch = place.googlePlaceId || place.id
+    if (placeIdToMatch) {
+      const matchPlace = clients.find((c) => {
+        if (c.google_place_id && c.google_place_id.trim() === placeIdToMatch.trim()) {
+          return true
+        }
+        if (c.external_place_id && c.external_place_id.trim() === placeIdToMatch.trim()) {
+          return true
+        }
+        return false
+      })
       if (matchPlace) {
         return {
           isDuplicate: true,
@@ -210,11 +217,18 @@ export const prospectingService = {
    * Versão síncrona/em memória da verificação anti-duplicação
    */
   checkDuplicateInMemory(place: ProspectingPlace, clients: Client[]): CheckDuplicateResult {
-    // 1. ID externo
-    if (place.id) {
-      const matchPlace = clients.find(
-        (c) => c.external_place_id && c.external_place_id.trim() === place.id.trim(),
-      )
+    // 1. ID externo (google_place_id / external_place_id)
+    const placeIdToMatch = place.googlePlaceId || place.id
+    if (placeIdToMatch) {
+      const matchPlace = clients.find((c) => {
+        if (c.google_place_id && c.google_place_id.trim() === placeIdToMatch.trim()) {
+          return true
+        }
+        if (c.external_place_id && c.external_place_id.trim() === placeIdToMatch.trim()) {
+          return true
+        }
+        return false
+      })
       if (matchPlace) {
         return {
           isDuplicate: true,
@@ -342,6 +356,9 @@ export const prospectingService = {
       notesParts.push(`Observação do operador: ${notes.trim()}`)
     }
 
+    const isGoogle = place.provider === 'google_places'
+    const targetPlaceId = place.googlePlaceId || place.id
+
     const payload: Partial<Client> = {
       name: place.name,
       trade_name: place.name,
@@ -350,10 +367,11 @@ export const prospectingService = {
       email: place.email || '',
       website: place.website || '',
       business_category: place.category,
-      origin: 'Prospecção por mapa',
+      origin: isGoogle ? 'google_places' : 'Prospecção por mapa',
       prospecting_status: initialProspectingStatus,
       prospecting_date: dateToday,
-      external_place_id: place.id,
+      external_place_id: targetPlaceId,
+      google_place_id: isGoogle ? targetPlaceId : undefined,
       latitude: place.lat,
       longitude: place.lng,
       stage: 'Novo contato',

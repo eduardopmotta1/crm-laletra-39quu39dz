@@ -103,6 +103,14 @@ export default function ProspectingDetailsModal({
                 </DialogTitle>
                 <DialogDescription className="text-xs text-slate-500 mt-0.5">
                   {place.category} • a {place.distanceKm} km do ponto pesquisado
+                  {typeof place.rating === 'number' && (
+                    <span className="ml-2 text-amber-500 font-semibold">
+                      ★ {place.rating.toFixed(1)}
+                      {typeof place.userRatingCount === 'number'
+                        ? ` (${place.userRatingCount})`
+                        : ''}
+                    </span>
+                  )}
                 </DialogDescription>
               </div>
             </div>
@@ -205,7 +213,7 @@ export default function ProspectingDetailsModal({
                 {hasEmail ? (
                   place.email
                 ) : (
-                  <span className="text-slate-400 italic">E-mail não encontrado</span>
+                  <span className="text-slate-400 italic">E-mail não disponível</span>
                 )}
               </p>
             </div>

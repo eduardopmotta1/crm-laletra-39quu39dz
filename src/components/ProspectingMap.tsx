@@ -294,6 +294,9 @@ export default function ProspectingMap({
           <span className="w-3 h-3 rounded-full border border-dashed border-emerald-600 bg-emerald-100 dark:bg-emerald-950 inline-block"></span>
           <span className="text-slate-700 dark:text-slate-300">Raio de {radiusKm} km</span>
         </div>
+        <div className="pt-1 text-[10px] text-slate-400 border-t border-slate-100 dark:border-slate-800">
+          Provedores: Google Places API / OpenStreetMap
+        </div>
       </div>
     </div>
   )

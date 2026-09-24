@@ -184,6 +184,7 @@ export interface Client {
     | 'Convertido'
     | 'Sem interesse'
   external_place_id?: string
+  google_place_id?: string
   latitude?: number
   longitude?: number
   website?: string
@@ -203,7 +204,8 @@ export type ProspectingStatus =
   | 'Sem interesse'
 
 export interface ProspectingPlace {
-  id: string // ID do provedor (ex: overpass:node/12345 ou google:ChIJ...)
+  id: string // ID do provedor (ex: overpass:node/12345 ou ChIJ...)
+  googlePlaceId?: string // Place ID quando provider for google_places
   name: string
   category: string
   address: string
@@ -221,6 +223,11 @@ export interface ProspectingPlace {
   website?: string | null
   email?: string | null
   provider: 'openstreetmap' | 'google_places'
+  businessStatus?: string
+  rating?: number | null
+  userRatingCount?: number | null
+  googleMapsUri?: string | null
+  detailsLoaded?: boolean
   rawTags?: Record<string, string>
   crmStatus?: 'nao_cadastrado' | 'cadastrado'
   existingClient?: Client | null

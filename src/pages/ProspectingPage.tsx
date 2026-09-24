@@ -82,10 +82,19 @@ export default function ProspectingPage() {
   const [isGeocoding, setIsGeocoding] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
 
-  // Resultados
+  // Resultados & Provedores
   const [places, setPlaces] = useState<ProspectingPlace[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
+  const [activeProvider, setActiveProvider] = useState<'google_places' | 'openstreetmap'>(
+    'google_places',
+  )
+  const [searchSource, setSearchSource] = useState<'google_api' | 'cache' | 'osm_fallback'>(
+    'google_api',
+  )
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [osmFallbackAvailable, setOsmFallbackAvailable] = useState(false)
 
   // Filtros locais
   const [onlyWithPhone, setOnlyWithPhone] = useState(false)
@@ -116,9 +125,9 @@ export default function ProspectingPage() {
   const [clientFormModalOpen, setClientFormModalOpen] = useState(false)
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null)
 
-  // 1. Executar geocodificação inicial para centralizar na cidade padrão
+  // 1. Executar busca inicial
   useEffect(() => {
-    handleSearch()
+    handleSearch(false, false)
   }, [])
 
   // Geocodificação sob demanda ao digitar localização com debounce
@@ -143,8 +152,8 @@ export default function ProspectingPage() {
     return () => clearTimeout(timer)
   }, [locationQuery])
 
-  // Ação principal: Buscar Empresas
-  const handleSearch = async () => {
+  // Ação principal: Buscar Empresas (somente ao clicar explicitamente)
+  const handleSearch = async (forceRefresh = false, useOsmFallback = false) => {
     if (!segmentQuery.trim()) {
       toast({
         title: 'Informe o segmento',
@@ -158,6 +167,7 @@ export default function ProspectingPage() {
     setIsSearching(true)
     setSelectedPlaceIds(new Set())
     setShowSuggestions(false)
+    setOsmFallbackAvailable(false)
 
     try {
       // 1. Resolver coordenadas do local caso tenham mudado
@@ -179,42 +189,122 @@ export default function ProspectingPage() {
           })
         }
       }
-      // 2. Buscar empresas via placesService
-      const rawPlaces = await placesService.searchPlaces({
+
+      // 2. Buscar empresas via placesService (Google Places New como principal)
+      const searchRes = await placesService.searchPlacesWithDetails({
         lat: centerLat,
         lng: centerLng,
         radiusKm: selectedRadius,
         segment: segmentQuery,
+        location: locationQuery,
+        refresh: forceRefresh,
+        forceOsm: useOsmFallback,
       })
 
+      setActiveProvider(searchRes.provider)
+      setSearchSource(searchRes.source)
+      setNextPageToken(searchRes.nextPageToken || null)
+
+      if (searchRes.errorMessage) {
+        setOsmFallbackAvailable(Boolean(searchRes.canFallbackOsm))
+        toast({
+          title: 'Aviso na busca do Google Places',
+          description: searchRes.errorMessage,
+          variant: 'destructive',
+        })
+      }
+
       // 3. Cruzar com base do CRM para anti-duplicação em tempo real
-      const enrichedPlaces = await prospectingService.enrichPlacesWithCrmStatus(rawPlaces)
+      const enrichedPlaces = await prospectingService.enrichPlacesWithCrmStatus(searchRes.places)
 
       setPlaces(enrichedPlaces)
       setHasSearched(true)
 
       if (enrichedPlaces.length === 0) {
-        toast({
-          title: 'Nenhum estabelecimento encontrado',
-          description: `Tente aumentar o raio para ${selectedRadius < 50 ? selectedRadius * 2 : 50} km ou refinar o termo de busca.`,
-        })
+        if (!searchRes.errorMessage) {
+          toast({
+            title: 'Nenhuma empresa encontrada neste raio.',
+            description: `Tente aumentar o raio para ${selectedRadius < 50 ? selectedRadius * 2 : 50} km ou refinar o termo.`,
+          })
+        }
       } else {
         const novosCount = enrichedPlaces.filter((p) => p.crmStatus === 'nao_cadastrado').length
+        const sourceLabel = searchRes.source === 'cache' ? ' (em cache 24h)' : ''
         toast({
-          title: `🔍 ${enrichedPlaces.length} empresas encontradas`,
+          title: `🔍 ${enrichedPlaces.length} empresas encontradas${sourceLabel}`,
           description: `${novosCount} novas oportunidades e ${enrichedPlaces.length - novosCount} já cadastradas no CRM.`,
         })
       }
     } catch (err: any) {
       console.error('Error during prospecting search:', err)
+      setOsmFallbackAvailable(true)
       toast({
-        title: 'Erro na busca de locais',
+        title: 'Não foi possível consultar o Google Places neste momento.',
         description:
-          'Não foi possível consultar os provedores de mapas no momento. Tente novamente em instantes.',
+          'Você pode tentar novamente ou buscar usando a fonte alternativa OpenStreetMap.',
         variant: 'destructive',
       })
     } finally {
       setIsSearching(false)
+    }
+  }
+
+  // Carregar mais resultados (paginação explícita)
+  const handleLoadMore = async () => {
+    if (!nextPageToken || isLoadingMore) return
+    setIsLoadingMore(true)
+
+    try {
+      const moreRes = await placesService.searchPlacesWithDetails({
+        lat: activeCenter.lat,
+        lng: activeCenter.lng,
+        radiusKm: selectedRadius,
+        segment: segmentQuery,
+        location: locationQuery,
+        pageToken: nextPageToken,
+      })
+
+      const enrichedMore = await prospectingService.enrichPlacesWithCrmStatus(moreRes.places)
+
+      // Evita duplicatas locais
+      const existingIds = new Set(places.map((p) => p.id))
+      const uniqueNew = enrichedMore.filter((p) => !existingIds.has(p.id))
+
+      setPlaces((prev) => [...prev, ...uniqueNew])
+      setNextPageToken(moreRes.nextPageToken || null)
+
+      toast({
+        title: 'Mais resultados carregados',
+        description: `${uniqueNew.length} estabelecimentos adicionados à lista.`,
+      })
+    } catch (err) {
+      toast({
+        title: 'Erro ao carregar mais',
+        description: 'Não foi possível carregar a próxima página de resultados.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
+
+  // Enriquecer detalhes sob demanda ao abrir modal de detalhes
+  const handleOpenDetails = async (place: ProspectingPlace) => {
+    setSelectedPlaceForDetails(place)
+    setFocusedPlaceIdOnMap(place.id)
+
+    // Se é do Google Places e ainda não tem detalhes completos carregados, busca sob demanda
+    if (place.provider === 'google_places' && !place.detailsLoaded) {
+      const details = await placesService.fetchPlaceDetails(place.id)
+      if (details) {
+        const updatedPlace = {
+          ...place,
+          ...details,
+          detailsLoaded: true,
+        }
+        setPlaces((prev) => prev.map((p) => (p.id === place.id ? updatedPlace : p)))
+        setSelectedPlaceForDetails(updatedPlace)
+      }
     }
   }
 
@@ -302,12 +392,26 @@ export default function ProspectingPage() {
     setSelectedPlaceIds(new Set())
   }
 
-  // Ação: Adicionar ao CRM (Individual)
+  // Ação: Adicionar ao CRM (Individual) - Busca detalhes antes se for do Google e não estiver carregado
   const handleAddSingleToCrm = async (place: ProspectingPlace) => {
     setIsAddingSingle(true)
     try {
+      let placeToSave = place
+
+      // Se é Google e ainda não tem telefone/site carregado, busca Place Details primeiro
+      if (place.provider === 'google_places' && !place.detailsLoaded) {
+        const details = await placesService.fetchPlaceDetails(place.id)
+        if (details) {
+          placeToSave = {
+            ...place,
+            ...details,
+            detailsLoaded: true,
+          }
+        }
+      }
+
       const res = await prospectingService.addPlaceToCrm({
-        place,
+        place: placeToSave,
         assignedTo: user?.id,
         initialProspectingStatus: 'Nao contatado',
       })
@@ -379,15 +483,48 @@ export default function ProspectingPage() {
     }
   }
 
-  // Ação: Iniciar WhatsApp
+  // Ação: Iniciar WhatsApp (Requisito 7: busca detalhes se não houver telefone, avisa se não disponível)
   const handleStartWhatsApp = async (place: ProspectingPlace, existingClient?: Client | null) => {
+    let currentPlace = place
+
+    // Se não tiver telefone carregado, busca Place Details primeiro
+    if (
+      !currentPlace.phone &&
+      currentPlace.provider === 'google_places' &&
+      !currentPlace.detailsLoaded
+    ) {
+      toast({
+        title: 'Buscando contato...',
+        description: 'Verificando telefone cadastrado no Google Places...',
+      })
+      const details = await placesService.fetchPlaceDetails(currentPlace.id)
+      if (details) {
+        currentPlace = {
+          ...currentPlace,
+          ...details,
+          detailsLoaded: true,
+        }
+        setPlaces((prev) => prev.map((p) => (p.id === place.id ? currentPlace : p)))
+      }
+    }
+
+    const effectivePhone = currentPlace.phone || currentPlace.normalizedPhone
+    if (!effectivePhone || !effectivePhone.trim()) {
+      toast({
+        title: 'Telefone não disponível',
+        description: 'Telefone não disponibilizado pelo estabelecimento.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     // Se o cliente ainda não existe no CRM, cria primeiro sem attendance vazio para garantir vínculo idôneo
     let targetClient: Client | null = existingClient || null
 
     if (!targetClient) {
       try {
         const res = await prospectingService.addPlaceToCrm({
-          place,
+          place: currentPlace,
           assignedTo: user?.id,
           initialProspectingStatus: 'Contato iniciado',
         })
@@ -395,7 +532,9 @@ export default function ProspectingPage() {
         // Atualiza estado local
         setPlaces((prev) =>
           prev.map((p) =>
-            p.id === place.id ? { ...p, crmStatus: 'cadastrado', existingClient: res.client } : p,
+            p.id === currentPlace.id
+              ? { ...p, crmStatus: 'cadastrado', existingClient: res.client }
+              : p,
           ),
         )
       } catch (err) {
@@ -519,10 +658,10 @@ export default function ProspectingPage() {
             </div>
           </div>
 
-          {/* Botão de Busca */}
-          <div className="self-end">
+          {/* Botão de Busca & Ações de Atualização */}
+          <div className="self-end flex items-center gap-2">
             <Button
-              onClick={handleSearch}
+              onClick={() => handleSearch(false, false)}
               disabled={isSearching}
               className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs"
             >
@@ -538,6 +677,21 @@ export default function ProspectingPage() {
                 </>
               )}
             </Button>
+
+            {hasSearched && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleSearch(true, false)}
+                disabled={isSearching}
+                title="Ignora o cache de 24h e consulta novos dados no Google Places"
+                className="h-9 px-2.5 text-xs text-slate-600 dark:text-slate-300"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isSearching ? 'animate-spin' : ''}`} />
+                Atualizar resultados
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -553,7 +707,7 @@ export default function ProspectingPage() {
             selectedPlaceId={focusedPlaceIdOnMap}
             onSelectPlace={(p) => {
               setFocusedPlaceIdOnMap(p.id)
-              setSelectedPlaceForDetails(p)
+              handleOpenDetails(p)
             }}
             className="w-full h-full flex-1"
           />
@@ -588,8 +742,8 @@ export default function ProspectingPage() {
               )}
             </div>
 
-            {/* Badges de Resumo */}
-            <div className="flex flex-wrap gap-1.5 text-[11px]">
+            {/* Badges de Resumo & Provedor */}
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
               <Badge variant="outline" className="text-slate-700 dark:text-slate-300 font-medium">
                 Total: <strong>{stats.total}</strong>
               </Badge>
@@ -602,7 +756,36 @@ export default function ProspectingPage() {
               <Badge variant="secondary">
                 Com Tel: <strong>{stats.comTelefone}</strong>
               </Badge>
+
+              <Badge
+                variant="outline"
+                className={`ml-auto text-[10px] font-medium ${
+                  activeProvider === 'google_places'
+                    ? 'border-blue-300 text-blue-700 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30'
+                    : 'border-amber-300 text-amber-700 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/30'
+                }`}
+              >
+                {activeProvider === 'google_places'
+                  ? `Google Places${searchSource === 'cache' ? ' (Cache 24h)' : ''}`
+                  : 'OpenStreetMap (Fallback)'}
+              </Badge>
             </div>
+
+            {/* Alerta de Fallback para OpenStreetMap quando Google falhar ou o usuário desejar */}
+            {osmFallbackAvailable && (
+              <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 flex items-center justify-between text-xs text-amber-800 dark:text-amber-200">
+                <span>Deseja consultar a fonte alternativa OpenStreetMap?</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[11px] border-amber-300 text-amber-800 hover:bg-amber-100"
+                  onClick={() => handleSearch(false, true)}
+                >
+                  Buscar usando fonte alternativa
+                </Button>
+              </div>
+            )}
 
             {/* Filtros de Lista */}
             <div className="pt-1 flex flex-wrap items-center gap-2 text-xs">
@@ -746,7 +929,7 @@ export default function ProspectingPage() {
                           <h3
                             onClick={(e) => {
                               e.stopPropagation()
-                              setSelectedPlaceForDetails(place)
+                              handleOpenDetails(place)
                             }}
                             className="text-xs font-bold text-slate-900 dark:text-white truncate hover:underline hover:text-emerald-600"
                           >
@@ -830,28 +1013,26 @@ export default function ProspectingPage() {
                               className="h-6 px-2 text-[10px]"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setSelectedPlaceForDetails(place)
+                                handleOpenDetails(place)
                               }}
                             >
                               Detalhes
                             </Button>
 
-                            {/* Botão WhatsApp */}
-                            {place.phone && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-6 px-2 text-[10px] text-emerald-700 dark:text-emerald-300 border-emerald-300 hover:bg-emerald-50"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleStartWhatsApp(place, place.existingClient)
-                                }}
-                              >
-                                <MessageSquare className="h-3 w-3 mr-1" />
-                                WhatsApp
-                              </Button>
-                            )}
+                            {/* Botão WhatsApp (pode disparar busca de detalhes sob demanda) */}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-[10px] text-emerald-700 dark:text-emerald-300 border-emerald-300 hover:bg-emerald-50"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleStartWhatsApp(place, place.existingClient)
+                              }}
+                            >
+                              <MessageSquare className="h-3 w-3 mr-1" />
+                              WhatsApp
+                            </Button>
 
                             {/* Botão Adicionar ou Ver Cliente */}
                             {isCadastrado && place.existingClient ? (
@@ -888,6 +1069,32 @@ export default function ProspectingPage() {
                   </div>
                 )
               })
+            )}
+
+            {/* Botão "Carregar Mais" quando nextPageToken presente */}
+            {nextPageToken && !isSearching && (
+              <div className="pt-2 pb-1 text-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoadingMore}
+                  onClick={handleLoadMore}
+                  className="w-full text-xs text-slate-700 dark:text-slate-300 border-dashed"
+                >
+                  {isLoadingMore ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      Carregando mais...
+                    </>
+                  ) : (
+                    <>
+                      <ArrowUpDown className="h-3.5 w-3.5 mr-1.5" />
+                      Carregar mais empresas
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
           </div>
         </div>

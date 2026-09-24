@@ -5,6 +5,7 @@
  * Contém cache temporário para evitar requisições repetidas e limite de chamadas desnecessárias.
  */
 
+import pb from '@/lib/pocketbase/client'
 import { normalizePhone } from '@/lib/utils'
 import type { ProspectingPlace } from '@/types/crm'
 
@@ -22,17 +23,25 @@ export interface SearchPlacesOptions {
   lng: number
   radiusKm: number
   segment: string // Termo livre (ex: "escolas", "academias", "gráficas", "restaurantes")
+  location?: string
+  refresh?: boolean
+  pageToken?: string
+  forceOsm?: boolean // Permite forçar Overpass OSM sob demanda do usuário
 }
 
-// Cache local em memória por chave (ex: lat:lng:radius:segment) válido por 5 minutos
-interface CacheEntry {
-  timestamp: number
-  data: ProspectingPlace[]
+export interface SearchPlacesResult {
+  places: ProspectingPlace[]
+  nextPageToken?: string | null
+  provider: 'google_places' | 'openstreetmap'
+  source: 'google_api' | 'cache' | 'osm_fallback'
+  canFallbackOsm?: boolean
+  errorMessage?: string
 }
 
-const placesCache = new Map<string, CacheEntry>()
+// Cache local em memória para geocodificação
 const geocodeCache = new Map<string, GeocodingResult[]>()
-const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutos
+// Cache em memória de detalhes enriquecidos (Place ID -> detalhes)
+const detailsCache = new Map<string, Partial<ProspectingPlace>>()
 
 // Cálculo de distância por fórmula de Haversine em km
 export function calculateHaversineDistance(
@@ -334,20 +343,169 @@ export const placesService = {
   },
 
   /**
-   * Busca estabelecimentos comerciais na região especificada
+   * Busca estabelecimentos comerciais com GOOGLE PLACES API (NEW) como provedor PRINCIPAL
+   * e OPENSTREETMAP (Overpass) como fallback controlado.
+   * Não expõe chaves no frontend: chama /backend/v1/crm/prospecting/places:search
    */
-  async searchPlaces(options: SearchPlacesOptions): Promise<ProspectingPlace[]> {
-    const { lat, lng, radiusKm, segment } = options
-    const radiusMeters = Math.min(radiusKm * 1000, 50000) // Limite de 50 km para segurança de tráfego
-    const cacheKey = `${lat.toFixed(4)}:${lng.toFixed(4)}:${radiusKm}:${segment.trim().toLowerCase()}`
+  async searchPlacesWithDetails(options: SearchPlacesOptions): Promise<SearchPlacesResult> {
+    const { lat, lng, radiusKm, segment, location, refresh, pageToken, forceOsm } = options
 
-    // 1. Verifica cache em memória
-    const cached = placesCache.get(cacheKey)
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      return cached.data
+    // Se o usuário selecionou explicitamente "Buscar usando fonte alternativa"
+    if (forceOsm) {
+      const osmPlaces = await this.searchOverpassOsm(options)
+      return {
+        places: osmPlaces,
+        nextPageToken: null,
+        provider: 'openstreetmap',
+        source: 'osm_fallback',
+      }
     }
 
-    // 2. Tenta Overpass API (OpenStreetMap) padrão sem chave
+    // Provedor Principal: Google Places API (New) via backend do CRM
+    try {
+      const res = await pb.send<{
+        success: boolean
+        source: 'google_api' | 'cache'
+        cached: boolean
+        places: ProspectingPlace[]
+        nextPageToken?: string | null
+        total?: number
+        error?: string
+        error_code?: string
+        can_fallback_osm?: boolean
+      }>('/backend/v1/crm/prospecting/places:search', {
+        method: 'POST',
+        body: {
+          segment,
+          lat,
+          lng,
+          radiusKm,
+          location,
+          refresh: Boolean(refresh),
+          pageToken: pageToken || undefined,
+        },
+      })
+
+      if (res && res.success && Array.isArray(res.places)) {
+        return {
+          places: res.places,
+          nextPageToken: res.nextPageToken || null,
+          provider: 'google_places',
+          source: res.source || 'google_api',
+        }
+      }
+
+      // Se retornou erro controlado da API
+      const errMsg = res?.error || 'Não foi possível consultar o Google Places neste momento.'
+      return {
+        places: [],
+        nextPageToken: null,
+        provider: 'google_places',
+        source: 'google_api',
+        canFallbackOsm: res?.can_fallback_osm ?? true,
+        errorMessage: errMsg,
+      }
+    } catch (err: any) {
+      console.warn('[placesService] Erro ao consultar backend do Google Places:', err)
+      const status = err?.status || 0
+      let userMsg = 'Não foi possível consultar o Google Places neste momento.'
+      if (err?.data?.error) {
+        userMsg = err.data.error
+      } else if (status === 400 || status === 403) {
+        userMsg = 'Acesso ao Google Places negado ou credenciais inválidas.'
+      } else if (status === 429) {
+        userMsg = 'Limite de consultas da API atingido.'
+      }
+
+      return {
+        places: [],
+        nextPageToken: null,
+        provider: 'google_places',
+        source: 'google_api',
+        canFallbackOsm: true,
+        errorMessage: userMsg,
+      }
+    }
+  },
+
+  /**
+   * Compatibilidade com chamadas simples anteriores
+   */
+  async searchPlaces(options: SearchPlacesOptions): Promise<ProspectingPlace[]> {
+    const res = await this.searchPlacesWithDetails(options)
+    return res.places
+  },
+
+  /**
+   * Busca detalhes adicionais sob demanda (Place Details) do Google Places via backend
+   * Chamado APENAS ao abrir detalhes, clicar em adicionar ao CRM ou iniciar WhatsApp sem telefone.
+   */
+  async fetchPlaceDetails(placeId: string): Promise<Partial<ProspectingPlace> | null> {
+    if (!placeId) return null
+
+    // Checar cache local em memória primeiro
+    if (detailsCache.has(placeId)) {
+      return detailsCache.get(placeId)!
+    }
+
+    try {
+      const res = await pb.send<{
+        success: boolean
+        source: 'google_api' | 'cache'
+        cached: boolean
+        details: {
+          id: string
+          displayName: string
+          formattedAddress: string
+          phone: string | null
+          normalizedPhone: string | null
+          website: string | null
+          googleMapsUri: string | null
+          businessStatus: string
+          street?: string
+          neighborhood?: string
+          city?: string
+          state?: string
+          postalCode?: string
+        }
+      }>('/backend/v1/crm/prospecting/places:details', {
+        method: 'POST',
+        body: { placeId },
+      })
+
+      if (res && res.success && res.details) {
+        const d = res.details
+        const enriched: Partial<ProspectingPlace> = {
+          phone: d.phone,
+          normalizedPhone: d.normalizedPhone,
+          whatsappAvailable: Boolean(d.normalizedPhone && d.normalizedPhone.length >= 8),
+          website: d.website,
+          googleMapsUri: d.googleMapsUri,
+          businessStatus: d.businessStatus,
+          street: d.street || undefined,
+          neighborhood: d.neighborhood || undefined,
+          city: d.city || undefined,
+          state: d.state || undefined,
+          postalCode: d.postalCode || undefined,
+          detailsLoaded: true,
+        }
+        detailsCache.set(placeId, enriched)
+        return enriched
+      }
+      return null
+    } catch (err) {
+      console.warn('[placesService] Falha ao buscar detalhes do local:', err)
+      return null
+    }
+  },
+
+  /**
+   * Fallback OpenStreetMap (Overpass) mantido intacto conforme requisitos 8 e 9
+   */
+  async searchOverpassOsm(options: SearchPlacesOptions): Promise<ProspectingPlace[]> {
+    const { lat, lng, radiusKm, segment } = options
+    const radiusMeters = Math.min(radiusKm * 1000, 50000)
+
     const query = buildOverpassQuery(lat, lng, radiusMeters, segment)
     const overpassEndpoints = [
       'https://overpass-api.de/api/interpreter',
@@ -498,20 +656,48 @@ export const placesService = {
     // Ordenar por distância crescente
     places.sort((a, b) => a.distanceKm - b.distanceKm)
 
-    // 4. Salva no cache
-    placesCache.set(cacheKey, {
-      timestamp: Date.now(),
-      data: places,
-    })
-
     return places
   },
 
   /**
-   * Limpa cache de buscas de places se necessário
+   * Consulta os contadores internos diagnósticos
+   */
+  async getCounters(): Promise<{
+    google_search_requests: number
+    google_details_requests: number
+    google_cache_hits: number
+    has_api_key: boolean
+  } | null> {
+    try {
+      const res = await pb.send<{
+        success: boolean
+        has_api_key: boolean
+        counters: {
+          google_search_requests: number
+          google_details_requests: number
+          google_cache_hits: number
+        }
+      }>('/backend/v1/crm/prospecting/places:counters', {
+        method: 'GET',
+      })
+      if (res && res.success) {
+        return {
+          ...res.counters,
+          has_api_key: res.has_api_key,
+        }
+      }
+      return null
+    } catch (err) {
+      console.warn('[placesService] Erro ao consultar contadores:', err)
+      return null
+    }
+  },
+
+  /**
+   * Limpa cache em memória
    */
   clearCache(): void {
-    placesCache.clear()
+    detailsCache.clear()
     geocodeCache.clear()
   },
 }

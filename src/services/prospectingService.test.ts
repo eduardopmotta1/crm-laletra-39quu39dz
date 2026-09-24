@@ -172,6 +172,41 @@ describe('prospectingService & placesService', () => {
       expect(res.matchedClient?.id).toBe('client_1')
     })
 
+    it('identifica duplicata de Google Place via google_place_id', () => {
+      const clientsWithGoogle: Client[] = [
+        ...mockExistingClients,
+        {
+          id: 'client_google_1',
+          name: 'Colégio Estadual Teste',
+          phone: '21999990000',
+          google_place_id: 'ChIJabcdef123456',
+          stage: 'Novo contato',
+          priority: 'media',
+          is_archived: false,
+          created: '2026-01-01',
+          updated: '2026-01-01',
+        } as unknown as Client,
+      ]
+
+      const place: ProspectingPlace = {
+        id: 'ChIJabcdef123456',
+        googlePlaceId: 'ChIJabcdef123456',
+        name: 'Colégio Estadual Outro Nome',
+        category: 'school',
+        address: 'Outro endereço',
+        lat: -22.46,
+        lng: -42.65,
+        distanceKm: 2.0,
+        whatsappAvailable: false,
+        provider: 'google_places',
+      }
+
+      const res = prospectingService.checkDuplicateInMemory(place, clientsWithGoogle)
+      expect(res.isDuplicate).toBe(true)
+      expect(res.matchReason).toBe('place_id')
+      expect(res.matchedClient?.id).toBe('client_google_1')
+    })
+
     it('identifica duplicata pelo Telefone normalizado', () => {
       const place: ProspectingPlace = {
         id: 'osm:node/9999',

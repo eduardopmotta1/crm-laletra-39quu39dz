@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T23:23:43.186Z",
+  "generatedAt": "2026-09-24T00:17:38.252Z",
   "collections": [
     {
       "name": "users",
@@ -418,6 +418,12 @@
           "type": "date",
           "required": false,
           "system": false
+        },
+        {
+          "name": "google_place_id",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -428,7 +434,8 @@
         "CREATE INDEX `idx_clients_is_archived` ON `clients` (is_archived)",
         "CREATE UNIQUE INDEX `idx_clients_normalized_phone_unique` ON `clients` (normalized_phone) WHERE normalized_phone != ''",
         "CREATE UNIQUE INDEX `idx_clients_public_token` ON `clients` (public_token) WHERE public_token != ''",
-        "CREATE INDEX `idx_clients_place_id` ON `clients` (external_place_id)"
+        "CREATE INDEX `idx_clients_place_id` ON `clients` (external_place_id)",
+        "CREATE INDEX `idx_clients_google_place_id` ON `clients` (google_place_id)"
       ]
     },
     {
@@ -3231,6 +3238,62 @@
         "CREATE INDEX idx_pochats_order ON production_order_chat_messages (order_id)",
         "CREATE INDEX idx_pochats_order_created ON production_order_chat_messages (order_id, created ASC)",
         "CREATE INDEX idx_pochats_user ON production_order_chat_messages (user_id)"
+      ]
+    },
+    {
+      "name": "places_cache",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "cache_key",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "cache_type",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["search", "details"]
+        },
+        {
+          "name": "data",
+          "type": "json",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "expires_at",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_places_cache_key ON places_cache (cache_key)",
+        "CREATE INDEX idx_places_cache_expires ON places_cache (expires_at)"
       ]
     }
   ]
