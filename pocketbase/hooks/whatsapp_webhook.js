@@ -103,6 +103,36 @@
       return digits
     }
 
+    function getPhoneVariants(rawPhone) {
+      if (!rawPhone) return []
+      let digits = String(rawPhone).replace(/\D/g, '')
+      if (!digits) return []
+
+      const set = new Set()
+      set.add(digits)
+
+      // Se começar com 0 (ex: 021970156756 ou 011...)
+      if (digits.startsWith('0') && digits.length > 10) {
+        const withoutZero = digits.replace(/^0+/, '')
+        if (withoutZero) set.add(withoutZero)
+      }
+
+      // Se começar com prefixo do país 55 (Brasil) e tiver tamanho válido (ex: 5521970156756)
+      if (digits.startsWith('55') && digits.length >= 12) {
+        const national = digits.substring(2)
+        set.add(national)
+        if (national.startsWith('0')) {
+          const nationalNoZero = national.replace(/^0+/, '')
+          if (nationalNoZero) set.add(nationalNoZero)
+        }
+      } else if (digits.length === 10 || digits.length === 11) {
+        // Se for número nacional sem 55 (ex: 21970156756)
+        set.add('55' + digits)
+      }
+
+      return Array.from(set).filter((v) => v && v.length >= 8)
+    }
+
     function parseMessageContent(msg) {
       const type = msg.type || 'text'
       switch (type) {
@@ -200,19 +230,54 @@
 
     function findOrCreateClient(phone, name, txApp) {
       let client = null
-      try {
-        client = txApp.findFirstRecordByData('clients', 'phone', phone)
-      } catch (_) {
+      const variants = getPhoneVariants(phone)
+
+      // 1. Tentar match exato por normalized_phone contra qualquer variante do número (com/sem 55, sem 0)
+      for (let i = 0; i < variants.length; i++) {
+        const variant = variants[i]
         try {
-          const records = txApp.findRecordsByFilter(
-            'clients',
-            `phone ~ '${phone.slice(-8)}'`,
-            '-created',
-            1,
-            0,
-          )
+          client = txApp.findFirstRecordByData('clients', 'normalized_phone', variant)
+          if (client) break
+        } catch (_) {}
+      }
+
+      // 2. Tentar match exato por phone contra qualquer variante
+      if (!client) {
+        for (let i = 0; i < variants.length; i++) {
+          const variant = variants[i]
+          try {
+            client = txApp.findFirstRecordByData('clients', 'phone', variant)
+            if (client) break
+          } catch (_) {}
+        }
+      }
+
+      // 3. Fallback: busca por filtro com variantes do normalized_phone ou sufixo dos últimos 8 dígitos
+      if (!client && variants.length > 0) {
+        try {
+          const filterConditions = variants.map((v) => `normalized_phone = '${v}'`).join(' || ')
+          const records = txApp.findRecordsByFilter('clients', filterConditions, '-created', 1, 0)
           if (records && records.length > 0) {
             client = records[0]
+          }
+        } catch (_) {}
+      }
+
+      // 4. Fallback final pelo sufixo do telefone (últimos 8 dígitos)
+      if (!client) {
+        try {
+          const last8 = phone.slice(-8)
+          if (last8.length === 8) {
+            const records = txApp.findRecordsByFilter(
+              'clients',
+              `phone ~ '${last8}'`,
+              '-created',
+              1,
+              0,
+            )
+            if (records && records.length > 0) {
+              client = records[0]
+            }
           }
         } catch (_) {}
       }
@@ -227,12 +292,15 @@
         return client
       }
 
+      // Determine default normalized_phone for new client (standard digits without formatting)
+      const primaryNorm = normalizePhone(phone)
+
       // Create client inside tx
       const clientsCol = txApp.findCollectionByNameOrId('clients')
       const newClient = new Record(clientsCol)
       newClient.set('name', name || phone)
       newClient.set('phone', phone)
-      newClient.set('normalized_phone', normalizePhone(phone))
+      newClient.set('normalized_phone', primaryNorm)
       newClient.set('stage', 'Novo contato')
       newClient.set('priority', 'media')
       newClient.set('is_archived', false)
