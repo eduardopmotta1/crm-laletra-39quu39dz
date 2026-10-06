@@ -26,8 +26,10 @@ import {
   Package,
   FileText,
   Loader2,
+  Ban,
 } from 'lucide-react'
-import type { Client, DealResult } from '@/types/crm'
+import type { Client, ClosureWithoutOpportunityReason, DealResult } from '@/types/crm'
+import { CLOSURE_WITHOUT_OPPORTUNITY_REASONS } from '@/types/crm'
 import type { Quote } from '@/types/quotes'
 import { dealsService } from '@/services/deals'
 import { productionService } from '@/services/production'
@@ -75,6 +77,10 @@ export default function CompleteAndArchiveModal({
   const [productInterest, setProductInterest] = useState<string>(client?.product_interest || '')
   const [lossReason, setLossReason] = useState<string>('')
   const [customLossReason, setCustomLossReason] = useState<string>('')
+  const [closureWithoutOppReason, setClosureWithoutOppReason] = useState<
+    ClosureWithoutOpportunityReason | ''
+  >('')
+  const [customClosureWithoutOppReason, setCustomClosureWithoutOppReason] = useState<string>('')
   const [finalNotes, setFinalNotes] = useState<string>('')
   const [createProductionOrder, setCreateProductionOrder] = useState<boolean>(true)
   const [productionModalOpen, setProductionModalOpen] = useState<boolean>(false)
@@ -97,6 +103,8 @@ export default function CompleteAndArchiveModal({
       }
       setLossReason('')
       setCustomLossReason('')
+      setClosureWithoutOppReason('')
+      setCustomClosureWithoutOppReason('')
       setFinalNotes('')
       setCreateProductionOrder(true)
       setSelectedQuote(null)
@@ -185,6 +193,19 @@ export default function CompleteAndArchiveModal({
       return
     }
 
+    if (
+      result === 'Sem oportunidade' &&
+      !closureWithoutOppReason &&
+      !customClosureWithoutOppReason.trim()
+    ) {
+      toast({
+        title: 'Motivo obrigatório',
+        description: 'Por favor, selecione o motivo do encerramento sem oportunidade.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     // REGRA CRÍTICA: Se for "Venda fechada" com "Criar Pedido de Produção imediatamente",
     // a conclusão/arquivamento definitivo SÓ ocorre após a criação da ordem de produção ter sucesso.
     // Se a criação da produção falhar ou for cancelada, o atendimento continua aberto,
@@ -201,7 +222,7 @@ export default function CompleteAndArchiveModal({
       return
     }
 
-    // Fluxo sem criação imediata de pedido de produção (ex: venda perdida ou venda fechada sem pedido de produção)
+    // Fluxo sem criação imediata de pedido de produção (ex: venda perdida, sem oportunidade ou venda fechada sem pedido de produção)
     setLoading(true)
     try {
       const selectedReason =
@@ -209,15 +230,28 @@ export default function CompleteAndArchiveModal({
           ? customLossReason.trim()
           : lossReason || customLossReason.trim()
 
+      const selectedWithoutOppReason =
+        closureWithoutOppReason === 'Outro' && customClosureWithoutOppReason.trim()
+          ? `Outro: ${customClosureWithoutOppReason.trim()}`
+          : closureWithoutOppReason || customClosureWithoutOppReason.trim()
+
       const effectiveAttId = attendanceId || client.attendance_id
+
+      const isWithoutOpportunity = result === 'Sem oportunidade'
 
       const archived = await dealsService.completeAndArchive({
         clientId: client.id,
         attendanceId: effectiveAttId,
         result,
+        closureType: isWithoutOpportunity
+          ? 'without_opportunity'
+          : result === 'Venda fechada'
+            ? 'won'
+            : 'lost',
+        closureReason: isWithoutOpportunity ? selectedWithoutOppReason : undefined,
         lossReason: result === 'Venda perdida' ? selectedReason : undefined,
-        quoteValue: quoteValue ? Number(quoteValue) : undefined,
-        productInterest: productInterest.trim() || undefined,
+        quoteValue: isWithoutOpportunity ? 0 : quoteValue ? Number(quoteValue) : undefined,
+        productInterest: isWithoutOpportunity ? '' : productInterest.trim() || undefined,
         finalNotes: finalNotes.trim() || undefined,
       })
       setCreatedArchivedDealId(archived.id)
@@ -237,7 +271,9 @@ export default function CompleteAndArchiveModal({
         title:
           result === 'Venda fechada'
             ? '🎉 Venda Concluída & Arquivada!'
-            : 'Atendimento Encerrado & Arquivado',
+            : result === 'Sem oportunidade'
+              ? 'Atendimento Encerrado sem Oportunidade'
+              : 'Atendimento Encerrado & Arquivado',
         description: `O atendimento de "${client.name}" foi arquivado no CRM com dados preservados.`,
       })
 
@@ -307,36 +343,50 @@ export default function CompleteAndArchiveModal({
               )}
             </div>
 
-            {/* Outcome Choice: Venda Fechada vs Venda Perdida */}
+            {/* Outcome Choice: Venda Fechada vs Venda Perdida vs Sem Oportunidade */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Resultado Final do Atendimento *
               </label>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setResult('Venda fechada')}
-                  className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
+                  className={`flex flex-col sm:flex-row items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
                     result === 'Venda fechada'
                       ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 ring-2 ring-emerald-500/20 shadow-sm'
                       : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 text-slate-600 dark:text-slate-400'
                   }`}
                 >
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  Venda Fechada
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span>Venda Fechada</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setResult('Venda perdida')}
-                  className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
+                  className={`flex flex-col sm:flex-row items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
                     result === 'Venda perdida'
                       ? 'border-rose-600 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 ring-2 ring-rose-500/20 shadow-sm'
                       : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 text-slate-600 dark:text-slate-400'
                   }`}
                 >
-                  <XCircle className="h-4 w-4 text-rose-600" />
-                  Venda Perdida
+                  <XCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                  <span>Venda Perdida</span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="btn-sem-oportunidade"
+                  onClick={() => setResult('Sem oportunidade')}
+                  className={`flex flex-col sm:flex-row items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
+                    result === 'Sem oportunidade'
+                      ? 'border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 ring-2 ring-slate-500/20 shadow-sm'
+                      : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <Ban className="h-4 w-4 text-slate-600 shrink-0" />
+                  <span>Sem oportunidade</span>
                 </button>
               </div>
             </div>
@@ -371,6 +421,56 @@ export default function CompleteAndArchiveModal({
                       value={customLossReason}
                       onChange={(e) => setCustomLossReason(e.target.value)}
                       placeholder="Descreva o motivo da perda..."
+                      className="mt-1 text-xs bg-white dark:bg-slate-900"
+                      required
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* If Sem Oportunidade: Reason Select (lista fechada sem impacto comercial) */}
+            {result === 'Sem oportunidade' && (
+              <div className="space-y-3 p-3.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700">
+                <div>
+                  <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    Motivo do Encerramento sem Oportunidade *
+                  </label>
+                  <Select
+                    value={closureWithoutOppReason}
+                    onValueChange={(val) =>
+                      setClosureWithoutOppReason(val as ClosureWithoutOpportunityReason)
+                    }
+                  >
+                    <SelectTrigger
+                      data-testid="select-sem-oportunidade-trigger"
+                      className="mt-1 text-xs bg-white dark:bg-slate-900"
+                    >
+                      <SelectValue placeholder="Selecione o motivo..." />
+                    </SelectTrigger>
+                    <SelectContent className={zIndexClass === 'z-[80]' ? 'z-[90]' : undefined}>
+                      {CLOSURE_WITHOUT_OPPORTUNITY_REASONS.map((reason) => (
+                        <SelectItem key={reason} value={reason}>
+                          {reason}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Este atendimento será arquivado de forma neutra. Não conta como venda perdida,
+                    não exige orçamento e não contamina os indicadores de conversão.
+                  </p>
+                </div>
+
+                {closureWithoutOppReason === 'Outro' && (
+                  <div>
+                    <label className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                      Especifique o motivo
+                    </label>
+                    <Input
+                      value={customClosureWithoutOppReason}
+                      onChange={(e) => setCustomClosureWithoutOppReason(e.target.value)}
+                      placeholder="Descreva o motivo..."
                       className="mt-1 text-xs bg-white dark:bg-slate-900"
                       required
                     />
@@ -487,14 +587,18 @@ export default function CompleteAndArchiveModal({
                 className={
                   result === 'Venda fechada'
                     ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-semibold'
-                    : 'bg-rose-600 hover:bg-rose-700 text-white font-semibold'
+                    : result === 'Sem oportunidade'
+                      ? 'bg-slate-700 hover:bg-slate-800 text-white font-semibold'
+                      : 'bg-rose-600 hover:bg-rose-700 text-white font-semibold'
                 }
               >
                 {loading
                   ? 'Concluindo...'
                   : result === 'Venda fechada'
                     ? 'Concluir Venda & Arquivar'
-                    : 'Arquivar como Não Fechou'}
+                    : result === 'Sem oportunidade'
+                      ? 'Encerrar sem Oportunidade'
+                      : 'Arquivar como Não Fechou'}
               </Button>
             </DialogFooter>
           </form>

@@ -767,8 +767,8 @@ export default function WhatsAppChatDrawer({
           }
         }
 
-        // Resolução segura de atendimento para outbound/visualização:
-        // (1) Buscar atendimentos do cliente
+        // Resolução segura de atendimento para outbound/visualização (100% LEITURA - Zero efeito colateral comercial):
+        // (1) Buscar atendimentos do cliente ordenados estritamente por -created
         try {
           const clientAtts = await attendancesService.getByClientId(clientId)
           const activeList = clientAtts.filter((a) => !a.is_archived)
@@ -778,41 +778,30 @@ export default function WhatsAppChatDrawer({
             return activeList[0]
           }
 
-          // (3) Se nenhum ativo existir -> delegar resolução determinística/criação ao BACKEND
+          // (3) Se nenhum ativo existir -> NÃO criar attendance nem reativar cliente!
+          // Carregar apenas o ÚLTIMO atendimento existente (se houver) para exibição do histórico,
+          // ordenado deterministicamente por -created (nunca clientAtts[0] sem ordenação).
           if (activeList.length === 0) {
-            try {
-              const resolved = await attendancesService.resolveForClient(clientId, {
-                source: 'drawer_sync',
-                stage: 'Novo contato',
-              })
-              return resolved || null
-            } catch (resolveErr) {
-              console.warn(
-                '[WhatsAppChatDrawer] Erro ao resolver attendance pelo backend quando 0 ativos:',
-                resolveErr,
+            if (clientAtts.length > 0) {
+              const sortedHistory = [...clientAtts].sort(
+                (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime(),
               )
-              return null
+              return sortedHistory[0] || null
             }
+            return null
           }
 
           // (4) Se >1 ativos históricos forem encontrados:
-          // Jamais usar clientAtts[0] como decisão de negócio arbitrária!
-          // Tratar como inconsistência histórica: logar aviso estruturado e resolver deterministicamente
-          // pelo backend central (ou pelo mais recente por created se backend offline).
+          // Tratar como inconsistência histórica: logar aviso estruturado e selecionar
+          // deterministicamente pelo mais recente por created (-created). NUNCA criar outro.
           const ids = activeList.map((a) => a.id).join(', ')
           console.warn(
-            `[WhatsAppChatDrawer] Inconsistência histórica: cliente ${clientId} possui ${activeList.length} atendimentos ativos: [${ids}]. Delegando resolução determinística ao backend sem escolha arbitrária no frontend.`,
+            `[WhatsAppChatDrawer] Inconsistência histórica: cliente ${clientId} possui ${activeList.length} atendimentos ativos: [${ids}]. Selecionando mais recente por created (-created).`,
           )
-          try {
-            const resolvedDeterministic = await attendancesService.resolveForClient(clientId)
-            return resolvedDeterministic || activeList[0]
-          } catch (_) {
-            // Em caso de fallback extremo, ordena deterministicamente por data mais recente
-            const sorted = [...activeList].sort(
-              (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime(),
-            )
-            return sorted[0] || null
-          }
+          const sortedActive = [...activeList].sort(
+            (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime(),
+          )
+          return sortedActive[0] || null
         } catch (err) {
           console.warn(
             '[WhatsAppChatDrawer] Erro ao buscar fallback de attendance do cliente:',
@@ -2080,29 +2069,73 @@ export default function WhatsAppChatDrawer({
                 </Button>
               )}
 
-              {displayClient.is_archived ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    await dealsService.reopenClient(
-                      displayClient.id,
-                      'Precisa responder',
-                      activeAttendance?.id,
-                    )
-                    toast({
-                      title: 'Atendimento Reaberto!',
-                      description: 'Cliente retornado ao funil ativo na etapa "Precisa responder".',
-                    })
-                    if (onClientUpdated) onClientUpdated()
-                    loadClientData(displayClient.id)
-                  }}
-                  className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 font-semibold shrink-0"
-                >
-                  <RotateCcw className="h-3.5 w-3.5 mr-1 text-emerald-600" />
-                  <span className="hidden sm:inline">Reabrir Atendimento</span>
-                  <span className="sm:hidden">Reabrir</span>
-                </Button>
+              {/* Quando não houver atendimento ativo, exibir botão explícito "Novo atendimento" */}
+              {!effectiveAttendance ||
+              effectiveAttendance.is_archived ||
+              displayClient.is_archived ? (
+                <>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const newAtt = await attendancesService.createForClient(displayClient.id, {
+                          stage: 'Em atendimento',
+                          source: 'drawer_manual',
+                          assigned_to: user?.id || '',
+                          notes:
+                            'Atendimento comercial iniciado manualmente pelo botão Novo Atendimento no Drawer.',
+                        })
+                        setCurrentAttendance(newAtt)
+                        window.dispatchEvent(new CustomEvent('crm-client-updated'))
+                        if (onClientUpdated) onClientUpdated()
+                        toast({
+                          title: 'Novo atendimento iniciado',
+                          description: `Atendimento aberto para ${displayClient.name} na etapa "Em atendimento".`,
+                        })
+                        loadClientData(displayClient.id, newAtt.id)
+                      } catch (err: any) {
+                        toast({
+                          title: 'Erro ao iniciar atendimento',
+                          description: err?.message || 'Não foi possível criar o atendimento.',
+                          variant: 'destructive',
+                        })
+                      }
+                    }}
+                    className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shrink-0"
+                    data-testid="btn-drawer-new-attendance"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    <span className="hidden sm:inline">Novo atendimento</span>
+                    <span className="sm:hidden">Novo</span>
+                  </Button>
+
+                  {displayClient.is_archived && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        await dealsService.reopenClient(
+                          displayClient.id,
+                          'Precisa responder',
+                          activeAttendance?.id,
+                        )
+                        toast({
+                          title: 'Atendimento Reaberto!',
+                          description:
+                            'Cliente retornado ao funil ativo na etapa "Precisa responder".',
+                        })
+                        if (onClientUpdated) onClientUpdated()
+                        loadClientData(displayClient.id)
+                      }}
+                      className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 font-semibold shrink-0"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                      <span className="hidden sm:inline">Reabrir Atendimento</span>
+                      <span className="sm:hidden">Reabrir</span>
+                    </Button>
+                  )}
+                </>
               ) : (
                 <Button
                   variant="outline"

@@ -213,7 +213,12 @@ export default function DashboardPage() {
     },
     {
       stage: 'Não fechou',
-      count: activeAttendances.filter((a) => a.stage === 'Não fechou').length,
+      count: activeAttendances.filter(
+        (a) =>
+          a.stage === 'Não fechou' &&
+          a.closure_type !== 'without_opportunity' &&
+          a.result !== 'Sem oportunidade',
+      ).length,
       color: 'bg-slate-400',
     },
   ]

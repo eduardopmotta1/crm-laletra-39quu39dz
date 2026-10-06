@@ -1,20 +1,21 @@
 import pb from '@/lib/pocketbase/client'
 import { tasksService } from './tasks'
-import type { ArchivedDeal, StageTransition } from '@/types/crm'
+import type { ArchivedDeal, DealResult, StageTransition } from '@/types/crm'
 
 export interface ArchiveDealPayload {
-  clientId?: string
+  clientId: string
   attendanceId?: string
-  result: 'Venda fechada' | 'Venda perdida'
+  result: DealResult
+  closureType?: 'won' | 'lost' | 'without_opportunity'
+  closureReason?: string
   lossReason?: string
   lossCategory?: string
-  finalNotes?: string
-  quoteValue?: number
   productInterest?: string
+  quoteValue?: number
+  finalNotes?: string
   assignedTo?: string
   closedBy?: string
 }
-
 export const dealsService = {
   /**
    * Concluir e Arquivar Atendimento
@@ -80,6 +81,21 @@ export const dealsService = {
       durationDays = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)))
     }
 
+    // Normalizar closureType e closureReason
+    const effectiveClosureType =
+      payload.closureType ||
+      (payload.result === 'Venda fechada'
+        ? 'won'
+        : payload.result === 'Sem oportunidade'
+          ? 'without_opportunity'
+          : 'lost')
+
+    const effectiveClosureReason =
+      payload.closureReason ||
+      (effectiveClosureType === 'without_opportunity'
+        ? payload.lossReason || payload.finalNotes || ''
+        : '')
+
     // 1. Upsert archived deal record by attendance_id (or client_id as fallback)
     let archived: ArchivedDeal
     let isNewArchivedRecord = false
@@ -106,16 +122,25 @@ export const dealsService = {
         client_phone: clientPhone,
         client_email: clientEmail,
         result: payload.result,
+        closure_type: effectiveClosureType,
+        closure_reason: effectiveClosureReason,
         loss_reason: payload.lossReason || '',
         loss_category: payload.lossCategory || '',
         product_interest:
-          payload.productInterest || attendance?.product_interest || client?.product_interest || '',
+          effectiveClosureType === 'without_opportunity'
+            ? ''
+            : payload.productInterest ||
+              attendance?.product_interest ||
+              client?.product_interest ||
+              '',
         quote_value:
-          payload.quoteValue !== undefined
-            ? payload.quoteValue
-            : attendance?.quote_value !== undefined
-              ? attendance.quote_value
-              : client?.quote_value || undefined,
+          effectiveClosureType === 'without_opportunity'
+            ? 0
+            : payload.quoteValue !== undefined
+              ? payload.quoteValue
+              : attendance?.quote_value !== undefined
+                ? attendance.quote_value
+                : client?.quote_value || undefined,
         closed_at: todayDateStr,
         assigned_to:
           payload.assignedTo || attendance?.assigned_to || client?.assigned_to || undefined,
@@ -164,18 +189,26 @@ export const dealsService = {
     // 2. Update attendance record (archive cycle)
     const finalStage = payload.result === 'Venda fechada' ? 'Venda fechada' : 'Não fechou'
     const isWon = payload.result === 'Venda fechada'
+    const isWithoutOpportunity =
+      payload.result === 'Sem oportunidade' || effectiveClosureType === 'without_opportunity'
 
     if (attendanceId) {
       try {
-        await pb.collection('attendances').update(attendanceId, {
+        const attUpdatePayload: Record<string, any> = {
           is_archived: true,
           stage: finalStage,
           result: payload.result,
+          closure_type: effectiveClosureType,
+          closure_reason: effectiveClosureReason,
           loss_reason: payload.lossReason || '',
           closed_at: todayDateStr,
           archived_at: todayDateStr,
           last_archived_deal_id: archived.id,
-        })
+        }
+        if (isWithoutOpportunity) {
+          attUpdatePayload.quote_value = 0
+        }
+        await pb.collection('attendances').update(attendanceId, attUpdatePayload)
       } catch (attErr) {
         console.error('Error updating attendance during archive:', attErr)
       }
@@ -255,7 +288,9 @@ export const dealsService = {
         notes:
           payload.result === 'Venda fechada'
             ? `Atendimento concluído e arquivado com sucesso. Valor: R$ ${(payload.quoteValue || attendance?.quote_value || client?.quote_value || 0).toFixed(2)}.`
-            : `Atendimento encerrado como venda perdida. Motivo: ${payload.lossReason || 'Não informado'}.`,
+            : payload.result === 'Sem oportunidade'
+              ? `Atendimento encerrado sem oportunidade comercial. Motivo: ${effectiveClosureReason || payload.lossReason || 'Não informado'}.`
+              : `Atendimento encerrado como venda perdida. Motivo: ${payload.lossReason || 'Não informado'}.`,
       })
     } catch (err) {
       console.error('Error logging stage transition:', err)

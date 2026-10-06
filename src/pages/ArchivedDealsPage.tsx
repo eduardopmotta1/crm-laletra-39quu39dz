@@ -165,9 +165,18 @@ export default function ArchivedDealsPage() {
     return matchesSearch && matchesResult && matchesAssigned && matchesLossReason && matchesDate
   })
 
-  // Summary Metrics
+  // Summary Metrics (isolar atendimentos sem oportunidade comercial dos indicadores)
   const wonDeals = currentlyArchivedDeals.filter((d) => d.result === 'Venda fechada')
-  const lostDeals = currentlyArchivedDeals.filter((d) => d.result === 'Venda perdida')
+  const lostDeals = currentlyArchivedDeals.filter(
+    (d) => d.result === 'Venda perdida' && d.closure_type !== 'without_opportunity',
+  )
+  const withoutOppDeals = currentlyArchivedDeals.filter(
+    (d) => d.result === 'Sem oportunidade' || d.closure_type === 'without_opportunity',
+  )
+
+  // Denominador da taxa de conversão: SOMENTE oportunidades comerciais avaliadas (won + lost)
+  const commercialEvaluatedCount = wonDeals.length + lostDeals.length
+
   const totalWonValue = wonDeals.reduce((sum, d) => sum + (d.quote_value || 0), 0)
   const totalLostValue = lostDeals.reduce((sum, d) => sum + (d.quote_value || 0), 0)
 
@@ -314,11 +323,15 @@ export default function ArchivedDealsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900 dark:text-white">
-              {currentlyArchivedDeals.length > 0
-                ? `${Math.round((wonDeals.length / currentlyArchivedDeals.length) * 100)}%`
+              {commercialEvaluatedCount > 0
+                ? `${Math.round((wonDeals.length / commercialEvaluatedCount) * 100)}%`
                 : '0%'}
             </div>
-            <p className="text-xs text-slate-500 mt-1">Dos atendimentos finalizados</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Das {commercialEvaluatedCount} oportunidades avaliadas
+              {withoutOppDeals.length > 0 &&
+                ` (${withoutOppDeals.length} sem oportunidade desconsiderados)`}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -347,6 +360,7 @@ export default function ArchivedDealsPage() {
                 <SelectItem value="all">Todos os resultados</SelectItem>
                 <SelectItem value="Venda fechada">✅ Venda fechada</SelectItem>
                 <SelectItem value="Venda perdida">❌ Venda perdida</SelectItem>
+                <SelectItem value="Sem oportunidade">⚪ Sem oportunidade</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -486,20 +500,28 @@ export default function ArchivedDealsPage() {
 
                       {/* Result */}
                       <td className="py-3 px-4">
-                        <Badge
-                          className={`text-xs font-semibold px-2.5 py-0.5 ${
-                            isWon
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-                              : 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300'
-                          }`}
-                        >
-                          {isWon ? (
-                            <CheckCircle2 className="h-3.5 w-3.5 mr-1 text-emerald-600 inline" />
-                          ) : (
-                            <XCircle className="h-3.5 w-3.5 mr-1 text-rose-600 inline" />
-                          )}
-                          {deal.result}
-                        </Badge>
+                        {deal.result === 'Sem oportunidade' ||
+                        deal.closure_type === 'without_opportunity' ? (
+                          <Badge className="text-xs font-semibold px-2.5 py-0.5 bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300">
+                            <span className="mr-1 inline-block">⚪</span>
+                            Sem oportunidade
+                          </Badge>
+                        ) : (
+                          <Badge
+                            className={`text-xs font-semibold px-2.5 py-0.5 ${
+                              isWon
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+                                : 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300'
+                            }`}
+                          >
+                            {isWon ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 mr-1 text-emerald-600 inline" />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5 mr-1 text-rose-600 inline" />
+                            )}
+                            {deal.result}
+                          </Badge>
+                        )}
                       </td>
 
                       {/* Product & Value */}
@@ -520,7 +542,12 @@ export default function ArchivedDealsPage() {
 
                       {/* Loss Reason / Notes */}
                       <td className="py-3 px-4 max-w-[220px]">
-                        {!isWon && deal.loss_reason ? (
+                        {deal.result === 'Sem oportunidade' ||
+                        deal.closure_type === 'without_opportunity' ? (
+                          <div className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium text-[11px] border border-slate-200 dark:border-slate-700">
+                            {deal.closure_reason || deal.loss_reason || 'Sem oportunidade'}
+                          </div>
+                        ) : !isWon && deal.loss_reason ? (
                           <div className="inline-block px-2 py-0.5 rounded bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 font-medium text-[11px] border border-rose-100 dark:border-rose-900">
                             {deal.loss_reason}
                           </div>

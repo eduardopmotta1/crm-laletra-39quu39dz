@@ -40,6 +40,12 @@ routerAdd('POST', '/backend/v1/crm/attendances/resolve', (c) => {
     })
   }
 
+  const isReadOnly =
+    body.mode === 'read' ||
+    body.read_only === true ||
+    body.readOnly === true ||
+    body.only_existing === true
+
   const appInstance = c.app || $app
 
   // Funções utilitárias no escopo do handler (goja VM pool)
@@ -209,6 +215,13 @@ routerAdd('POST', '/backend/v1/crm/attendances/resolve', (c) => {
         }
       } catch (_) {}
 
+      // Se estiver em modo somente-leitura (mode='read' ou read_only=true), NUNCA cria attendance nem reativa cliente!
+      if (isReadOnly) {
+        resolvedAttendanceRecord = null
+        resolutionAction = 'none'
+        return
+      }
+
       // 7. Não existe attendance ativo: criar exatamente UM de forma atômica
       const newAttendance = new Record(attendancesCol)
       newAttendance.set('client_id', canonicalId)
@@ -267,6 +280,14 @@ routerAdd('POST', '/backend/v1/crm/attendances/resolve', (c) => {
   }
 
   if (!resolvedAttendanceRecord) {
+    if (isReadOnly) {
+      return c.json(200, {
+        success: true,
+        action: 'none',
+        attendance: null,
+        attendance_id: null,
+      })
+    }
     return c.json(500, {
       success: false,
       error: 'Não foi possível resolver nem criar o atendimento para este cliente.',

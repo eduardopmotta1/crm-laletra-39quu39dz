@@ -1047,7 +1047,9 @@ export default function KanbanPage() {
                 (column.internal_id === 'sales_in_production' &&
                   (a.stage === 'Em produção' || a.stage === stageName)) ||
                 (column.internal_id === 'lost' &&
-                  (a.stage === 'Não fechou' || a.stage === stageName)),
+                  (a.stage === 'Não fechou' || a.stage === stageName) &&
+                  a.closure_type !== 'without_opportunity' &&
+                  a.result !== 'Sem oportunidade'),
             )
 
             const totalStageValue = stageItems.reduce((sum, a) => sum + (a.quote_value || 0), 0)

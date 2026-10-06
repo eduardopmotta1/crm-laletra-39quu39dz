@@ -227,8 +227,37 @@ export const attendancesService = {
       product_interest?: string
       notes?: string
       source?: string
+      readOnly?: boolean
     },
-  ): Promise<Attendance> {
+  ): Promise<Attendance | null> {
+    if (options?.readOnly) {
+      // Modo somente leitura: consulta endpoint sem qualquer efeito colateral
+      try {
+        const response = await pb.send<{
+          success: boolean
+          action: 'reused' | 'none' | 'historical_inconsistency_resolved'
+          attendance: Attendance | null
+          attendance_id: string | null
+        }>('/backend/v1/crm/attendances/resolve', {
+          method: 'POST',
+          body: {
+            client_id: clientId,
+            mode: 'read',
+            read_only: true,
+          },
+        })
+        if (response && response.attendance) {
+          return response.attendance
+        }
+      } catch (err) {
+        console.warn(
+          '[attendancesService.resolveForClient] Erro ao consultar backend read-only:',
+          err,
+        )
+      }
+      return null
+    }
+
     return this.createForClient(clientId, { ...options, allowDuplicateActive: false })
   },
 

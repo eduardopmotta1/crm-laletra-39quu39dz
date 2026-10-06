@@ -108,6 +108,8 @@ export interface Attendance {
   source?: string
   is_archived?: boolean
   result?: DealResult
+  closure_type?: ClosureType
+  closure_reason?: string
   loss_reason?: string
   closed_at?: string
   archived_at?: string
@@ -317,7 +319,19 @@ export interface PostSaleConfig {
   customMessage: string
 }
 
-export type DealResult = 'Venda fechada' | 'Venda perdida'
+export type DealResult = 'Venda fechada' | 'Venda perdida' | 'Sem oportunidade'
+export type ClosureType = 'won' | 'lost' | 'without_opportunity'
+
+export const CLOSURE_WITHOUT_OPPORTUNITY_REASONS = [
+  'Card criado indevidamente',
+  'Apenas consulta',
+  'Mensagem sem intenção de compra',
+  'Suporte/pós-venda',
+  'Assunto administrativo',
+  'Outro',
+] as const
+
+export type ClosureWithoutOpportunityReason = (typeof CLOSURE_WITHOUT_OPPORTUNITY_REASONS)[number]
 
 export interface ArchivedDeal {
   id: string
@@ -327,6 +341,8 @@ export interface ArchivedDeal {
   client_phone: string
   client_email?: string
   result: DealResult
+  closure_type?: ClosureType
+  closure_reason?: string
   loss_reason?: string
   loss_category?: string
   product_interest?: string
