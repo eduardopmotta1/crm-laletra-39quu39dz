@@ -25,7 +25,7 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
       return c.json(404, { error: 'Pedido não encontrado' })
     }
 
-    // Se já estiver liberado e com production_order_id, não duplicar
+    // Se já estiver liberado e com production_order_id, não duplicar (Idempotência)
     const currentProdId = order.getString('production_order_id')
     if (currentProdId) {
       return c.json(200, {
@@ -33,6 +33,28 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
         already_released: true,
         production_order_id: currentProdId,
         message: 'Pedido já possui ordem de produção vinculada.',
+      })
+    }
+
+    // TRAVA 1: Liberação bloqueada se pagamento NÃO estiver pago ou autorizado
+    const payStatus = order.getString('payment_status')
+    if (payStatus !== 'paid' && payStatus !== 'authorized') {
+      return c.json(400, {
+        error:
+          'Não é permitido liberar para produção sem confirmação de pagamento (status atual: ' +
+          payStatus +
+          ').',
+      })
+    }
+
+    // TRAVA 2: Liberação bloqueada se arte técnica não estiver aprovada
+    const artStatus = order.getString('art_status')
+    if (artStatus !== 'approved') {
+      return c.json(400, {
+        error:
+          'Não é permitido liberar para produção sem aprovação registrada da arte técnica (status atual da arte: ' +
+          artStatus +
+          '). Aprove a arte no painel antes de liberar.',
       })
     }
 
@@ -70,6 +92,58 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
       }
     } catch (_) {}
 
+    // Resolução segura de cliente do CRM (sem mesclagem cega, sem duplicatas descontroladas)
+    let crmClientId = ''
+    try {
+      const customerId = order.getString('customer_id')
+      if (customerId) {
+        const custRec = $app.findRecordById('store_customers', customerId)
+        if (custRec && custRec.getString('crm_link_status') === 'verified_linked') {
+          crmClientId = custRec.getString('linked_client_id')
+        }
+      }
+    } catch (_) {}
+
+    // Se ainda não houver cliente CRM vinculado, busca de forma determinística por normalized_phone
+    if (!crmClientId) {
+      try {
+        const rawPhone = order.getString('customer_phone')
+        const normPhone = rawPhone.replace(/\D/g, '')
+        if (normPhone.length >= 10) {
+          const matchedClients = $app.findRecordsByFilter(
+            'clients',
+            'normalized_phone = {:p} || phone ~ {:pRaw}',
+            '-created',
+            1,
+            0,
+            { p: normPhone, pRaw: normPhone.slice(-8) },
+          )
+          if (matchedClients && matchedClients.length > 0) {
+            crmClientId = matchedClients[0].id
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Se ainda não existir registro em clients, cria um cliente novo seguro com identificador da loja
+    if (!crmClientId) {
+      const clientsCol = $app.findCollectionByNameOrId('clients')
+      const newClient = new Record(clientsCol)
+      newClient.set('name', order.getString('customer_name'))
+      newClient.set('phone', order.getString('customer_phone'))
+      newClient.set('email', order.getString('customer_email'))
+      newClient.set('stage', 'Em produção')
+      newClient.set('priority', 'media')
+      newClient.set('origin', 'store')
+      newClient.set(
+        'notes',
+        'Cliente cadastrado automaticamente via pedido ' + order.getString('order_number'),
+      )
+      newClient.set('normalized_phone', order.getString('customer_phone').replace(/\D/g, ''))
+      $app.save(newClient)
+      crmClientId = newClient.id
+    }
+
     // Gerar token público de rastreamento para o comprador acompanhar em /acompanhar/{token}
     const trackingToken = 'st_' + $security.randomString(24)
 
@@ -77,6 +151,7 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
     const prodRec = new Record(prodCol)
     prodRec.set('order_number', 'OP-' + order.getString('order_number'))
     prodRec.set('tracking_token', trackingToken)
+    prodRec.set('client_id', crmClientId)
     prodRec.set('client_name', order.getString('customer_name'))
     prodRec.set('client_email', order.getString('customer_email'))
     prodRec.set('client_phone', order.getString('customer_phone'))
@@ -88,8 +163,10 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
     prodRec.set('stage_internal_id', 'pre_press')
     prodRec.set('stage_name', stageName)
     if (stageId) prodRec.set('stage_id', stageId)
-    prodRec.set('priority', 'medium')
-    prodRec.set('art_approved', order.getString('art_status') === 'approved')
+    prodRec.set('priority', 'media')
+    prodRec.set('art_approved', true)
+    prodRec.set('art_approved_at', new Date().toISOString())
+    prodRec.set('requires_art_approval', false) // Arte já validada na loja
     prodRec.set(
       'notes',
       'Origem: Laletra Store (Pedido ' +
@@ -100,7 +177,7 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
 
     $app.save(prodRec)
 
-    // Atualizar store_orders
+    // Atualizar store_orders de forma atômica
     order.set('production_order_id', prodRec.id)
     order.set('production_status', 'released_to_production')
     $app.save(order)

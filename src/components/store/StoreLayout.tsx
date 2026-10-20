@@ -54,15 +54,30 @@ export default function StoreLayout() {
     loadCats()
 
     // Ler quantidade do carrinho do localStorage se houver
-    try {
-      const savedCart = localStorage.getItem('laletra_store_cart')
-      if (savedCart) {
-        const parsed = JSON.parse(savedCart)
-        if (Array.isArray(parsed)) setCartCount(parsed.length)
+    const updateCountFromStorage = () => {
+      try {
+        const savedCart =
+          localStorage.getItem('laletra_store_cart_v2') ||
+          localStorage.getItem('laletra_store_cart')
+        if (savedCart) {
+          const parsed = JSON.parse(savedCart)
+          if (Array.isArray(parsed)) {
+            const total = parsed.reduce(
+              (sum: number, it: any) => sum + (Number(it.quantity) || 1),
+              0,
+            )
+            setCartCount(total)
+            return
+          }
+        }
+        setCartCount(0)
+      } catch {
+        /* intentionally ignored */
       }
-    } catch {
-      /* intentionally ignored */
     }
+    updateCountFromStorage()
+    window.addEventListener('storage', updateCountFromStorage)
+    return () => window.removeEventListener('storage', updateCountFromStorage)
   }, [])
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -170,36 +185,33 @@ export default function StoreLayout() {
 
             {/* User Actions */}
             <div className="flex items-center gap-3">
-              <Link to="/login" className="hidden sm:inline-flex">
+              <Link to="/loja/conta" className="hidden sm:inline-flex">
                 <Button
                   variant="ghost"
                   size="sm"
                   className="gap-2 text-slate-700 dark:text-slate-300"
                 >
                   <User className="w-4 h-4 text-slate-500" />
-                  <span className="text-xs font-semibold">Área do Cliente</span>
+                  <span className="text-xs font-semibold">Minha Conta</span>
                 </Button>
               </Link>
 
               <div className="relative">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    alert(
-                      'Carrinho rápido: Os itens selecionados podem ser cotados ou convertidos em pedido pelo atendente.',
-                    )
-                  }
-                  className="rounded-full gap-2 border-slate-200 dark:border-slate-700 hover:border-emerald-500 px-3.5"
-                >
-                  <ShoppingCart className="w-4 h-4 text-emerald-600" />
-                  <span className="text-xs font-semibold hidden sm:inline">Meu Pedido</span>
-                  {cartCount > 0 && (
-                    <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[10px] px-1.5 py-0 h-4 min-w-4 flex items-center justify-center rounded-full font-bold">
-                      {cartCount}
-                    </Badge>
-                  )}
-                </Button>
+                <Link to="/loja/carrinho">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full gap-2 border-slate-200 dark:border-slate-700 hover:border-emerald-500 px-3.5"
+                  >
+                    <ShoppingCart className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-semibold hidden sm:inline">Meu Carrinho</span>
+                    {cartCount > 0 && (
+                      <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[10px] px-1.5 py-0 h-4 min-w-4 flex items-center justify-center rounded-full font-bold">
+                        {cartCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>
@@ -319,9 +331,21 @@ export default function StoreLayout() {
             </div>
 
             <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
-              <Link to="/login" onClick={() => setMobileMenuOpen(false)} className="w-full block">
+              <Link
+                to="/loja/conta"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full block"
+              >
                 <Button variant="outline" className="w-full text-xs gap-2">
-                  <User className="w-4 h-4" /> Entrar no CRM
+                  <User className="w-4 h-4" /> Minha Conta / Pedidos
+                </Button>
+              </Link>
+              <Link to="/login" onClick={() => setMobileMenuOpen(false)} className="w-full block">
+                <Button
+                  variant="ghost"
+                  className="w-full text-xs text-slate-400 hover:text-slate-200"
+                >
+                  Acesso Equipe (CRM)
                 </Button>
               </Link>
               <p className="text-[11px] text-center text-slate-400">

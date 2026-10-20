@@ -4,6 +4,38 @@
  */
 
 // -------------------------------------------------------------
+// 0. GET /backend/v1/store/art-creation-pricing (PÚBLICO)
+// -------------------------------------------------------------
+routerAdd('GET', '/backend/v1/store/art-creation-pricing', (c) => {
+  try {
+    let config = {
+      base_creation_fee: 45.0,
+      description: 'Criação profissional de arte pela equipe LaLetra',
+      free_for_orders_above: 500.0,
+      is_active: true,
+      lead_time_extra_days: 2,
+    }
+    try {
+      const rec = $app.findFirstRecordByData(
+        'system_settings',
+        'setting_key',
+        'store_art_creation_pricing',
+      )
+      if (rec) {
+        config = JSON.parse(rec.getString('setting_value'))
+      }
+    } catch (_) {}
+
+    return c.json(200, {
+      success: true,
+      pricing: config,
+    })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao consultar valor de criação de arte: ' + err.message })
+  }
+})
+
+// -------------------------------------------------------------
 // 1. POST /backend/v1/store/customer/register
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/customer/register', (c) => {
@@ -499,7 +531,7 @@ routerAdd('DELETE', '/backend/v1/store/customer/address/{id}', (c) => {
 })
 
 // -------------------------------------------------------------
-// 9. POST /backend/v1/store/cart/validate
+// 9. POST /backend/v1/store/cart/validate (PÚBLICO)
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
   const parseJsonSafely = function (val) {
@@ -509,6 +541,27 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
       return JSON.parse(val)
     } catch (_) {
       return []
+    }
+  }
+
+  const getArtCreationPricing = function () {
+    try {
+      const rec = $app.findFirstRecordByData(
+        'system_settings',
+        'setting_key',
+        'store_art_creation_pricing',
+      )
+      if (rec) {
+        const val = rec.getString('setting_value')
+        return JSON.parse(val)
+      }
+    } catch (_) {}
+    return {
+      base_creation_fee: 45.0,
+      description: 'Criação profissional de arte pela equipe LaLetra',
+      free_for_orders_above: 500.0,
+      is_active: true,
+      lead_time_extra_days: 2,
     }
   }
 
@@ -524,9 +577,9 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
     const selectedFinishingIds = Array.isArray(item.selected_finishings)
       ? item.selected_finishings
       : []
+    const artOption = item.art_option || 'send_ready'
 
     if (!productId) throw new Error('Item sem product_id')
-
     const product = $app.findRecordById('store_products', productId)
     if (!product || product.getBool('published') !== true) {
       throw new Error('Produto ' + productId + ' indisponível')
@@ -596,8 +649,19 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
       }
     }
 
+    // Adicional configurável de criação de arte pela LaLetra
+    let artCreationFee = 0
+    let leadTimeExtraDays = 0
+    if (artOption === 'request_creation') {
+      const artConfig = getArtCreationPricing()
+      if (artConfig && artConfig.is_active !== false) {
+        artCreationFee = Number(artConfig.base_creation_fee) || 45.0
+        leadTimeExtraDays = Number(artConfig.lead_time_extra_days) || 2
+      }
+    }
+
     const finalTotal = Number(
-      (baseTotal + optionsModifierTotal * quantity + finishingsTotal).toFixed(2),
+      (baseTotal + optionsModifierTotal * quantity + finishingsTotal + artCreationFee).toFixed(2),
     )
     const finalUnitPrice = Number((finalTotal / quantity).toFixed(2))
 
@@ -611,9 +675,12 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
       area_m2: areaM2 > 0 ? areaM2 : null,
       selected_options: selectedOptions,
       selected_finishings: selectedFinishingIds,
+      art_option: artOption,
+      art_creation_fee: artCreationFee,
+      art_notes: String(item.art_notes || '').trim(),
       unit_price: finalUnitPrice,
       total_price: finalTotal,
-      lead_time_days: product.getInt('lead_time_days') || 3,
+      lead_time_days: (product.getInt('lead_time_days') || 3) + leadTimeExtraDays,
     }
   }
 
@@ -735,6 +802,7 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
     const selectedFinishingIds = Array.isArray(item.selected_finishings)
       ? item.selected_finishings
       : []
+    const artOption = item.art_option || 'send_ready'
 
     if (!productId) throw new Error('Item sem product_id')
 
@@ -807,8 +875,31 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       }
     }
 
+    // Adicional configurável de criação de arte pela LaLetra
+    let artCreationFee = 0
+    let leadTimeExtraDays = 0
+    if (artOption === 'request_creation') {
+      try {
+        const rec = $app.findFirstRecordByData(
+          'system_settings',
+          'setting_key',
+          'store_art_creation_pricing',
+        )
+        if (rec) {
+          const cfg = JSON.parse(rec.getString('setting_value'))
+          if (cfg && cfg.is_active !== false) {
+            artCreationFee = Number(cfg.base_creation_fee) || 45.0
+            leadTimeExtraDays = Number(cfg.lead_time_extra_days) || 2
+          }
+        }
+      } catch (_) {
+        artCreationFee = 45.0
+        leadTimeExtraDays = 2
+      }
+    }
+
     const finalTotal = Number(
-      (baseTotal + optionsModifierTotal * quantity + finishingsTotal).toFixed(2),
+      (baseTotal + optionsModifierTotal * quantity + finishingsTotal + artCreationFee).toFixed(2),
     )
     const finalUnitPrice = Number((finalTotal / quantity).toFixed(2))
 
@@ -822,9 +913,12 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       area_m2: areaM2 > 0 ? areaM2 : null,
       selected_options: selectedOptions,
       selected_finishings: selectedFinishingIds,
+      art_option: artOption,
+      art_creation_fee: artCreationFee,
+      art_notes: String(item.art_notes || '').trim(),
       unit_price: finalUnitPrice,
       total_price: finalTotal,
-      lead_time_days: product.getInt('lead_time_days') || 3,
+      lead_time_days: (product.getInt('lead_time_days') || 3) + leadTimeExtraDays,
     }
   }
 
@@ -964,6 +1058,10 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
         itemRec.set('unit_price', item.unit_price)
         itemRec.set('total_price', item.total_price)
         itemRec.set('lead_time_days', item.lead_time_days)
+        if (item.art_option) itemRec.set('art_option', item.art_option)
+        if (item.art_creation_fee !== undefined)
+          itemRec.set('art_creation_fee', item.art_creation_fee)
+        if (item.art_notes) itemRec.set('art_notes', item.art_notes)
         txApp.save(itemRec)
       }
 
@@ -1092,6 +1190,9 @@ routerAdd('GET', '/backend/v1/store/orders/{order_number}', (c) => {
             total_price: it.getFloat('total_price'),
             options: parseJsonSafely(it.get('selected_options')),
             finishings: parseJsonSafely(it.get('selected_finishings')),
+            art_option: it.getString('art_option') || 'send_ready',
+            art_creation_fee: it.getFloat('art_creation_fee') || 0,
+            art_notes: it.getString('art_notes') || '',
           }
         }),
         arts: (arts || []).map(function (a) {
@@ -1184,6 +1285,67 @@ routerAdd('POST', '/backend/v1/store/orders/{order_number}/upload-art', (c) => {
 })
 
 // -------------------------------------------------------------
+// 12.1 POST /backend/v1/store/orders/{order_number}/art-approval
+// -------------------------------------------------------------
+routerAdd('POST', '/backend/v1/store/orders/{order_number}/art-approval', (c) => {
+  try {
+    const orderNumber = c.request.pathValue('order_number')
+    const body = c.requestInfo().body || {}
+    const approved = body.approved === true
+    const feedback = String(body.feedback || '').trim()
+
+    const orders = $app.findRecordsByFilter('store_orders', 'order_number = {:num}', '', 1, 0, {
+      num: orderNumber,
+    })
+    if (!orders || orders.length === 0) {
+      return c.json(404, { error: 'Pedido não encontrado' })
+    }
+
+    const order = orders[0]
+    const stamp = new Date().toISOString()
+    const newArtStatus = approved ? 'approved' : 'changes_requested'
+    order.set('art_status', newArtStatus)
+
+    const curNotes = order.getString('notes')
+    const feedbackLog =
+      '\n[' +
+      stamp +
+      '] Cliente ' +
+      (approved ? 'aprovou a arte técnica' : 'solicitou alteração na arte') +
+      (feedback ? ': ' + feedback : '')
+    order.set('notes', (curNotes + feedbackLog).trim())
+    $app.save(order)
+
+    // Sincronizar com production_orders se já existir ordem de produção vinculada
+    const prodOrderId = order.getString('production_order_id')
+    if (prodOrderId) {
+      try {
+        const prodRec = $app.findRecordById('production_orders', prodOrderId)
+        if (prodRec) {
+          prodRec.set('art_approved', approved)
+          if (approved) {
+            prodRec.set('art_approved_at', stamp)
+            prodRec.set('requires_art_approval', false)
+          }
+          $app.save(prodRec)
+        }
+      } catch (_) {}
+    }
+
+    return c.json(200, {
+      success: true,
+      order_number: orderNumber,
+      art_status: newArtStatus,
+      message: approved
+        ? 'Arte técnica aprovada com sucesso. Pedido liberado para próxima etapa.'
+        : 'Solicitação de alteração registrada. A equipe de pré-impressão foi notificada.',
+    })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao processar aprovação de arte: ' + err.message })
+  }
+})
+
+// -------------------------------------------------------------
 // 13. POST /backend/v1/store/webhooks/mercadopago (IDEMPOTENTE)
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/webhooks/mercadopago', (c) => {
@@ -1238,8 +1400,19 @@ routerAdd('POST', '/backend/v1/store/webhooks/mercadopago', (c) => {
       $app.save(pay)
     }
 
+    let targetOrderStatus = order.getString('payment_status')
     if (status === 'approved' || status === 'paid') {
-      order.set('payment_status', 'paid')
+      targetOrderStatus = 'paid'
+    } else if (status === 'rejected' || status === 'cancelled') {
+      targetOrderStatus = 'failed'
+    } else if (status === 'refunded' || status === 'charged_back') {
+      targetOrderStatus = 'refunded'
+    } else if (status === 'in_process' || status === 'pending') {
+      targetOrderStatus = 'pending'
+    }
+
+    if (targetOrderStatus !== order.getString('payment_status')) {
+      order.set('payment_status', targetOrderStatus)
       $app.save(order)
     }
 
@@ -1247,6 +1420,7 @@ routerAdd('POST', '/backend/v1/store/webhooks/mercadopago', (c) => {
       success: true,
       order_number: orderNumber,
       payment_id: paymentId,
+      gateway_status: status,
       new_status: order.getString('payment_status'),
     })
   } catch (err) {

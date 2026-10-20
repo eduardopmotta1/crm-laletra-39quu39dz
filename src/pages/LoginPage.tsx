@@ -149,12 +149,22 @@ export default function LoginPage() {
               {!loading && <ArrowRight className="h-4 w-4 ml-2" />}
             </Button>
 
-            <p className="text-xs text-center text-slate-500 dark:text-slate-400">
-              Novo membro da equipe?{' '}
-              <Link to="/registro" className="font-semibold text-emerald-600 hover:underline">
-                Cadastre-se aqui
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2 text-center">
+              <Link
+                to="/loja"
+                className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 hover:underline"
+              >
+                <span>Ir para a Loja Virtual Pública</span>
+                <ArrowRight className="h-3.5 w-3.5" />
               </Link>
-            </p>
+
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Novo membro da equipe?{' '}
+                <Link to="/registro" className="font-semibold text-emerald-600 hover:underline">
+                  Cadastre-se aqui
+                </Link>
+              </p>
+            </div>
           </CardFooter>
         </form>
       </Card>

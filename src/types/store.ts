@@ -122,6 +122,8 @@ export interface StorePriceCalculationResult {
 // FASE 2: Tipos para Carrinho, Checkout, Comprador e Pedidos Loja
 // -------------------------------------------------------------
 
+export type StoreArtOption = 'send_ready' | 'send_later' | 'request_creation'
+
 export interface StoreCartItem {
   cart_item_id: string
   product_id: string
@@ -140,6 +142,10 @@ export interface StoreCartItem {
   total_price: number
   lead_time_days?: number
   image_url?: string | null
+  // Opção de arte selecionada pelo comprador
+  art_option?: StoreArtOption
+  art_creation_fee?: number
+  art_notes?: string
 }
 
 export interface StoreCartValidationResponse {
@@ -222,7 +228,11 @@ export interface StoreOrderSummary {
     total_price: number
     options?: any
     finishings?: any
+    art_notes?: string
+    art_option?: StoreArtOption
+    art_creation_fee?: number
   }>
+  requires_art_approval?: boolean
   arts?: Array<{
     id: string
     original_filename: string

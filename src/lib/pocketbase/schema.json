@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-20T15:11:19.854Z",
+  "generatedAt": "2026-10-20T17:22:46.214Z",
   "collections": [
     {
       "name": "users",
@@ -4134,6 +4134,19 @@
           "required": false,
           "system": false,
           "collectionRef": "store_products"
+        },
+        {
+          "name": "art_option",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["send_ready", "send_later", "request_creation"]
+        },
+        {
+          "name": "art_creation_fee",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []
