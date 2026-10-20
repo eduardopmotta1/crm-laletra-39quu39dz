@@ -117,3 +117,119 @@ export interface StorePriceCalculationResult {
   unit_price: number
   lead_time_days?: number
 }
+
+// -------------------------------------------------------------
+// FASE 2: Tipos para Carrinho, Checkout, Comprador e Pedidos Loja
+// -------------------------------------------------------------
+
+export interface StoreCartItem {
+  cart_item_id: string
+  product_id: string
+  product_name: string
+  product_slug: string
+  pricing_type: PricingType
+  quantity: number
+  width?: number | null
+  height?: number | null
+  area_m2?: number | null
+  selected_options: Record<string, string>
+  selected_options_labels?: Record<string, string>
+  selected_finishings: string[]
+  selected_finishings_labels?: string[]
+  unit_price: number
+  total_price: number
+  lead_time_days?: number
+  image_url?: string | null
+}
+
+export interface StoreCartValidationResponse {
+  success: boolean
+  items: Array<{
+    product_id: string
+    product_name: string
+    pricing_type: string
+    quantity: number
+    width: number | null
+    height: number | null
+    area_m2: number | null
+    selected_options: Record<string, string>
+    selected_finishings: string[]
+    unit_price: number
+    total_price: number
+    lead_time_days: number
+  }>
+  subtotal: number
+  shipping_fee: number
+  shipping_note: string
+  total_amount: number
+  estimated_days: number
+  error?: string
+}
+
+export interface StoreCustomerProfile {
+  id: string
+  name: string
+  email: string
+  phone: string
+  person_type: 'pf' | 'pj'
+  document_cpf_cnpj?: string
+  trade_name?: string
+  addresses?: StoreAddress[]
+}
+
+export interface StoreAddress {
+  id?: string
+  label?: string
+  zip_code: string
+  street: string
+  number: string
+  complement?: string
+  neighborhood: string
+  city: string
+  state: string
+  is_default?: boolean
+}
+
+export interface StoreOrderSummary {
+  id: string
+  order_number: string
+  customer_name: string
+  customer_email: string
+  customer_phone: string
+  delivery_method: 'pickup' | 'delivery'
+  shipping_address?: StoreAddress | null
+  subtotal: number
+  shipping_fee: number
+  total_amount: number
+  payment_status: 'pending' | 'authorized' | 'paid' | 'failed' | 'refunded'
+  payment_method?: 'pix' | 'credit_card' | 'bank_slip' | 'billed_invoice'
+  art_status: 'pending_upload' | 'uploaded' | 'under_review' | 'approved' | 'rejected'
+  production_status: 'waiting_release' | 'released_to_production' | 'in_production' | 'ready' | 'delivered'
+  estimated_delivery_date?: string
+  created: string
+  items?: Array<{
+    id: string
+    product_name: string
+    quantity: number
+    width?: number | null
+    height?: number | null
+    unit_price: number
+    total_price: number
+    options?: any
+    finishings?: any
+  }>
+  arts?: Array<{
+    id: string
+    original_filename: string
+    status: string
+    rejection_reason?: string
+    created: string
+  }>
+  payments?: Array<{
+    id: string
+    method: string
+    status: string
+    amount: number
+    pix_qr_code?: string
+  }>
+}

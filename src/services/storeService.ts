@@ -206,4 +206,197 @@ export const storeService = {
   async adminDeleteBanner(id: string): Promise<boolean> {
     return await pb.collection('store_banners').delete(id)
   },
+
+  // ==========================================
+  // FASE 2: Métodos de Carrinho, Comprador e Checkout
+  // ==========================================
+
+  async validateCartOnServer(
+    items: Array<{
+      product_id: string
+      quantity: number
+      width?: number | null
+      height?: number | null
+      selected_options?: Record<string, string>
+      selected_finishings?: string[]
+    }>,
+    deliveryMethod: 'pickup' | 'delivery' = 'pickup',
+    shippingZip?: string,
+  ): Promise<any> {
+    return pb.send('/backend/v1/store/cart/validate', {
+      method: 'POST',
+      body: {
+        items,
+        delivery_method: deliveryMethod,
+        shipping_zip: shippingZip,
+      },
+    })
+  },
+
+  async registerCustomer(data: {
+    name: string
+    email: string
+    phone: string
+    password: string
+    person_type?: 'pf' | 'pj'
+    document_cpf_cnpj?: string
+    trade_name?: string
+  }): Promise<{ success: boolean; token: string; customer: any }> {
+    return pb.send('/backend/v1/store/customer/register', {
+      method: 'POST',
+      body: data,
+    })
+  },
+
+  async loginCustomer(email: string, password: string): Promise<{ success: boolean; token: string; customer: any }> {
+    return pb.send('/backend/v1/store/customer/login', {
+      method: 'POST',
+      body: { email, password },
+    })
+  },
+
+  async getCustomerProfile(token: string): Promise<{ success: boolean; customer: any }> {
+    return pb.send('/backend/v1/store/customer/me', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+  },
+
+  async saveCustomerAddress(token: string, address: any): Promise<any> {
+    return pb.send('/backend/v1/store/customer/address', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: address,
+    })
+  },
+
+  async checkoutOrder(payload: {
+    client_request_id: string
+    delivery_method: 'pickup' | 'delivery'
+    payment_method: 'pix' | 'credit_card' | 'bank_slip' | 'billed_invoice'
+    customer: {
+      name: string
+      email: string
+      phone: string
+      document?: string
+    }
+    shipping_address?: any
+    items: Array<{
+      product_id: string
+      quantity: number
+      width?: number | null
+      height?: number | null
+      selected_options?: Record<string, string>
+      selected_finishings?: string[]
+    }>
+    notes?: string
+  }, customerToken?: string | null): Promise<any> {
+    const headers: Record<string, string> = {}
+    if (customerToken) {
+      headers.Authorization = `Bearer ${customerToken}`
+    }
+    return pb.send('/backend/v1/store/checkout', {
+      method: 'POST',
+      headers,
+      body: payload,
+    })
+  },
+
+  async getOrderByNumber(orderNumber: string): Promise<{ success: boolean; order: any }> {
+    return pb.send(`/backend/v1/store/orders/${encodeURIComponent(orderNumber)}`, {
+      method: 'GET',
+    })
+  },
+
+  async uploadOrderArt(orderNumber: string, file: File, customerNotes?: string): Promise<any> {
+    const formData = new FormData()
+    formData.append('art_file', file)
+    if (customerNotes) {
+      formData.append('customer_notes', customerNotes)
+    }
+    return pb.send(`/backend/v1/store/orders/${encodeURIComponent(orderNumber)}/upload-art`, {
+      method: 'POST',
+      body: formData,
+    })
+  },
+
+  async simulateMercadoPagoWebhook(orderNumber: string, paymentId?: string): Promise<any> {
+    return pb.send('/backend/v1/store/webhooks/mercadopago', {
+      method: 'POST',
+      body: {
+        order_number: orderNumber,
+        payment_id: paymentId || `MP-TEST-${Date.now()}`,
+        status: 'approved',
+      },
+    })
+  },
+
+  // Métodos CRM para Pedidos da Loja
+  async adminGetStoreOrders(filterStr?: string): Promise<any[]> {
+    return await pb.collection('store_orders').getFullList({
+      sort: '-created',
+      filter: filterStr || '',
+      expand: 'customer_id,production_order_id',
+    })
+  },
+
+  async adminGetStoreOrderDetails(orderId: string): Promise<any> {
+    const order = await pb.collection('store_orders').getOne(orderId, {
+      expand: 'customer_id,production_order_id',
+    })
+    const items = await pb.collection('store_order_items').getFullList({
+      filter: `order_id = "${orderId}"`,
+      sort: 'created',
+    })
+    const arts = await pb.collection('store_art_uploads').getFullList({
+      filter: `order_id = "${orderId}"`,
+      sort: '-created',
+    })
+    const payments = await pb.collection('store_payments').getFullList({
+      filter: `order_id = "${orderId}"`,
+      sort: '-created',
+    })
+    return {
+      order,
+      items,
+      arts,
+      payments,
+    }
+  },
+
+  async adminUpdateOrderStatus(
+    orderId: string,
+    data: {
+      payment_status?: string
+      art_status?: string
+      production_status?: string
+      human_intervention_needed?: boolean
+      human_intervention_reason?: string
+      notes?: string
+    },
+  ): Promise<any> {
+    return await pb.collection('store_orders').update(orderId, data)
+  },
+
+  async adminReviewArt(artId: string, status: 'approved' | 'rejected', rejectionReason?: string): Promise<any> {
+    return await pb.collection('store_art_uploads').update(artId, {
+      status,
+      rejection_reason: rejectionReason || '',
+      reviewed_at: new Date().toISOString(),
+    })
+  },
+
+  async adminVerifyLinkStoreCustomer(customerId: string, clientCrmId: string, verified: boolean): Promise<any> {
+    return await pb.collection('store_customers').update(customerId, {
+      linked_client_id: verified ? clientCrmId : null,
+      crm_link_status: verified ? 'verified_linked' : 'rejected',
+      crm_link_notes: verified
+        ? `Vínculo com cliente CRM ${clientCrmId} confirmado manualmente por atendente.`
+        : 'Vínculo rejeitado/desvinculado por atendente.',
+    })
+  },
 }

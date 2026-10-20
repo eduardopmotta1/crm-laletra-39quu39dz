@@ -344,6 +344,13 @@ export default function AppLayout() {
       visible: canAccessTasks,
     },
     {
+      to: '/pedidos-loja',
+      label: 'Pedidos da Loja',
+      icon: ShoppingBag,
+      badge: null,
+      visible: isAdmin || canAccessQuotes || canAccessProduction,
+    },
+    {
       to: '/loja-admin',
       label: 'Laletra Store (Admin)',
       icon: Store,

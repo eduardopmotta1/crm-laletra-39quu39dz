@@ -37,6 +37,12 @@ import StoreLayout from '@/components/store/StoreLayout'
 import StoreHomePage from '@/pages/store/StoreHomePage'
 import StoreCategoryPage from '@/pages/store/StoreCategoryPage'
 import StoreProductDetailPage from '@/pages/store/StoreProductDetailPage'
+import StoreCartPage from '@/pages/store/StoreCartPage'
+import StoreCheckoutPage from '@/pages/store/StoreCheckoutPage'
+import StoreCustomerAuthPage from '@/pages/store/StoreCustomerAuthPage'
+import StoreOrderDetailPage from '@/pages/store/StoreOrderDetailPage'
+import StoreOrdersCrmPage from '@/pages/StoreOrdersCrmPage'
+import { StoreProvider } from '@/context/StoreContext'
 import NotFound from '@/pages/NotFound'
 const App = () => (
   <BrowserRouter>
@@ -63,10 +69,21 @@ const App = () => (
           <Route path="/cadastro/:token" element={<PublicClientFormPage />} />
 
           {/* Public Laletra Store Routes (Independent Public Layout) */}
-          <Route path="/loja" element={<StoreLayout />}>
+          <Route
+            path="/loja"
+            element={
+              <StoreProvider>
+                <StoreLayout />
+              </StoreProvider>
+            }
+          >
             <Route index element={<StoreHomePage />} />
             <Route path="categoria/:slug" element={<StoreCategoryPage />} />
             <Route path="produto/:slug" element={<StoreProductDetailPage />} />
+            <Route path="carrinho" element={<StoreCartPage />} />
+            <Route path="checkout" element={<StoreCheckoutPage />} />
+            <Route path="conta" element={<StoreCustomerAuthPage />} />
+            <Route path="pedido/:orderNumber" element={<StoreOrderDetailPage />} />
           </Route>
 
           {/* Protected CRM App Routes */}
@@ -98,6 +115,7 @@ const App = () => (
             <Route path="/tarefas" element={<TasksPage />} />
             <Route path="/configuracoes" element={<SettingsPage />} />
             <Route path="/loja-admin" element={<StoreAdminPage />} />
+            <Route path="/pedidos-loja" element={<StoreOrdersCrmPage />} />
           </Route>
           {/* 404 Catch All */}
           <Route path="*" element={<NotFound />} />
