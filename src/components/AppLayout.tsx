@@ -29,6 +29,7 @@ import {
   ClipboardList,
   Compass,
   Store,
+  ShoppingBag,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'

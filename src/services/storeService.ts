@@ -452,8 +452,11 @@ export const storeService = {
   },
 
   async adminReleaseOrderToProduction(orderId: string): Promise<any> {
-    return await pb.send(`/backend/v1/crm/store/orders/${encodeURIComponent(orderId)}/release-to-production`, {
-      method: 'POST',
-    })
+    return await pb.send(
+      `/backend/v1/crm/store/orders/${encodeURIComponent(orderId)}/release-to-production`,
+      {
+        method: 'POST',
+      },
+    )
   },
 }
