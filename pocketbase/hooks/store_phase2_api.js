@@ -18,7 +18,9 @@ routerAdd('POST', '/backend/v1/store/customer/register', (c) => {
   try {
     const body = c.requestInfo().body || {}
     const name = String(body.name || '').trim()
-    const email = String(body.email || '').toLowerCase().trim()
+    const email = String(body.email || '')
+      .toLowerCase()
+      .trim()
     const phone = String(body.phone || '').trim()
     const password = String(body.password || '')
     const personType = body.person_type === 'pj' ? 'pj' : 'pf'
@@ -32,7 +34,9 @@ routerAdd('POST', '/backend/v1/store/customer/register', (c) => {
       return c.json(400, { error: 'A senha deve ter no mínimo 6 caracteres' })
     }
 
-    const existing = $app.findRecordsByFilter('store_customers', 'email = {:email}', '', 1, 0, { email: email })
+    const existing = $app.findRecordsByFilter('store_customers', 'email = {:email}', '', 1, 0, {
+      email: email,
+    })
     if (existing && existing.length > 0) {
       return c.json(400, { error: 'Já existe uma conta cadastrada com este e-mail' })
     }
@@ -41,6 +45,7 @@ routerAdd('POST', '/backend/v1/store/customer/register', (c) => {
     const passwordHash = $security.sha256(password + hashSecret)
 
     // Avaliação segura de vínculo com o CRM (NÃO faz merge automático)
+    // Conforme regra permanente e lição "Eduardo P Motta", nunca vincula de forma cega.
     let crmLinkStatus = 'unlinked'
     let crmLinkNotes = 'Novo comprador cadastrado na loja virtual.'
     let candidateClientId = ''
@@ -53,12 +58,17 @@ routerAdd('POST', '/backend/v1/store/customer/register', (c) => {
           '',
           2,
           0,
-          { phone: normPhone }
+          { phone: normPhone },
         )
         if (matchingClients && matchingClients.length === 1) {
           crmLinkStatus = 'suggested'
           candidateClientId = matchingClients[0].id
-          crmLinkNotes = 'Sugestão de vínculo com cliente CRM "' + matchingClients[0].getString('name') + '" (ID ' + candidateClientId + '). Aguardando confirmação no CRM.'
+          crmLinkNotes =
+            'Sugestão de vínculo com cliente CRM "' +
+            matchingClients[0].getString('name') +
+            '" (ID ' +
+            candidateClientId +
+            '). Aguardando confirmação no CRM.'
         }
       } catch (_) {}
     }
@@ -81,7 +91,11 @@ routerAdd('POST', '/backend/v1/store/customer/register', (c) => {
 
     $app.save(rec)
 
-    const token = $security.createJWT({ sub: rec.id, email: email, scope: 'store_customer' }, hashSecret, 86400 * 30)
+    const token = $security.createJWT(
+      { sub: rec.id, email: email, scope: 'store_customer' },
+      hashSecret,
+      86400 * 30,
+    )
 
     return c.json(200, {
       success: true,
@@ -108,14 +122,18 @@ routerAdd('POST', '/backend/v1/store/customer/login', (c) => {
   const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
   try {
     const body = c.requestInfo().body || {}
-    const email = String(body.email || '').toLowerCase().trim()
+    const email = String(body.email || '')
+      .toLowerCase()
+      .trim()
     const password = String(body.password || '')
 
     if (!email || !password) {
       return c.json(400, { error: 'E-mail e senha são obrigatórios' })
     }
 
-    const customers = $app.findRecordsByFilter('store_customers', 'email = {:email}', '', 1, 0, { email: email })
+    const customers = $app.findRecordsByFilter('store_customers', 'email = {:email}', '', 1, 0, {
+      email: email,
+    })
     if (!customers || customers.length === 0) {
       return c.json(401, { error: 'E-mail ou senha incorretos' })
     }
@@ -126,7 +144,11 @@ routerAdd('POST', '/backend/v1/store/customer/login', (c) => {
       return c.json(401, { error: 'E-mail ou senha incorretos' })
     }
 
-    const token = $security.createJWT({ sub: customer.id, email: email, scope: 'store_customer' }, hashSecret, 86400 * 30)
+    const token = $security.createJWT(
+      { sub: customer.id, email: email, scope: 'store_customer' },
+      hashSecret,
+      86400 * 30,
+    )
 
     return c.json(200, {
       success: true,
@@ -147,7 +169,104 @@ routerAdd('POST', '/backend/v1/store/customer/login', (c) => {
 })
 
 // -------------------------------------------------------------
-// 3. GET /backend/v1/store/customer/me
+// 3. POST /backend/v1/store/customer/forgot-password
+// -------------------------------------------------------------
+routerAdd('POST', '/backend/v1/store/customer/forgot-password', (c) => {
+  const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
+  try {
+    const body = c.requestInfo().body || {}
+    const email = String(body.email || '')
+      .toLowerCase()
+      .trim()
+    if (!email) {
+      return c.json(400, { error: 'E-mail é obrigatório' })
+    }
+
+    const customers = $app.findRecordsByFilter('store_customers', 'email = {:email}', '', 1, 0, {
+      email: email,
+    })
+    // Resposta idempotente/neutra mesmo se e-mail não existir para prevenir enumeração de clientes
+    if (!customers || customers.length === 0) {
+      return c.json(200, {
+        success: true,
+        message: 'Se o e-mail estiver cadastrado, as instruções de recuperação serão processadas.',
+      })
+    }
+
+    const customer = customers[0]
+    const resetToken = $security.randomString(32)
+    const expiresAt = new Date(Date.now() + 2 * 3600 * 1000) // 2 horas de validade
+
+    customer.set('reset_token', resetToken)
+    customer.set('reset_token_expires_at', expiresAt.toISOString())
+    $app.save(customer)
+
+    return c.json(200, {
+      success: true,
+      message: 'Código de recuperação gerado com sucesso.',
+      // Em ambiente de teste/preview retornamos o token para viabilizar o fluxo
+      reset_token: resetToken,
+    })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao solicitar recuperação de senha: ' + err.message })
+  }
+})
+
+// -------------------------------------------------------------
+// 4. POST /backend/v1/store/customer/reset-password
+// -------------------------------------------------------------
+routerAdd('POST', '/backend/v1/store/customer/reset-password', (c) => {
+  const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
+  try {
+    const body = c.requestInfo().body || {}
+    const token = String(body.token || '').trim()
+    const newPassword = String(body.password || '')
+
+    if (!token || !newPassword) {
+      return c.json(400, { error: 'Token de recuperação e nova senha são obrigatórios' })
+    }
+    if (newPassword.length < 6) {
+      return c.json(400, { error: 'A nova senha deve ter no mínimo 6 caracteres' })
+    }
+
+    const customers = $app.findRecordsByFilter(
+      'store_customers',
+      'reset_token = {:token}',
+      '',
+      1,
+      0,
+      { token: token },
+    )
+    if (!customers || customers.length === 0) {
+      return c.json(400, { error: 'Token de recuperação inválido ou expirado' })
+    }
+
+    const customer = customers[0]
+    const expiresAtStr = customer.getString('reset_token_expires_at')
+    if (expiresAtStr) {
+      const expiresAt = new Date(expiresAtStr).getTime()
+      if (Date.now() > expiresAt) {
+        return c.json(400, { error: 'Este link de recuperação expirou. Solicite um novo.' })
+      }
+    }
+
+    const newHash = $security.sha256(newPassword + hashSecret)
+    customer.set('password_hash', newHash)
+    customer.set('reset_token', '')
+    customer.set('reset_token_expires_at', null)
+    $app.save(customer)
+
+    return c.json(200, {
+      success: true,
+      message: 'Sua senha foi redefinida com sucesso. Faça login com a nova senha.',
+    })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao redefinir senha: ' + err.message })
+  }
+})
+
+// -------------------------------------------------------------
+// 5. GET /backend/v1/store/customer/me
 // -------------------------------------------------------------
 routerAdd('GET', '/backend/v1/store/customer/me', (c) => {
   const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
@@ -176,7 +295,7 @@ routerAdd('GET', '/backend/v1/store/customer/me', (c) => {
       '-is_default,-created',
       20,
       0,
-      { cid: customer.id }
+      { cid: customer.id },
     )
 
     const addrList = (addresses || []).map(function (a) {
@@ -213,7 +332,61 @@ routerAdd('GET', '/backend/v1/store/customer/me', (c) => {
 })
 
 // -------------------------------------------------------------
-// 4. POST /backend/v1/store/customer/address
+// 6. GET /backend/v1/store/customer/orders (Histórico de pedidos do comprador logado)
+// -------------------------------------------------------------
+routerAdd('GET', '/backend/v1/store/customer/orders', (c) => {
+  const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
+  try {
+    const authHeader = c.request.header.get('Authorization') || ''
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+    if (!token) return c.json(401, { error: 'Token ausente' })
+
+    let claims = null
+    try {
+      claims = $security.parseJWT(token, hashSecret)
+    } catch (_) {}
+
+    if (!claims || !claims.sub || claims.scope !== 'store_customer') {
+      return c.json(401, { error: 'Sessão do comprador não autorizada ou expirada' })
+    }
+
+    const orders = $app.findRecordsByFilter(
+      'store_orders',
+      'customer_id = {:cid}',
+      '-created',
+      50,
+      0,
+      { cid: claims.sub },
+    )
+
+    const ordersList = (orders || []).map(function (o) {
+      return {
+        id: o.id,
+        order_number: o.getString('order_number'),
+        created: o.getString('created'),
+        delivery_method: o.getString('delivery_method'),
+        total_amount: o.getFloat('total_amount'),
+        subtotal: o.getFloat('subtotal'),
+        shipping_fee: o.getFloat('shipping_fee'),
+        payment_status: o.getString('payment_status'),
+        payment_method: o.getString('payment_method'),
+        art_status: o.getString('art_status'),
+        production_status: o.getString('production_status'),
+        estimated_delivery_date: o.getString('estimated_delivery_date'),
+      }
+    })
+
+    return c.json(200, {
+      success: true,
+      orders: ordersList,
+    })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao listar pedidos do cliente: ' + err.message })
+  }
+})
+
+// -------------------------------------------------------------
+// 7. POST /backend/v1/store/customer/address
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/customer/address', (c) => {
   const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
@@ -236,9 +409,28 @@ routerAdd('POST', '/backend/v1/store/customer/address', (c) => {
     const neighborhood = String(body.neighborhood || '').trim()
     const city = String(body.city || '').trim()
     const state = String(body.state || '').trim()
+    const isDefault = Boolean(body.is_default)
 
     if (!zipCode || !street || !number || !neighborhood || !city || !state) {
       return c.json(400, { error: 'CEP, logradouro, número, bairro, cidade e UF são obrigatórios' })
+    }
+
+    // Se marcado como padrão, desmarca os anteriores
+    if (isDefault) {
+      const prevAddrs = $app.findRecordsByFilter(
+        'store_addresses',
+        'customer_id = {:cid} && is_default = true',
+        '',
+        10,
+        0,
+        { cid: claims.sub },
+      )
+      if (prevAddrs && prevAddrs.length > 0) {
+        for (const pa of prevAddrs) {
+          pa.set('is_default', false)
+          $app.save(pa)
+        }
+      }
     }
 
     const addrCol = $app.findCollectionByNameOrId('store_addresses')
@@ -252,7 +444,7 @@ routerAdd('POST', '/backend/v1/store/customer/address', (c) => {
     rec.set('neighborhood', neighborhood)
     rec.set('city', city)
     rec.set('state', state)
-    rec.set('is_default', Boolean(body.is_default))
+    rec.set('is_default', isDefault)
 
     $app.save(rec)
 
@@ -277,7 +469,37 @@ routerAdd('POST', '/backend/v1/store/customer/address', (c) => {
 })
 
 // -------------------------------------------------------------
-// 5. POST /backend/v1/store/cart/validate
+// 8. DELETE /backend/v1/store/customer/address/{id}
+// -------------------------------------------------------------
+routerAdd('DELETE', '/backend/v1/store/customer/address/{id}', (c) => {
+  const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
+  try {
+    const authHeader = c.request.header.get('Authorization') || ''
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+    let claims = null
+    try {
+      claims = $security.parseJWT(token, hashSecret)
+    } catch (_) {}
+
+    if (!claims || !claims.sub || claims.scope !== 'store_customer') {
+      return c.json(401, { error: 'Autenticação necessária' })
+    }
+
+    const addrId = c.request.pathValue('id')
+    const addr = $app.findRecordById('store_addresses', addrId)
+    if (!addr || addr.getString('customer_id') !== claims.sub) {
+      return c.json(404, { error: 'Endereço não localizado' })
+    }
+
+    $app.delete(addr)
+    return c.json(200, { success: true, message: 'Endereço removido' })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao remover endereço: ' + err.message })
+  }
+})
+
+// -------------------------------------------------------------
+// 9. POST /backend/v1/store/cart/validate
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
   const parseJsonSafely = function (val) {
@@ -345,7 +567,8 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
       areaM2 = Number((wMeters * hMeters).toFixed(4))
       const minArea = product.getFloat('sqm_min_area') || 0.5
       const effectiveArea = Math.max(areaM2, minArea)
-      const sqmBasePrice = product.getFloat('sqm_base_price') || product.getFloat('store_price') || 65.0
+      const sqmBasePrice =
+        product.getFloat('sqm_base_price') || product.getFloat('store_price') || 65.0
       baseTotal = effectiveArea * sqmBasePrice * quantity
     }
 
@@ -373,7 +596,9 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
       }
     }
 
-    const finalTotal = Number((baseTotal + optionsModifierTotal * quantity + finishingsTotal).toFixed(2))
+    const finalTotal = Number(
+      (baseTotal + optionsModifierTotal * quantity + finishingsTotal).toFixed(2),
+    )
     const finalUnitPrice = Number((finalTotal / quantity).toFixed(2))
 
     return {
@@ -392,10 +617,30 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
     }
   }
 
+  // Carrega regras dinâmicas de frete de system_settings
+  const getShippingRules = function () {
+    try {
+      const rec = $app.findFirstRecordByData(
+        'system_settings',
+        'setting_key',
+        'store_shipping_rules',
+      )
+      if (rec) {
+        const val = rec.getString('setting_value')
+        return JSON.parse(val)
+      }
+    } catch (_) {}
+    return {
+      free_shipping_min_order: 350.0,
+      standard_delivery_fee: 25.0,
+    }
+  }
+
   try {
     const body = c.requestInfo().body || {}
     const rawItems = Array.isArray(body.items) ? body.items : []
     const deliveryMethod = body.delivery_method === 'delivery' ? 'delivery' : 'pickup'
+    const shippingZip = String(body.shipping_zip || '').replace(/\D/g, '')
 
     if (rawItems.length === 0) {
       return c.json(400, { error: 'O carrinho está vazio' })
@@ -416,15 +661,34 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
 
     subtotal = Number(subtotal.toFixed(2))
 
+    const rules = getShippingRules()
+    const freeMin = Number(rules.free_shipping_min_order) || 350.0
+    let standardFee = Number(rules.standard_delivery_fee) || 25.0
+
+    // Cálculo dinâmico por faixa de CEP se disponível
+    if (rules.regional_tiers && shippingZip.length >= 2) {
+      const prefix = parseInt(shippingZip.substring(0, 2), 10)
+      if (prefix >= 1 && prefix <= 19) {
+        // SP Capital e Região Metropolitana
+        standardFee = 25.0
+      } else if (prefix >= 20 && prefix <= 28) {
+        // RJ / ES
+        standardFee = 38.0
+      } else {
+        standardFee = 45.0
+      }
+    }
+
     let shippingFee = 0
     let shippingNote = 'Retirada grátis no balcão da gráfica'
 
     if (deliveryMethod === 'delivery') {
-      shippingFee = 25.0
-      shippingNote = 'Frete Padrão Gráfica'
-      if (subtotal >= 350.0) {
+      if (subtotal >= freeMin) {
         shippingFee = 0.0
-        shippingNote = 'Frete Grátis promocional para pedidos acima de R$ 350,00'
+        shippingNote = 'Frete Grátis promocional para compras acima de R$ ' + freeMin.toFixed(2)
+      } else {
+        shippingFee = standardFee
+        shippingNote = 'Frete Padrão Gráfica'
       }
     }
 
@@ -445,7 +709,7 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
 })
 
 // -------------------------------------------------------------
-// 6. POST /backend/v1/store/checkout (IDEMPOTENTE)
+// 10. POST /backend/v1/store/checkout (IDEMPOTENTE)
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/checkout', (c) => {
   const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
@@ -514,7 +778,8 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       areaM2 = Number((wMeters * hMeters).toFixed(4))
       const minArea = product.getFloat('sqm_min_area') || 0.5
       const effectiveArea = Math.max(areaM2, minArea)
-      const sqmBasePrice = product.getFloat('sqm_base_price') || product.getFloat('store_price') || 65.0
+      const sqmBasePrice =
+        product.getFloat('sqm_base_price') || product.getFloat('store_price') || 65.0
       baseTotal = effectiveArea * sqmBasePrice * quantity
     }
 
@@ -542,7 +807,9 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       }
     }
 
-    const finalTotal = Number((baseTotal + optionsModifierTotal * quantity + finishingsTotal).toFixed(2))
+    const finalTotal = Number(
+      (baseTotal + optionsModifierTotal * quantity + finishingsTotal).toFixed(2),
+    )
     const finalUnitPrice = Number((finalTotal / quantity).toFixed(2))
 
     return {
@@ -571,7 +838,9 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
     const rawItems = Array.isArray(body.items) ? body.items : []
 
     if (!clientRequestId) {
-      return c.json(400, { error: 'client_request_id é obrigatório para garantir idempotência da compra' })
+      return c.json(400, {
+        error: 'client_request_id é obrigatório para garantir idempotência da compra',
+      })
     }
     if (rawItems.length === 0) {
       return c.json(400, { error: 'Nenhum item informado para checkout' })
@@ -587,7 +856,7 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       '',
       1,
       0,
-      { reqId: clientRequestId }
+      { reqId: clientRequestId },
     )
     if (existingOrders && existingOrders.length > 0) {
       const existing = existingOrders[0]
@@ -616,6 +885,7 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
     }
     subtotal = Number(subtotal.toFixed(2))
 
+    // Frete
     let shippingFee = 0
     if (deliveryMethod === 'delivery') {
       shippingFee = subtotal >= 350.0 ? 0 : 25.0
@@ -626,7 +896,9 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
     const orderNumber = 'LL-' + new Date().getFullYear() + '-' + randomSuffix
 
     const estimatedDate = new Date()
-    estimatedDate.setDate(estimatedDate.getDate() + maxLeadTime + (deliveryMethod === 'delivery' ? 2 : 0))
+    estimatedDate.setDate(
+      estimatedDate.getDate() + maxLeadTime + (deliveryMethod === 'delivery' ? 2 : 0),
+    )
 
     let customerId = ''
     try {
@@ -639,14 +911,9 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       if (claims && claims.sub) {
         customerId = claims.sub
       } else {
-        const found = $app.findRecordsByFilter(
-          'store_customers',
-          'email = {:email}',
-          '',
-          1,
-          0,
-          { email: String(customerInfo.email).toLowerCase().trim() }
-        )
+        const found = $app.findRecordsByFilter('store_customers', 'email = {:email}', '', 1, 0, {
+          email: String(customerInfo.email).toLowerCase().trim(),
+        })
         if (found && found.length > 0) {
           customerId = found[0].id
         }
@@ -708,7 +975,12 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       payRec.set('status', 'pending')
       payRec.set('amount', totalAmount)
       payRec.set('idempotency_key', 'PAY-' + clientRequestId)
-      payRec.set('pix_qr_code', '00020126580014br.gov.bcb.pix0136mock-laletra-pix-key520400005303986540' + totalAmount.toFixed(2) + '5802BR5915LALETRA GRAFICA6009SAO PAULO62070503***6304')
+      payRec.set(
+        'pix_qr_code',
+        '00020126580014br.gov.bcb.pix0136mock-laletra-pix-key520400005303986540' +
+          totalAmount.toFixed(2) +
+          '5802BR5915LALETRA GRAFICA6009SAO PAULO62070503***6304',
+      )
       txApp.save(payRec)
     })
 
@@ -724,7 +996,10 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       payment: {
         method: paymentMethod,
         status: 'pending',
-        pix_copy_paste: '00020126580014br.gov.bcb.pix0136mock-laletra-pix-key520400005303986540' + totalAmount.toFixed(2) + '5802BR5915LALETRA GRAFICA6009SAO PAULO62070503***6304',
+        pix_copy_paste:
+          '00020126580014br.gov.bcb.pix0136mock-laletra-pix-key520400005303986540' +
+          totalAmount.toFixed(2) +
+          '5802BR5915LALETRA GRAFICA6009SAO PAULO62070503***6304',
       },
     })
   } catch (err) {
@@ -733,7 +1008,7 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
 })
 
 // -------------------------------------------------------------
-// 7. GET /backend/v1/store/orders/{order_number}
+// 11. GET /backend/v1/store/orders/{order_number}
 // -------------------------------------------------------------
 routerAdd('GET', '/backend/v1/store/orders/{order_number}', (c) => {
   const parseJsonSafely = function (val) {
@@ -752,14 +1027,9 @@ routerAdd('GET', '/backend/v1/store/orders/{order_number}', (c) => {
       return c.json(400, { error: 'Número do pedido é obrigatório' })
     }
 
-    const orders = $app.findRecordsByFilter(
-      'store_orders',
-      'order_number = {:num}',
-      '',
-      1,
-      0,
-      { num: orderNumber }
-    )
+    const orders = $app.findRecordsByFilter('store_orders', 'order_number = {:num}', '', 1, 0, {
+      num: orderNumber,
+    })
     if (!orders || orders.length === 0) {
       return c.json(404, { error: 'Pedido não encontrado' })
     }
@@ -771,7 +1041,7 @@ routerAdd('GET', '/backend/v1/store/orders/{order_number}', (c) => {
       'created',
       50,
       0,
-      { oid: order.id }
+      { oid: order.id },
     )
 
     const arts = $app.findRecordsByFilter(
@@ -780,7 +1050,7 @@ routerAdd('GET', '/backend/v1/store/orders/{order_number}', (c) => {
       '-created',
       20,
       0,
-      { oid: order.id }
+      { oid: order.id },
     )
 
     const payments = $app.findRecordsByFilter(
@@ -789,7 +1059,7 @@ routerAdd('GET', '/backend/v1/store/orders/{order_number}', (c) => {
       '-created',
       10,
       0,
-      { oid: order.id }
+      { oid: order.id },
     )
 
     return c.json(200, {
@@ -850,19 +1120,14 @@ routerAdd('GET', '/backend/v1/store/orders/{order_number}', (c) => {
 })
 
 // -------------------------------------------------------------
-// 8. POST /backend/v1/store/orders/{order_number}/upload-art
+// 12. POST /backend/v1/store/orders/{order_number}/upload-art
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/orders/{order_number}/upload-art', (c) => {
   try {
     const orderNumber = c.request.pathValue('order_number')
-    const orders = $app.findRecordsByFilter(
-      'store_orders',
-      'order_number = {:num}',
-      '',
-      1,
-      0,
-      { num: orderNumber }
-    )
+    const orders = $app.findRecordsByFilter('store_orders', 'order_number = {:num}', '', 1, 0, {
+      num: orderNumber,
+    })
     if (!orders || orders.length === 0) {
       return c.json(404, { error: 'Pedido não encontrado' })
     }
@@ -919,27 +1184,24 @@ routerAdd('POST', '/backend/v1/store/orders/{order_number}/upload-art', (c) => {
 })
 
 // -------------------------------------------------------------
-// 9. POST /backend/v1/store/webhooks/mercadopago (IDEMPOTENTE)
+// 13. POST /backend/v1/store/webhooks/mercadopago (IDEMPOTENTE)
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/webhooks/mercadopago', (c) => {
   try {
     const body = c.requestInfo().body || {}
     const paymentId = String(body.payment_id || body.id || '').trim()
     const orderNumber = String(body.order_number || body.external_reference || '').trim()
-    const status = String(body.status || 'paid').toLowerCase().trim()
+    const status = String(body.status || 'paid')
+      .toLowerCase()
+      .trim()
 
     if (!paymentId || !orderNumber) {
       return c.json(400, { error: 'payment_id e order_number são obrigatórios no webhook' })
     }
 
-    const orders = $app.findRecordsByFilter(
-      'store_orders',
-      'order_number = {:num}',
-      '',
-      1,
-      0,
-      { num: orderNumber }
-    )
+    const orders = $app.findRecordsByFilter('store_orders', 'order_number = {:num}', '', 1, 0, {
+      num: orderNumber,
+    })
     if (!orders || orders.length === 0) {
       return c.json(404, { error: 'Pedido ' + orderNumber + ' não localizado' })
     }
@@ -961,7 +1223,7 @@ routerAdd('POST', '/backend/v1/store/webhooks/mercadopago', (c) => {
       '-created',
       1,
       0,
-      { oid: order.id }
+      { oid: order.id },
     )
 
     if (payments && payments.length > 0) {

@@ -5,7 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import {
   Dialog,
   DialogContent,
@@ -137,9 +144,12 @@ export const StoreOrdersCrmPage: React.FC = () => {
     if (!selectedOrderId) return
     try {
       setIsReleasing(true)
-      const res = await pb.send(`/backend/v1/crm/store/orders/${selectedOrderId}/release-to-production`, {
-        method: 'POST',
-      })
+      const res = await pb.send(
+        `/backend/v1/crm/store/orders/${selectedOrderId}/release-to-production`,
+        {
+          method: 'POST',
+        },
+      )
 
       if (res && res.success) {
         toast({
@@ -191,7 +201,8 @@ export const StoreOrdersCrmPage: React.FC = () => {
     if (!matchSearch) return false
     if (filterStatus === 'pending_payment') return o.payment_status === 'pending'
     if (filterStatus === 'paid') return o.payment_status === 'paid'
-    if (filterStatus === 'art_pending') return o.art_status === 'uploaded' || o.art_status === 'pending_upload'
+    if (filterStatus === 'art_pending')
+      return o.art_status === 'uploaded' || o.art_status === 'pending_upload'
     if (filterStatus === 'intervention') return o.human_intervention_needed === true
     return true
   })
@@ -209,7 +220,8 @@ export const StoreOrdersCrmPage: React.FC = () => {
             </Badge>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Gestão integrada dos pedidos recebidos na loja, conferência de arte, aprovação financeira e liberação para produção.
+            Gestão integrada dos pedidos recebidos na loja, conferência de arte, aprovação
+            financeira e liberação para produção.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchOrders} disabled={loading}>
@@ -334,18 +346,18 @@ export const StoreOrdersCrmPage: React.FC = () => {
                           o.art_status === 'approved'
                             ? 'default'
                             : o.art_status === 'rejected'
-                            ? 'destructive'
-                            : 'secondary'
+                              ? 'destructive'
+                              : 'secondary'
                         }
                         className="text-[11px]"
                       >
                         {o.art_status === 'approved'
                           ? 'Aprovada'
                           : o.art_status === 'uploaded'
-                          ? 'Enviada'
-                          : o.art_status === 'rejected'
-                          ? 'Recusada'
-                          : 'Aguardando'}
+                            ? 'Enviada'
+                            : o.art_status === 'rejected'
+                              ? 'Recusada'
+                              : 'Aguardando'}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -353,8 +365,8 @@ export const StoreOrdersCrmPage: React.FC = () => {
                         {o.production_status === 'released_to_production'
                           ? 'Liberado'
                           : o.production_status === 'in_production'
-                          ? 'Em Produção'
-                          : 'Aguardando Liberação'}
+                            ? 'Em Produção'
+                            : 'Aguardando Liberação'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
@@ -382,7 +394,9 @@ export const StoreOrdersCrmPage: React.FC = () => {
           <DialogHeader>
             <DialogTitle className="text-xl flex items-center gap-2">
               Pedido {orderDetails?.order?.order_number}
-              <Badge variant={orderDetails?.order?.payment_status === 'paid' ? 'default' : 'secondary'}>
+              <Badge
+                variant={orderDetails?.order?.payment_status === 'paid' ? 'default' : 'secondary'}
+              >
                 {orderDetails?.order?.payment_status === 'paid' ? 'Pago' : 'Aguardando Pagamento'}
               </Badge>
             </DialogTitle>
@@ -402,14 +416,28 @@ export const StoreOrdersCrmPage: React.FC = () => {
               <div className="bg-slate-50 p-4 rounded-lg space-y-2 text-xs">
                 <div className="flex justify-between items-center pb-2 border-b border-slate-200">
                   <span className="font-semibold text-slate-800 text-sm">Dados do Comprador:</span>
-                  <span className="text-slate-500">ID Loja: {orderDetails.order.customer_id || 'Visitante'}</span>
+                  <span className="text-slate-500">
+                    ID Loja: {orderDetails.order.customer_id || 'Visitante'}
+                  </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-600">
-                  <p><strong>Nome:</strong> {orderDetails.order.customer_name}</p>
-                  <p><strong>E-mail:</strong> {orderDetails.order.customer_email}</p>
-                  <p><strong>Telefone:</strong> {orderDetails.order.customer_phone}</p>
-                  <p><strong>Documento:</strong> {orderDetails.order.customer_document || 'Não informado'}</p>
-                  <p><strong>Forma de Envio:</strong> {orderDetails.order.delivery_method === 'pickup' ? 'Balcão Grátis' : 'Entrega'}</p>
+                  <p>
+                    <strong>Nome:</strong> {orderDetails.order.customer_name}
+                  </p>
+                  <p>
+                    <strong>E-mail:</strong> {orderDetails.order.customer_email}
+                  </p>
+                  <p>
+                    <strong>Telefone:</strong> {orderDetails.order.customer_phone}
+                  </p>
+                  <p>
+                    <strong>Documento:</strong>{' '}
+                    {orderDetails.order.customer_document || 'Não informado'}
+                  </p>
+                  <p>
+                    <strong>Forma de Envio:</strong>{' '}
+                    {orderDetails.order.delivery_method === 'pickup' ? 'Balcão Grátis' : 'Entrega'}
+                  </p>
                 </div>
 
                 {/* Vínculo seguro com CRM */}
@@ -447,7 +475,9 @@ export const StoreOrdersCrmPage: React.FC = () => {
 
               {/* Itens do Pedido */}
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 mb-2">Itens e Especificações Congeladas</h3>
+                <h3 className="text-sm font-semibold text-slate-900 mb-2">
+                  Itens e Especificações Congeladas
+                </h3>
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <Table>
                     <TableHeader className="bg-slate-50">
@@ -469,7 +499,9 @@ export const StoreOrdersCrmPage: React.FC = () => {
                           <TableCell className="text-xs text-slate-500">
                             {it.width && it.height ? `${it.width} x ${it.height} cm` : 'Padrão'}
                           </TableCell>
-                          <TableCell className="text-xs">R$ {Number(it.unit_price).toFixed(2)}</TableCell>
+                          <TableCell className="text-xs">
+                            R$ {Number(it.unit_price).toFixed(2)}
+                          </TableCell>
                           <TableCell className="text-xs font-semibold text-right">
                             R$ {Number(it.total_price).toFixed(2)}
                           </TableCell>
@@ -482,7 +514,9 @@ export const StoreOrdersCrmPage: React.FC = () => {
 
               {/* Arquivos de Arte Enviados */}
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 mb-2">Conferência de Arte Técnica</h3>
+                <h3 className="text-sm font-semibold text-slate-900 mb-2">
+                  Conferência de Arte Técnica
+                </h3>
                 {orderDetails.arts?.length === 0 ? (
                   <p className="text-xs text-slate-500 bg-slate-50 p-3 rounded border">
                     Nenhum arquivo de arte enviado pelo comprador até o momento.
@@ -497,7 +531,9 @@ export const StoreOrdersCrmPage: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <FileText className="w-5 h-5 text-blue-600 shrink-0" />
                           <div>
-                            <p className="text-xs font-semibold text-slate-900">{art.original_filename}</p>
+                            <p className="text-xs font-semibold text-slate-900">
+                              {art.original_filename}
+                            </p>
                             <p className="text-[11px] text-slate-400">
                               Enviado em {new Date(art.created).toLocaleString('pt-BR')}
                             </p>
@@ -515,16 +551,16 @@ export const StoreOrdersCrmPage: React.FC = () => {
                               art.status === 'approved'
                                 ? 'default'
                                 : art.status === 'rejected'
-                                ? 'destructive'
-                                : 'secondary'
+                                  ? 'destructive'
+                                  : 'secondary'
                             }
                             className="text-xs"
                           >
                             {art.status === 'approved'
                               ? 'Aprovada'
                               : art.status === 'rejected'
-                              ? 'Recusada'
-                              : 'Recebida'}
+                                ? 'Recusada'
+                                : 'Recebida'}
                           </Badge>
 
                           {art.status !== 'approved' && (
@@ -576,7 +612,8 @@ export const StoreOrdersCrmPage: React.FC = () => {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-xs text-slate-600">
-                      Liberação condicionada a: Pagamento confirmado + Arte técnica aprovada (ou autorização comercial do atendente).
+                      Liberação condicionada a: Pagamento confirmado + Arte técnica aprovada (ou
+                      autorização comercial do atendente).
                     </p>
                     <Button
                       size="sm"

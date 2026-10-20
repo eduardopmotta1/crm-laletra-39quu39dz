@@ -153,7 +153,9 @@ export const StoreOrderDetailPage: React.FC = () => {
           <AlertCircle className="w-8 h-8" />
         </div>
         <h2 className="text-xl font-bold text-slate-900 mb-2">Pedido não encontrado</h2>
-        <p className="text-slate-600 mb-6 text-sm">{error || 'Verifique o número e tente novamente.'}</p>
+        <p className="text-slate-600 mb-6 text-sm">
+          {error || 'Verifique o número e tente novamente.'}
+        </p>
         <Button asChild>
           <Link to="/loja">Voltar para a Loja</Link>
         </Button>
@@ -185,7 +187,10 @@ export const StoreOrderDetailPage: React.FC = () => {
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               Realizado em {new Date(orderData.created).toLocaleDateString('pt-BR')} às{' '}
-              {new Date(orderData.created).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              {new Date(orderData.created).toLocaleTimeString('pt-BR', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
             </p>
           </div>
 
@@ -200,9 +205,11 @@ export const StoreOrderDetailPage: React.FC = () => {
         {/* Status de Progresso do Pedido */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-6">
           <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-              isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
-            }`}>
+            <div
+              className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+              }`}
+            >
               {isPaid ? <CheckCircle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
             </div>
             <div>
@@ -214,13 +221,15 @@ export const StoreOrderDetailPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-              orderData.art_status === 'approved'
-                ? 'bg-emerald-100 text-emerald-600'
-                : orderData.art_status === 'uploaded'
-                ? 'bg-blue-100 text-blue-600'
-                : 'bg-amber-100 text-amber-600'
-            }`}>
+            <div
+              className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                orderData.art_status === 'approved'
+                  ? 'bg-emerald-100 text-emerald-600'
+                  : orderData.art_status === 'uploaded'
+                    ? 'bg-blue-100 text-blue-600'
+                    : 'bg-amber-100 text-amber-600'
+              }`}
+            >
               {orderData.art_status === 'approved' ? (
                 <CheckCircle className="w-4 h-4" />
               ) : (
@@ -233,18 +242,21 @@ export const StoreOrderDetailPage: React.FC = () => {
                 {orderData.art_status === 'approved'
                   ? 'Aprovada'
                   : orderData.art_status === 'uploaded'
-                  ? 'Em Conferência'
-                  : 'Pendente de Upload'}
+                    ? 'Em Conferência'
+                    : 'Pendente de Upload'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-              orderData.production_status === 'released_to_production' || orderData.production_status === 'in_production'
-                ? 'bg-blue-100 text-blue-600'
-                : 'bg-slate-200 text-slate-500'
-            }`}>
+            <div
+              className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                orderData.production_status === 'released_to_production' ||
+                orderData.production_status === 'in_production'
+                  ? 'bg-blue-100 text-blue-600'
+                  : 'bg-slate-200 text-slate-500'
+              }`}
+            >
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
@@ -253,8 +265,8 @@ export const StoreOrderDetailPage: React.FC = () => {
                 {orderData.production_status === 'waiting_release'
                   ? 'Aguardando Liberação'
                   : orderData.production_status === 'released_to_production'
-                  ? 'Liberado'
-                  : 'Em Produção'}
+                    ? 'Liberado'
+                    : 'Em Produção'}
               </p>
             </div>
           </div>
@@ -266,7 +278,9 @@ export const StoreOrderDetailPage: React.FC = () => {
             <div>
               <p className="text-[11px] text-slate-400">4. Entrega / Balcão</p>
               <p className="text-xs font-semibold text-slate-800">
-                {orderData.delivery_method === 'pickup' ? 'Retirada na Gráfica' : 'Envio por Transportadora'}
+                {orderData.delivery_method === 'pickup'
+                  ? 'Retirada na Gráfica'
+                  : 'Envio por Transportadora'}
               </p>
             </div>
           </div>
@@ -285,7 +299,8 @@ export const StoreOrderDetailPage: React.FC = () => {
                   Efetuar Pagamento via Pix
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Pague agora com o código Pix para liberarmos seu pedido imediatamente para a fila de produção.
+                  Pague agora com o código Pix para liberarmos seu pedido imediatamente para a fila
+                  de produção.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -296,7 +311,8 @@ export const StoreOrderDetailPage: React.FC = () => {
                   <div className="flex-1 min-w-0 text-center sm:text-left">
                     <p className="text-xs font-semibold text-slate-700 mb-1">Pix Copia e Cola:</p>
                     <div className="bg-slate-50 p-2 rounded border text-xs font-mono break-all text-slate-600 line-clamp-2 select-all">
-                      {orderData.payments?.[0]?.pix_qr_code || '00020126580014br.gov.bcb.pix0136mock-laletra-pix-key...'}
+                      {orderData.payments?.[0]?.pix_qr_code ||
+                        '00020126580014br.gov.bcb.pix0136mock-laletra-pix-key...'}
                     </div>
                     <div className="flex flex-wrap gap-2 mt-3">
                       <Button
@@ -321,7 +337,9 @@ export const StoreOrderDetailPage: React.FC = () => {
                         className="border-dashed text-xs text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100/50"
                       >
                         <ShieldCheck className="w-3.5 h-3.5 mr-1" />
-                        {isSimulatingPayment ? 'Processando Webhook...' : 'Simular Pagamento Aprovado (Teste)'}
+                        {isSimulatingPayment
+                          ? 'Processando Webhook...'
+                          : 'Simular Pagamento Aprovado (Teste)'}
                       </Button>
                     </div>
                   </div>
@@ -345,7 +363,9 @@ export const StoreOrderDetailPage: React.FC = () => {
               {/* Histórico de artes enviadas */}
               {orderData.arts && orderData.arts.length > 0 && (
                 <div className="space-y-2 mb-4">
-                  <p className="text-xs font-semibold text-slate-700">Arquivos enviados anteriormente:</p>
+                  <p className="text-xs font-semibold text-slate-700">
+                    Arquivos enviados anteriormente:
+                  </p>
                   <div className="space-y-1.5">
                     {orderData.arts.map((art: any) => (
                       <div
@@ -364,16 +384,16 @@ export const StoreOrderDetailPage: React.FC = () => {
                               art.status === 'approved'
                                 ? 'default'
                                 : art.status === 'rejected'
-                                ? 'destructive'
-                                : 'secondary'
+                                  ? 'destructive'
+                                  : 'secondary'
                             }
                             className="text-[10px]"
                           >
                             {art.status === 'approved'
                               ? 'Aprovada'
                               : art.status === 'rejected'
-                              ? 'Recusada'
-                              : 'Recebida'}
+                                ? 'Recusada'
+                                : 'Recebida'}
                           </Badge>
                           <span className="text-[10px] text-slate-400">
                             {new Date(art.created).toLocaleDateString('pt-BR')}
@@ -399,7 +419,8 @@ export const StoreOrderDetailPage: React.FC = () => {
                   />
                   {selectedFile && (
                     <p className="text-[11px] text-blue-600 mt-1 font-medium">
-                      Selecionado: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                      Selecionado: {selectedFile.name} (
+                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
                     </p>
                   )}
                 </div>
@@ -461,12 +482,16 @@ export const StoreOrderDetailPage: React.FC = () => {
                   <span>R$ {Number(orderData.subtotal || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Frete ({orderData.delivery_method === 'pickup' ? 'Balcão' : 'Entrega'}):</span>
+                  <span>
+                    Frete ({orderData.delivery_method === 'pickup' ? 'Balcão' : 'Entrega'}):
+                  </span>
                   <span>R$ {Number(orderData.shipping_fee || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-slate-900 text-sm pt-1">
                   <span>Total:</span>
-                  <span className="text-blue-600">R$ {Number(orderData.total_amount || 0).toFixed(2)}</span>
+                  <span className="text-blue-600">
+                    R$ {Number(orderData.total_amount || 0).toFixed(2)}
+                  </span>
                 </div>
               </div>
             </CardContent>
@@ -492,7 +517,8 @@ export const StoreOrderDetailPage: React.FC = () => {
                   <p className="font-semibold text-slate-800 mb-1">Endereço de Entrega:</p>
                   <p>
                     {orderData.shipping_address.street}, {orderData.shipping_address.number}
-                    {orderData.shipping_address.complement && ` - ${orderData.shipping_address.complement}`}
+                    {orderData.shipping_address.complement &&
+                      ` - ${orderData.shipping_address.complement}`}
                   </p>
                   <p>
                     {orderData.shipping_address.neighborhood} - {orderData.shipping_address.city}/

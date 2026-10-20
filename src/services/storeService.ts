@@ -248,7 +248,10 @@ export const storeService = {
     })
   },
 
-  async loginCustomer(email: string, password: string): Promise<{ success: boolean; token: string; customer: any }> {
+  async loginCustomer(
+    email: string,
+    password: string,
+  ): Promise<{ success: boolean; token: string; customer: any }> {
     return pb.send('/backend/v1/store/customer/login', {
       method: 'POST',
       body: { email, password },
@@ -274,27 +277,67 @@ export const storeService = {
     })
   },
 
-  async checkoutOrder(payload: {
-    client_request_id: string
-    delivery_method: 'pickup' | 'delivery'
-    payment_method: 'pix' | 'credit_card' | 'bank_slip' | 'billed_invoice'
-    customer: {
-      name: string
-      email: string
-      phone: string
-      document?: string
-    }
-    shipping_address?: any
-    items: Array<{
-      product_id: string
-      quantity: number
-      width?: number | null
-      height?: number | null
-      selected_options?: Record<string, string>
-      selected_finishings?: string[]
-    }>
-    notes?: string
-  }, customerToken?: string | null): Promise<any> {
+  async deleteCustomerAddress(token: string, addressId: string): Promise<any> {
+    return pb.send(`/backend/v1/store/customer/address/${encodeURIComponent(addressId)}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+  },
+
+  async getCustomerOrders(token: string): Promise<{ success: boolean; orders: any[] }> {
+    return pb.send('/backend/v1/store/customer/orders', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+  },
+
+  async requestPasswordReset(
+    email: string,
+  ): Promise<{ success: boolean; message: string; reset_token?: string }> {
+    return pb.send('/backend/v1/store/customer/forgot-password', {
+      method: 'POST',
+      body: { email },
+    })
+  },
+
+  async resetPasswordWithToken(
+    token: string,
+    password: string,
+  ): Promise<{ success: boolean; message: string }> {
+    return pb.send('/backend/v1/store/customer/reset-password', {
+      method: 'POST',
+      body: { token, password },
+    })
+  },
+
+  async checkoutOrder(
+    payload: {
+      client_request_id: string
+      delivery_method: 'pickup' | 'delivery'
+      payment_method: 'pix' | 'credit_card' | 'bank_slip' | 'billed_invoice'
+      customer: {
+        name: string
+        email: string
+        phone: string
+        document?: string
+      }
+      shipping_address?: any
+      items: Array<{
+        product_id: string
+        quantity: number
+        width?: number | null
+        height?: number | null
+        selected_options?: Record<string, string>
+        selected_finishings?: string[]
+      }>
+      notes?: string
+    },
+    customerToken?: string | null,
+  ): Promise<any> {
     const headers: Record<string, string> = {}
     if (customerToken) {
       headers.Authorization = `Bearer ${customerToken}`
@@ -382,7 +425,11 @@ export const storeService = {
     return await pb.collection('store_orders').update(orderId, data)
   },
 
-  async adminReviewArt(artId: string, status: 'approved' | 'rejected', rejectionReason?: string): Promise<any> {
+  async adminReviewArt(
+    artId: string,
+    status: 'approved' | 'rejected',
+    rejectionReason?: string,
+  ): Promise<any> {
     return await pb.collection('store_art_uploads').update(artId, {
       status,
       rejection_reason: rejectionReason || '',
@@ -390,7 +437,11 @@ export const storeService = {
     })
   },
 
-  async adminVerifyLinkStoreCustomer(customerId: string, clientCrmId: string, verified: boolean): Promise<any> {
+  async adminVerifyLinkStoreCustomer(
+    customerId: string,
+    clientCrmId: string,
+    verified: boolean,
+  ): Promise<any> {
     return await pb.collection('store_customers').update(customerId, {
       linked_client_id: verified ? clientCrmId : null,
       crm_link_status: verified ? 'verified_linked' : 'rejected',

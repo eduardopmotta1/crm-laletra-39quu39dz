@@ -19,17 +19,73 @@ import {
 import { toast } from '@/hooks/use-toast'
 
 export const StoreCartPage: React.FC = () => {
-  const { cart, updateQuantity, removeFromCart, clearCart, cartSubtotal } = useStore()
+  const {
+    cart,
+    updateQuantity,
+    removeFromCart,
+    clearCart,
+    cartSubtotal,
+    isRevalidatingCart,
+    revalidateCartWithServer,
+  } = useStore()
   const navigate = useNavigate()
   const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'delivery'>('delivery')
   const [zipCode, setZipCode] = useState('')
   const [isValidating, setIsValidating] = useState(false)
+  const [serverShippingData, setServerShippingData] = useState<{
+    shipping_fee: number
+    shipping_note: string
+    subtotal: number
+    total_amount: number
+    estimated_days: number
+  } | null>(null)
 
-  // Frete estimado local com base nas regras do servidor
+  // Revalidação com o backend ao mudar método ou itens
+  useEffect(() => {
+    if (cart.length === 0) return
+    let active = true
+    setIsValidating(true)
+    storeService
+      .validateCartOnServer(
+        cart.map((it) => ({
+          product_id: it.product_id,
+          quantity: it.quantity,
+          width: it.width,
+          height: it.height,
+          selected_options: it.selected_options,
+          selected_finishings: it.selected_finishings,
+        })),
+        deliveryMethod,
+        zipCode,
+      )
+      .then((res) => {
+        if (active && res && res.success) {
+          setServerShippingData({
+            shipping_fee: res.shipping_fee,
+            shipping_note: res.shipping_note,
+            subtotal: res.subtotal,
+            total_amount: res.total_amount,
+            estimated_days: res.estimated_days,
+          })
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setIsValidating(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [cart, deliveryMethod, zipCode])
+
   const freeShippingThreshold = 350.0
-  const shippingFee = deliveryMethod === 'pickup' ? 0 : cartSubtotal >= freeShippingThreshold ? 0 : 25.0
+  const shippingFee =
+    serverShippingData?.shipping_fee ??
+    (deliveryMethod === 'pickup' ? 0 : cartSubtotal >= freeShippingThreshold ? 0 : 25.0)
   const remainingForFreeShipping = Math.max(0, freeShippingThreshold - cartSubtotal)
-  const totalAmount = Number((cartSubtotal + shippingFee).toFixed(2))
+  const totalAmount =
+    serverShippingData?.total_amount ?? Number((cartSubtotal + shippingFee).toFixed(2))
 
   if (cart.length === 0) {
     return (
@@ -63,15 +119,26 @@ export const StoreCartPage: React.FC = () => {
             Revise seus produtos, quantidades e opções de envio antes de finalizar.
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={clearCart}
-          className="text-red-600 hover:text-red-700 hover:bg-red-50 text-xs"
-        >
-          <RotateCcw className="w-3.5 h-3.5 mr-1" />
-          Esvaziar carrinho
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => revalidateCartWithServer()}
+            disabled={isRevalidatingCart || isValidating}
+            className="text-xs"
+          >
+            {isRevalidatingCart || isValidating ? 'Revalidando...' : 'Atualizar Preços'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearCart}
+            className="text-red-600 hover:text-red-700 hover:bg-red-50 text-xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5 mr-1" />
+            Esvaziar carrinho
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -284,8 +351,8 @@ export const StoreCartPage: React.FC = () => {
                   Compra 100% Segura
                 </p>
                 <p>
-                  Você poderá enviar seus arquivos de arte após a identificação ou finalizar e enviar
-                  depois por este mesmo portal.
+                  Você poderá enviar seus arquivos de arte após a identificação ou finalizar e
+                  enviar depois por este mesmo portal.
                 </p>
               </div>
             </CardContent>

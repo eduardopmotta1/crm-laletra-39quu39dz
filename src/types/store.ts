@@ -204,7 +204,12 @@ export interface StoreOrderSummary {
   payment_status: 'pending' | 'authorized' | 'paid' | 'failed' | 'refunded'
   payment_method?: 'pix' | 'credit_card' | 'bank_slip' | 'billed_invoice'
   art_status: 'pending_upload' | 'uploaded' | 'under_review' | 'approved' | 'rejected'
-  production_status: 'waiting_release' | 'released_to_production' | 'in_production' | 'ready' | 'delivered'
+  production_status:
+    | 'waiting_release'
+    | 'released_to_production'
+    | 'in_production'
+    | 'ready'
+    | 'delivered'
   estimated_delivery_date?: string
   created: string
   items?: Array<{

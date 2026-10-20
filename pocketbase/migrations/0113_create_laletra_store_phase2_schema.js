@@ -54,8 +54,7 @@ migrate(
         updateRule: "@request.auth.id != ''",
         deleteRule: "@request.auth.id != ''",
         fields: custFields,
-        indexes: [
-          ],
+        indexes: [],
       })
       app.save(custCol)
     }
@@ -94,9 +93,7 @@ migrate(
           { name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
           { name: 'updated', type: 'autodate', onCreate: true, onUpdate: true },
         ],
-        indexes: [
-          'CREATE INDEX idx_store_addr_cust ON store_addresses (customer_id)',
-        ],
+        indexes: ['CREATE INDEX idx_store_addr_cust ON store_addresses (customer_id)'],
       })
       app.save(addrCol)
     }
@@ -156,7 +153,13 @@ migrate(
           name: 'production_status',
           type: 'select',
           required: true,
-          values: ['waiting_release', 'released_to_production', 'in_production', 'ready', 'delivered'],
+          values: [
+            'waiting_release',
+            'released_to_production',
+            'in_production',
+            'ready',
+            'delivered',
+          ],
         },
         { name: 'estimated_days', type: 'number' },
         { name: 'estimated_delivery_date', type: 'date' },
@@ -187,8 +190,7 @@ migrate(
         updateRule: "@request.auth.id != ''",
         deleteRule: "@request.auth.id != ''",
         fields: orderFields,
-        indexes: [
-          'CREATE INDEX idx_store_order_created ON store_orders (created DESC)'],
+        indexes: ['CREATE INDEX idx_store_order_created ON store_orders (created DESC)'],
       })
       app.save(orderCol)
     }
@@ -249,8 +251,7 @@ migrate(
         updateRule: "@request.auth.id != ''",
         deleteRule: "@request.auth.id != ''",
         fields: itemFields,
-        indexes: [
-        ],
+        indexes: [],
       })
       app.save(itemCol)
     }
@@ -363,9 +364,7 @@ migrate(
           { name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
           { name: 'updated', type: 'autodate', onCreate: true, onUpdate: true },
         ],
-        indexes: [
-          'CREATE INDEX idx_store_art_order ON store_art_uploads (order_id)',
-        ],
+        indexes: ['CREATE INDEX idx_store_art_order ON store_art_uploads (order_id)'],
       })
       app.save(artCol)
     }

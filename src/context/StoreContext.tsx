@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { StoreCartItem, StoreCustomerProfile } from '@/types/store'
 import { storeService } from '@/services/storeService'
 
@@ -6,6 +6,8 @@ interface StoreContextType {
   cart: StoreCartItem[]
   cartCount: number
   cartSubtotal: number
+  isRevalidatingCart: boolean
+  revalidateCartWithServer: () => Promise<void>
   addToCart: (item: Omit<StoreCartItem, 'cart_item_id'>) => void
   updateQuantity: (cartItemId: string, newQuantity: number) => void
   removeFromCart: (cartItemId: string) => void
@@ -51,11 +53,95 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   })
 
+  const [isRevalidatingCart, setIsRevalidatingCart] = useState(false)
+
+  // Revalidação de preços exclusivamente no servidor
+  const revalidateCartWithServer = useCallback(async () => {
+    if (cart.length === 0) return
+    try {
+      setIsRevalidatingCart(true)
+      const itemsPayload = cart.map((it) => ({
+        product_id: it.product_id,
+        quantity: it.quantity,
+        width: it.width,
+        height: it.height,
+        selected_options: it.selected_options,
+        selected_finishings: it.selected_finishings,
+      }))
+
+      const res = await storeService.validateCartOnServer(itemsPayload)
+      if (res && res.success && Array.isArray(res.items)) {
+        setCart((prev) =>
+          prev.map((item, idx) => {
+            const serverItem = res.items[idx]
+            if (serverItem && serverItem.product_id === item.product_id) {
+              return {
+                ...item,
+                unit_price: serverItem.unit_price,
+                total_price: serverItem.total_price,
+                lead_time_days: serverItem.lead_time_days ?? item.lead_time_days,
+              }
+            }
+            return item
+          }),
+        )
+      }
+    } catch (err) {
+      console.warn('Erro ao revalidar carrinho no servidor:', err)
+    } finally {
+      setIsRevalidatingCart(false)
+    }
+  }, [cart])
+
+  // Revalidar carrinho com o servidor ao inicializar se houver itens no localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CART_STORAGE_KEY)
+      const parsed = saved ? JSON.parse(saved) : []
+      if (parsed.length > 0) {
+        storeService
+          .validateCartOnServer(
+            parsed.map((it: any) => ({
+              product_id: it.product_id,
+              quantity: it.quantity,
+              width: it.width,
+              height: it.height,
+              selected_options: it.selected_options,
+              selected_finishings: it.selected_finishings,
+            })),
+          )
+          .then((res) => {
+            if (res && res.success && Array.isArray(res.items)) {
+              setCart((prev) =>
+                prev.map((item, idx) => {
+                  const serverItem = res.items[idx]
+                  if (serverItem && serverItem.product_id === item.product_id) {
+                    return {
+                      ...item,
+                      unit_price: serverItem.unit_price,
+                      total_price: serverItem.total_price,
+                      lead_time_days: serverItem.lead_time_days ?? item.lead_time_days,
+                    }
+                  }
+                  return item
+                }),
+              )
+            }
+          })
+          .catch(() => {})
+      }
+    } catch {
+      /* intentionally ignored */
+    }
+  }, [])
+
   // Sincronizar carrinho com localStorage
   useEffect(() => {
     try {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart))
-    } catch { /* intentionally ignored */ }
+    } catch {
+      /* intentionally ignored */
+    }
   }, [cart])
 
   // Buscar perfil atualizado quando houver token
@@ -130,7 +216,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCart([])
     try {
       localStorage.removeItem(CART_STORAGE_KEY)
-    } catch { /* intentionally ignored */ }
+    } catch {
+      /* intentionally ignored */
+    }
   }
 
   const setCustomerSession = (cust: StoreCustomerProfile | null, token: string | null) => {
@@ -160,7 +248,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setCustomer(res.customer)
         localStorage.setItem(CUSTOMER_DATA_KEY, JSON.stringify(res.customer))
       }
-    } catch { /* intentionally ignored */ }
+    } catch {
+      /* intentionally ignored */
+    }
   }
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
@@ -172,6 +262,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         cart,
         cartCount,
         cartSubtotal,
+        isRevalidatingCart,
+        revalidateCartWithServer,
         addToCart,
         updateQuantity,
         removeFromCart,

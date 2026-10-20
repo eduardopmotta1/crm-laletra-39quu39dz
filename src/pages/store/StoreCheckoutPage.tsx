@@ -108,7 +108,8 @@ export const StoreCheckoutPage: React.FC = () => {
   }, [cart, deliveryMethod, zipCode])
 
   const effectiveSubtotal = serverValidatedData?.subtotal ?? cartSubtotal
-  const effectiveShipping = serverValidatedData?.shipping_fee ?? (deliveryMethod === 'delivery' ? 25 : 0)
+  const effectiveShipping =
+    serverValidatedData?.shipping_fee ?? (deliveryMethod === 'delivery' ? 25 : 0)
   const effectiveTotal = serverValidatedData?.total_amount ?? effectiveSubtotal + effectiveShipping
 
   // Submissão do Checkout com Idempotência
@@ -268,7 +269,9 @@ export const StoreCheckoutPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs font-semibold text-slate-700">CPF ou CNPJ (Opcional)</Label>
+                    <Label className="text-xs font-semibold text-slate-700">
+                      CPF ou CNPJ (Opcional)
+                    </Label>
                     <Input
                       placeholder="000.000.000-00"
                       value={customerDoc}
@@ -344,7 +347,9 @@ export const StoreCheckoutPage: React.FC = () => {
                         />
                       </div>
                       <div className="sm:col-span-2">
-                        <Label className="text-xs font-semibold text-slate-700">Logradouro / Rua *</Label>
+                        <Label className="text-xs font-semibold text-slate-700">
+                          Logradouro / Rua *
+                        </Label>
                         <Input
                           placeholder="Av. Paulista"
                           value={street}
@@ -398,7 +403,9 @@ export const StoreCheckoutPage: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <Label className="text-xs font-semibold text-slate-700">Estado (UF) *</Label>
+                        <Label className="text-xs font-semibold text-slate-700">
+                          Estado (UF) *
+                        </Label>
                         <Input
                           value={state}
                           onChange={(e) => setState(e.target.value)}
@@ -420,7 +427,8 @@ export const StoreCheckoutPage: React.FC = () => {
                   3. Forma de Pagamento
                 </CardTitle>
                 <CardDescription className="text-xs text-amber-700 bg-amber-50 p-2 rounded-md border border-amber-200/60 mt-1">
-                  Ambiente de Simulação e Homologação. Nenhuma cobrança real no cartão será realizada nesta etapa.
+                  Ambiente de Simulação e Homologação. Nenhuma cobrança real no cartão será
+                  realizada nesta etapa.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -495,7 +503,10 @@ export const StoreCheckoutPage: React.FC = () => {
               <CardContent className="space-y-4">
                 <div className="space-y-2 text-xs">
                   {cart.map((item) => (
-                    <div key={item.cart_item_id} className="flex justify-between py-1 border-b border-slate-100">
+                    <div
+                      key={item.cart_item_id}
+                      className="flex justify-between py-1 border-b border-slate-100"
+                    >
                       <span className="text-slate-600 line-clamp-1 flex-1 pr-2">
                         {item.quantity}x {item.product_name}
                       </span>
@@ -533,11 +544,13 @@ export const StoreCheckoutPage: React.FC = () => {
                 <div className="bg-slate-50 p-3 rounded-lg text-xs space-y-1.5 text-slate-600">
                   <div className="flex items-center gap-1.5 text-slate-700 font-medium">
                     <Clock className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>Prazo de Produção: ~{serverValidatedData?.estimated_days || 3} dias úteis</span>
+                    <span>
+                      Prazo de Produção: ~{serverValidatedData?.estimated_days || 3} dias úteis
+                    </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    O prazo de produção é contado a partir da confirmação do pagamento e da aprovação
-                    da arte técnica.
+                    O prazo de produção é contado a partir da confirmação do pagamento e da
+                    aprovação da arte técnica.
                   </p>
                 </div>
 

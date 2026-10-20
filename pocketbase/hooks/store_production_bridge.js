@@ -43,12 +43,12 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
       'created',
       50,
       0,
-      { oid: order.id }
+      { oid: order.id },
     )
 
     let itemsDescription = ''
     let totalQty = 0
-    for (const it of (items || [])) {
+    for (const it of items || []) {
       totalQty += it.getInt('quantity') || 1
       itemsDescription += it.getInt('quantity') + 'x ' + it.getString('product_name') + '\n'
     }
@@ -57,7 +57,13 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
     let stageId = ''
     let stageName = 'Fila de Produção'
     try {
-      const stages = $app.findRecordsByFilter('production_stages', 'is_active = true', 'order_index', 1, 0)
+      const stages = $app.findRecordsByFilter(
+        'production_stages',
+        'is_active = true',
+        'order_index',
+        1,
+        0,
+      )
       if (stages && stages.length > 0) {
         stageId = stages[0].id
         stageName = stages[0].getString('name')
@@ -74,7 +80,7 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
     prodRec.set('client_name', order.getString('customer_name'))
     prodRec.set('client_email', order.getString('customer_email'))
     prodRec.set('client_phone', order.getString('customer_phone'))
-    prodRec.set('product', (items && items[0]) ? items[0].getString('product_name') : 'Pedido Loja')
+    prodRec.set('product', items && items[0] ? items[0].getString('product_name') : 'Pedido Loja')
     prodRec.set('description', itemsDescription || 'Itens Laletra Store')
     prodRec.set('quantity', totalQty || 1)
     prodRec.set('total_value', order.getFloat('total_amount'))
@@ -84,7 +90,13 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
     if (stageId) prodRec.set('stage_id', stageId)
     prodRec.set('priority', 'medium')
     prodRec.set('art_approved', order.getString('art_status') === 'approved')
-    prodRec.set('notes', 'Origem: Laletra Store (Pedido ' + order.getString('order_number') + '). ' + order.getString('notes'))
+    prodRec.set(
+      'notes',
+      'Origem: Laletra Store (Pedido ' +
+        order.getString('order_number') +
+        '). ' +
+        order.getString('notes'),
+    )
 
     $app.save(prodRec)
 
