@@ -1525,11 +1525,13 @@ routerAdd('POST', '/backend/v1/store/webhooks/mercadopago', (c) => {
     }
 
     let targetOrderStatus = order.getString('payment_status')
+    const isRefund = status === 'refunded' || status === 'charged_back'
+
     if (status === 'approved' || status === 'paid') {
       targetOrderStatus = 'paid'
     } else if (status === 'rejected' || status === 'cancelled') {
       targetOrderStatus = 'failed'
-    } else if (status === 'refunded' || status === 'charged_back') {
+    } else if (isRefund) {
       targetOrderStatus = 'refunded'
     } else if (status === 'in_process' || status === 'pending') {
       targetOrderStatus = 'pending'
@@ -1537,6 +1539,50 @@ routerAdd('POST', '/backend/v1/store/webhooks/mercadopago', (c) => {
 
     if (targetOrderStatus !== order.getString('payment_status')) {
       order.set('payment_status', targetOrderStatus)
+
+      // Regra de segurança para Estorno (refunded/charged_back):
+      // Se produção já havia sido iniciada ou liberada, NUNCA apagar dados;
+      // registrar bloqueio e sinalizar intervenção humana imediata para análise manual.
+      if (isRefund) {
+        const prodId = order.getString('production_order_id')
+        const currentProdStatus = order.getString('production_status')
+
+        order.set('human_intervention_needed', true)
+        order.set(
+          'human_intervention_reason',
+          'PAGAMENTO ESTORNADO/CONTESTADO (refunded). Bloqueio preventivo de produção para revisão humana.',
+        )
+
+        const stamp = new Date().toISOString()
+        const refundNote =
+          '\n[' +
+          stamp +
+          '] ALERTA FINANCEIRO: Pagamento estornado/devolvido no gateway (' +
+          paymentId +
+          '). Produção bloqueada e encaminhada para conferência manual.'
+        order.set('notes', (order.getString('notes') + refundNote).trim())
+
+        if (prodId) {
+          try {
+            const prodRec = $app.findRecordById('production_orders', prodId)
+            if (prodRec) {
+              const prevNotes = prodRec.getString('notes')
+              prodRec.set(
+                'notes',
+                (
+                  prevNotes +
+                  '\n[' +
+                  stamp +
+                  '] ALERTA PRODUÇÃO: Pagamento do pedido foi estornado. Interromper processamento até liberação da gerência.'
+                ).trim(),
+              )
+              prodRec.set('priority', 'urgente')
+              $app.save(prodRec)
+            }
+          } catch (_) {}
+        }
+      }
+
       $app.save(order)
     }
 

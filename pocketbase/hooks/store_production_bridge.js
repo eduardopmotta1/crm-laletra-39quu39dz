@@ -47,7 +47,7 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
       })
     }
 
-    // TRAVA 2: Liberação bloqueada se arte técnica não estiver aprovada
+    // TRAVA 2: Liberação bloqueada se arte técnica não estiver aprovada no pedido
     const artStatus = order.getString('art_status')
     if (artStatus !== 'approved') {
       return c.json(400, {
@@ -67,6 +67,23 @@ routerAdd('POST', '/backend/v1/crm/store/orders/{id}/release-to-production', (c)
       0,
       { oid: order.id },
     )
+
+    // TRAVA 2.1: Cada item individual que necessite de arte deve estar aprovado;
+    // a aprovação de um item NÃO libera outro item pendente do mesmo pedido.
+    if (items && items.length > 0) {
+      for (const it of items) {
+        const itemArtOpt = it.getString('art_option') || 'send_ready'
+        const itemArtStatus = it.getString('art_status') || artStatus
+        if (itemArtOpt === 'send_later' && itemArtStatus !== 'approved') {
+          return c.json(400, {
+            error:
+              'Item "' +
+              it.getString('product_name') +
+              '" ainda aguarda envio ou aprovação de arte (opção enviar depois). Aprovação parcial não libera o pedido para produção.',
+          })
+        }
+      }
+    }
 
     let itemsDescription = ''
     let totalQty = 0
