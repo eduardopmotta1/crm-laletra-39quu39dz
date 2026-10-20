@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T17:52:52.480Z",
+  "generatedAt": "2026-10-20T14:15:11.156Z",
   "collections": [
     {
       "name": "users",
@@ -3320,6 +3320,326 @@
       "indexes": [
         "CREATE UNIQUE INDEX idx_places_cache_key ON places_cache (cache_key)",
         "CREATE INDEX idx_places_cache_expires ON places_cache (expires_at)"
+      ]
+    },
+    {
+      "name": "store_categories",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "slug",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "icon",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "image",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "order_index",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_store_cat_slug ON store_categories (slug)",
+        "CREATE INDEX idx_store_cat_active_order ON store_categories (is_active, order_index)"
+      ]
+    },
+    {
+      "name": "store_products",
+      "type": "base",
+      "apiRules": {
+        "list": "published = true || @request.auth.id != ''",
+        "view": "published = true || @request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "seo_slug",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "subtitle",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "description_public",
+          "type": "editor",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "category_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "store_categories"
+        },
+        {
+          "name": "pricing_type",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["fixed", "quantity_tiers", "square_meter"]
+        },
+        {
+          "name": "store_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "price_tiers",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sqm_min_area",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sqm_base_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "options",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "finishings",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "lead_time_days",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quote_only",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "published",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "featured",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "order_index",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "main_image",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "gallery_images",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "badge_label",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unit_label",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "quote_product_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "quote_products"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "store_banners",
+      "type": "base",
+      "apiRules": {
+        "list": "is_active = true || @request.auth.id != ''",
+        "view": "is_active = true || @request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "subtitle",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cta_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "link_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "image",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "badge",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "bg_color",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "order_index",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_store_banners_active_order ON store_banners (is_active, order_index)"
       ]
     }
   ]

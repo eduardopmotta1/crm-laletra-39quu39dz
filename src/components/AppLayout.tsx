@@ -28,6 +28,7 @@ import {
   BookOpen,
   ClipboardList,
   Compass,
+  Store,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { clientsService } from '@/services/clients'
@@ -341,6 +342,13 @@ export default function AppLayout() {
       icon: CheckSquare,
       badge: null,
       visible: canAccessTasks,
+    },
+    {
+      to: '/loja-admin',
+      label: 'Laletra Store (Admin)',
+      icon: Store,
+      badge: null,
+      visible: isAdmin || canAccessQuotes || canAccessSettings,
     },
     {
       to: '/configuracoes',
