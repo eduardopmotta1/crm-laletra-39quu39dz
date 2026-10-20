@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import { storeService } from '@/services/storeService'
-import { pb } from '@/lib/pocketbase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -144,12 +143,7 @@ export const StoreOrdersCrmPage: React.FC = () => {
     if (!selectedOrderId) return
     try {
       setIsReleasing(true)
-      const res = await pb.send(
-        `/backend/v1/crm/store/orders/${selectedOrderId}/release-to-production`,
-        {
-          method: 'POST',
-        },
-      )
+      const res = await storeService.adminReleaseOrderToProduction(selectedOrderId)
 
       if (res && res.success) {
         toast({
