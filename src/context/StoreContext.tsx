@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { StoreCartItem, StoreCustomerProfile } from '@/types/store'
+import { StoreCartItem, StoreCustomerProfile, StoreArtOption } from '@/types/store'
 import { storeService } from '@/services/storeService'
 
 interface StoreContextType {
@@ -10,6 +10,13 @@ interface StoreContextType {
   revalidateCartWithServer: () => Promise<void>
   addToCart: (item: Omit<StoreCartItem, 'cart_item_id'>) => void
   updateQuantity: (cartItemId: string, newQuantity: number) => void
+  updateCartItemArtOption: (
+    cartItemId: string,
+    artOption: StoreArtOption,
+    artNotes?: string,
+    artFileName?: string,
+    artCreationFee?: number,
+  ) => void
   removeFromCart: (cartItemId: string) => void
   clearCart: () => void
   // Cliente autenticado da loja
@@ -67,6 +74,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         height: it.height,
         selected_options: it.selected_options,
         selected_finishings: it.selected_finishings,
+        art_option: it.art_option,
+        art_notes: it.art_notes,
       }))
 
       const res = await storeService.validateCartOnServer(itemsPayload)
@@ -108,6 +117,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               height: it.height,
               selected_options: it.selected_options,
               selected_finishings: it.selected_finishings,
+              art_option: it.art_option,
+              art_notes: it.art_notes,
             })),
           )
           .then((res) => {
@@ -208,6 +219,29 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     )
   }
 
+  const updateCartItemArtOption = (
+    cartItemId: string,
+    artOption: StoreArtOption,
+    artNotes?: string,
+    artFileName?: string,
+    artCreationFee?: number,
+  ) => {
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.cart_item_id === cartItemId) {
+          return {
+            ...item,
+            art_option: artOption,
+            art_notes: artNotes !== undefined ? artNotes : item.art_notes,
+            art_file_name: artFileName !== undefined ? artFileName : item.art_file_name,
+            art_creation_fee: artCreationFee !== undefined ? artCreationFee : item.art_creation_fee,
+          }
+        }
+        return item
+      }),
+    )
+  }
+
   const removeFromCart = (cartItemId: string) => {
     setCart((prev) => prev.filter((item) => item.cart_item_id !== cartItemId))
   }
@@ -266,6 +300,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         revalidateCartWithServer,
         addToCart,
         updateQuantity,
+        updateCartItemArtOption,
         removeFromCart,
         clearCart,
         customer,

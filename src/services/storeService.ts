@@ -208,8 +208,45 @@ export const storeService = {
   },
 
   // ==========================================
-  // FASE 2: Métodos de Carrinho, Comprador e Checkout
+  // FASE 2/3: Métodos de Carrinho, Comprador, Arte e Checkout
   // ==========================================
+
+  /**
+   * Consulta pública de configuração de precificação de criação de arte
+   */
+  async getArtCreationPricing(): Promise<{
+    base_creation_fee: number
+    description: string
+    free_for_orders_above?: number
+    is_active: boolean
+    lead_time_extra_days: number
+  }> {
+    try {
+      const res = await pb.send<{
+        success: boolean
+        pricing: {
+          base_creation_fee: number
+          description: string
+          free_for_orders_above?: number
+          is_active: boolean
+          lead_time_extra_days: number
+        }
+      }>('/backend/v1/store/art-creation-pricing', { method: 'GET' })
+      if (res && res.success && res.pricing) {
+        return res.pricing
+      }
+    } catch (err) {
+      console.warn('Erro ao consultar /backend/v1/store/art-creation-pricing:', err)
+    }
+
+    return {
+      base_creation_fee: 45.0,
+      description: 'Criação profissional de arte pela equipe LaLetra',
+      free_for_orders_above: 500.0,
+      is_active: true,
+      lead_time_extra_days: 2,
+    }
+  },
 
   async validateCartOnServer(
     items: Array<{
@@ -219,6 +256,8 @@ export const storeService = {
       height?: number | null
       selected_options?: Record<string, string>
       selected_finishings?: string[]
+      art_option?: string
+      art_notes?: string
     }>,
     deliveryMethod: 'pickup' | 'delivery' = 'pickup',
     shippingZip?: string,
@@ -333,6 +372,8 @@ export const storeService = {
         height?: number | null
         selected_options?: Record<string, string>
         selected_finishings?: string[]
+        art_option?: string
+        art_notes?: string
       }>
       notes?: string
     },
@@ -364,6 +405,43 @@ export const storeService = {
     return pb.send(`/backend/v1/store/orders/${encodeURIComponent(orderNumber)}/upload-art`, {
       method: 'POST',
       body: formData,
+    })
+  },
+
+  /**
+   * Endpoint de aprovação ou solicitação de ajustes de arte pelo comprador (Fase 3 - migration 0115 / hook)
+   */
+  async approveOrAdjustArt(
+    orderNumber: string,
+    approved: boolean,
+    feedback?: string,
+  ): Promise<{ success: boolean; order_number: string; art_status: string; message: string }> {
+    return pb.send(`/backend/v1/store/orders/${encodeURIComponent(orderNumber)}/art-approval`, {
+      method: 'POST',
+      body: {
+        approved,
+        feedback: feedback || '',
+      },
+    })
+  },
+
+  async requestOrderSupport(
+    orderNumber: string,
+    message: string,
+    subject?: string,
+    token?: string | null,
+  ): Promise<{ success: boolean; message: string }> {
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers.Authorization = `Bearer ${token}`
+    }
+    return pb.send(`/backend/v1/store/orders/${encodeURIComponent(orderNumber)}/support`, {
+      method: 'POST',
+      headers,
+      body: {
+        message,
+        subject: subject || 'Dúvida sobre o pedido',
+      },
     })
   },
 

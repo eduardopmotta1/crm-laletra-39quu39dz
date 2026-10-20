@@ -364,7 +364,7 @@ routerAdd('GET', '/backend/v1/store/customer/me', (c) => {
 })
 
 // -------------------------------------------------------------
-// 6. GET /backend/v1/store/customer/orders (Histórico de pedidos do comprador logado)
+// 6. GET /backend/v1/store/customer/orders (Histórico de pedidos do comprador logado com isolamento estrito)
 // -------------------------------------------------------------
 routerAdd('GET', '/backend/v1/store/customer/orders', (c) => {
   const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
@@ -382,16 +382,54 @@ routerAdd('GET', '/backend/v1/store/customer/orders', (c) => {
       return c.json(401, { error: 'Sessão do comprador não autorizada ou expirada' })
     }
 
+    const customer = $app.findRecordById('store_customers', claims.sub)
+    if (!customer) {
+      return c.json(404, { error: 'Comprador não encontrado' })
+    }
+
+    const custEmail = customer.getString('email')
+
+    // Isolamento estrito: busca pedidos vinculados ao customer_id OU ao e-mail exato do comprador
     const orders = $app.findRecordsByFilter(
       'store_orders',
-      'customer_id = {:cid}',
+      'customer_id = {:cid} || customer_email = {:cEmail}',
       '-created',
       50,
       0,
-      { cid: claims.sub },
+      { cid: claims.sub, cEmail: custEmail },
     )
 
     const ordersList = (orders || []).map(function (o) {
+      // Buscar tracking_token se houver ordem de produção vinculada
+      let trackingToken = ''
+      const prodId = o.getString('production_order_id')
+      if (prodId) {
+        try {
+          const prod = $app.findRecordById('production_orders', prodId)
+          if (prod) trackingToken = prod.getString('tracking_token')
+        } catch (_) {}
+      }
+
+      // Buscar itens do pedido
+      const items = $app.findRecordsByFilter(
+        'store_order_items',
+        'order_id = {:oid}',
+        'created',
+        50,
+        0,
+        { oid: o.id },
+      )
+
+      // Buscar uploads de arte do pedido
+      const arts = $app.findRecordsByFilter(
+        'store_art_uploads',
+        'order_id = {:oid}',
+        '-created',
+        20,
+        0,
+        { oid: o.id },
+      )
+
       return {
         id: o.id,
         order_number: o.getString('order_number'),
@@ -405,6 +443,32 @@ routerAdd('GET', '/backend/v1/store/customer/orders', (c) => {
         art_status: o.getString('art_status'),
         production_status: o.getString('production_status'),
         estimated_delivery_date: o.getString('estimated_delivery_date'),
+        notes: o.getString('notes'),
+        tracking_token: trackingToken,
+        items: (items || []).map(function (it) {
+          return {
+            id: it.id,
+            product_name: it.getString('product_name'),
+            quantity: it.getInt('quantity'),
+            width: it.getFloat('width') || null,
+            height: it.getFloat('height') || null,
+            unit_price: it.getFloat('unit_price'),
+            total_price: it.getFloat('total_price'),
+            art_option: it.getString('art_option') || 'send_ready',
+            art_creation_fee: it.getFloat('art_creation_fee') || 0,
+            art_notes: it.getString('art_notes') || '',
+          }
+        }),
+        arts: (arts || []).map(function (a) {
+          return {
+            id: a.id,
+            original_filename: a.getString('original_filename'),
+            status: a.getString('status'),
+            rejection_reason: a.getString('rejection_reason'),
+            customer_notes: a.getString('customer_notes'),
+            created: a.getString('created'),
+          }
+        }),
       }
     })
 
@@ -1346,7 +1410,67 @@ routerAdd('POST', '/backend/v1/store/orders/{order_number}/art-approval', (c) =>
 })
 
 // -------------------------------------------------------------
-// 13. POST /backend/v1/store/webhooks/mercadopago (IDEMPOTENTE)
+// 12.2 POST /backend/v1/store/orders/{order_number}/support (Solicitação de suporte simples pelo cliente)
+// -------------------------------------------------------------
+routerAdd('POST', '/backend/v1/store/orders/{order_number}/support', (c) => {
+  const hashSecret = 'laletra_store_phase2_secret_token_salt_2026'
+  try {
+    const orderNumber = c.request.pathValue('order_number')
+    const body = c.requestInfo().body || {}
+    const message = String(body.message || '').trim()
+    const subject = String(body.subject || 'Dúvida sobre o pedido').trim()
+
+    if (!message) {
+      return c.json(400, { error: 'Mensagem de suporte não pode ser vazia.' })
+    }
+
+    const orders = $app.findRecordsByFilter('store_orders', 'order_number = {:num}', '', 1, 0, {
+      num: orderNumber,
+    })
+    if (!orders || orders.length === 0) {
+      return c.json(404, { error: 'Pedido não encontrado.' })
+    }
+
+    const order = orders[0]
+
+    // Validação opcional de ownership por token quando enviado
+    const authHeader = c.request.header.get('Authorization') || ''
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+    if (token) {
+      try {
+        const claims = $security.parseJWT(token, hashSecret)
+        if (claims && claims.sub) {
+          const custId = order.getString('customer_id')
+          if (custId && custId !== claims.sub) {
+            return c.json(403, { error: 'Acesso negado: pedido pertence a outro comprador.' })
+          }
+        }
+      } catch (_) {}
+    }
+
+    const stamp = new Date().toISOString()
+    const curNotes = order.getString('notes')
+    const supportLog = `\n[${stamp}] Chamado de Suporte do Cliente (${subject}): ${message}`
+    order.set('notes', (curNotes + supportLog).trim())
+    order.set('human_intervention_needed', true)
+    order.set(
+      'human_intervention_reason',
+      `Suporte solicitado pelo comprador no pedido: ${subject}`,
+    )
+    $app.save(order)
+
+    return c.json(200, {
+      success: true,
+      order_number: orderNumber,
+      message: 'Solicitação de suporte registrada com sucesso. Nossa equipe entrará em contato.',
+    })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao registrar suporte: ' + err.message })
+  }
+})
+
+// -------------------------------------------------------------
+// 13. POST /backend/v1/store/webhooks/mercadopago (IDEMPOTENTE E SEGURO)
 // -------------------------------------------------------------
 routerAdd('POST', '/backend/v1/store/webhooks/mercadopago', (c) => {
   try {

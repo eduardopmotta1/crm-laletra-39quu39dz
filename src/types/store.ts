@@ -146,6 +146,15 @@ export interface StoreCartItem {
   art_option?: StoreArtOption
   art_creation_fee?: number
   art_notes?: string
+  art_file_name?: string
+}
+
+export interface StoreArtPricingConfig {
+  base_creation_fee: number
+  description: string
+  free_for_orders_above?: number
+  is_active: boolean
+  lead_time_extra_days: number
 }
 
 export interface StoreCartValidationResponse {

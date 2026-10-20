@@ -18,11 +18,14 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { ArtOptionSelector } from '@/components/store/ArtOptionSelector'
+import { StoreArtPricingConfig, StoreArtOption } from '@/types/store'
 
 export const StoreCartPage: React.FC = () => {
   const {
     cart,
     updateQuantity,
+    updateCartItemArtOption,
     removeFromCart,
     clearCart,
     cartSubtotal,
@@ -33,6 +36,7 @@ export const StoreCartPage: React.FC = () => {
   const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'delivery'>('delivery')
   const [zipCode, setZipCode] = useState('')
   const [isValidating, setIsValidating] = useState(false)
+  const [artPricing, setArtPricing] = useState<StoreArtPricingConfig | null>(null)
   const [serverShippingData, setServerShippingData] = useState<{
     shipping_fee: number
     shipping_note: string
@@ -41,7 +45,17 @@ export const StoreCartPage: React.FC = () => {
     estimated_days: number
   } | null>(null)
 
-  // Revalidação com o backend ao mudar método ou itens
+  // Buscar valor público e configurável de criação de arte do backend
+  useEffect(() => {
+    storeService
+      .getArtCreationPricing()
+      .then((pricing) => {
+        if (pricing) setArtPricing(pricing)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Revalidação com o backend ao mudar método, itens ou opções de arte
   useEffect(() => {
     if (cart.length === 0) return
     let active = true
@@ -55,6 +69,8 @@ export const StoreCartPage: React.FC = () => {
           height: it.height,
           selected_options: it.selected_options,
           selected_finishings: it.selected_finishings,
+          art_option: it.art_option || 'send_ready',
+          art_notes: it.art_notes || '',
         })),
         deliveryMethod,
         zipCode,
@@ -213,6 +229,20 @@ export const StoreCartPage: React.FC = () => {
                           </p>
                         )}
                       </div>
+
+                      {/* Seletor Completo das 3 Opções de Arte da Fase 3 */}
+                      <ArtOptionSelector
+                        itemId={item.cart_item_id}
+                        artOption={item.art_option || 'send_ready'}
+                        artNotes={item.art_notes}
+                        artFileName={item.art_file_name}
+                        artPricing={artPricing}
+                        onChange={(opt: StoreArtOption, notes?: string, fileName?: string) => {
+                          const fee =
+                            opt === 'request_creation' ? artPricing?.base_creation_fee || 45.0 : 0
+                          updateCartItemArtOption(item.cart_item_id, opt, notes, fileName, fee)
+                        }}
+                      />
 
                       {/* Quantidade e Preço */}
                       <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-100">

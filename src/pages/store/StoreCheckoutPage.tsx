@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useStore } from '@/context/StoreContext'
 import { storeService } from '@/services/storeService'
+import { shippingManager, ShippingQuoteOption } from '@/services/shippingService'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -9,6 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
 import { toast } from '@/hooks/use-toast'
 import {
   ShieldCheck,
@@ -21,6 +23,8 @@ import {
   User,
   MapPin,
   Clock,
+  Palette,
+  Package,
 } from 'lucide-react'
 
 export const StoreCheckoutPage: React.FC = () => {
@@ -57,15 +61,30 @@ export const StoreCheckoutPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'credit_card'>('pix')
   const [notes, setNotes] = useState('')
 
-  // Estado de Validação do Servidor
+  // Estado de Validação do Servidor e Opções de Frete
   const [isValidating, setIsValidating] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [shippingOptions, setShippingOptions] = useState<ShippingQuoteOption[]>([])
   const [serverValidatedData, setServerValidatedData] = useState<{
     subtotal: number
     shipping_fee: number
     total_amount: number
     estimated_days: number
   } | null>(null)
+
+  // Carregar opções de frete através da camada de serviços (retirada e entrega local ativas; correios/melhor envio inativos)
+  useEffect(() => {
+    shippingManager
+      .getAvailableShippingOptions({
+        destination_zip: zipCode,
+        subtotal: cartSubtotal,
+        items_count: cart.length,
+      })
+      .then((opts) => {
+        setShippingOptions(opts)
+      })
+      .catch(() => {})
+  }, [zipCode, cartSubtotal, cart.length])
 
   // Revalidação estrita no servidor sempre que carrinho ou método de entrega mudarem
   useEffect(() => {
@@ -82,6 +101,8 @@ export const StoreCheckoutPage: React.FC = () => {
           height: it.height,
           selected_options: it.selected_options,
           selected_finishings: it.selected_finishings,
+          art_option: it.art_option || 'send_ready',
+          art_notes: it.art_notes || '',
         }))
 
         const res = await storeService.validateCartOnServer(itemsPayload, deliveryMethod, zipCode)
@@ -148,6 +169,8 @@ export const StoreCheckoutPage: React.FC = () => {
         height: it.height,
         selected_options: it.selected_options,
         selected_finishings: it.selected_finishings,
+        art_option: it.art_option || 'send_ready',
+        art_notes: it.art_notes || '',
       }))
 
       const shippingAddressPayload =
@@ -539,6 +562,33 @@ export const StoreCheckoutPage: React.FC = () => {
                     <span>Total a Pagar</span>
                     <span className="text-xl text-blue-600">R$ {effectiveTotal.toFixed(2)}</span>
                   </div>
+                </div>
+
+                {/* Resumo das Opções de Arte dos Itens */}
+                <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                  <span className="text-[11px] font-semibold text-slate-700 block">
+                    Resumo das Artes dos Itens:
+                  </span>
+                  {cart.map((it) => (
+                    <div
+                      key={it.cart_item_id}
+                      className="text-[11px] bg-slate-50 p-2 rounded border border-slate-100"
+                    >
+                      <span className="font-medium text-slate-800 block truncate">
+                        {it.product_name}
+                      </span>
+                      <span className="text-slate-500 flex items-center gap-1 mt-0.5">
+                        <Palette className="w-3 h-3 text-blue-600 shrink-0" />
+                        {it.art_option === 'request_creation'
+                          ? 'Criação pela LaLetra (+2 dias)'
+                          : it.art_option === 'send_later'
+                            ? 'Enviar arte depois no painel'
+                            : it.art_file_name
+                              ? `Arte anexada: ${it.art_file_name}`
+                              : 'Arte pronta para conferência'}
+                      </span>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-lg text-xs space-y-1.5 text-slate-600">

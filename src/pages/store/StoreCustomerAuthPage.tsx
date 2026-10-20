@@ -8,7 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
 import { toast } from '@/hooks/use-toast'
 import {
   User,
@@ -25,6 +27,15 @@ import {
   Clock,
   ArrowRight,
   KeyRound,
+  UploadCloud,
+  FileText,
+  HelpCircle,
+  ExternalLink,
+  MessageSquare,
+  ShieldCheck,
+  Check,
+  X,
+  Palette,
 } from 'lucide-react'
 
 export const StoreCustomerAuthPage: React.FC = () => {
@@ -58,6 +69,24 @@ export const StoreCustomerAuthPage: React.FC = () => {
   // Histórico de pedidos do cliente logado
   const [customerOrders, setCustomerOrders] = useState<any[]>([])
   const [loadingOrders, setLoadingOrders] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
+
+  // Estados de Upload Posterior de Arte no painel
+  const [uploadOrderNumber, setUploadOrderNumber] = useState<string | null>(null)
+  const [subsequentArtFile, setSubsequentArtFile] = useState<File | null>(null)
+  const [subsequentArtNotes, setSubsequentArtNotes] = useState('')
+  const [isSubmittingArt, setIsSubmittingArt] = useState(false)
+
+  // Estados de Aprovação de Prova / Ajuste
+  const [proofOrderNumber, setProofOrderNumber] = useState<string | null>(null)
+  const [artFeedbackNotes, setArtFeedbackNotes] = useState('')
+  const [isProcessingProof, setIsProcessingProof] = useState(false)
+
+  // Estados de Chamado de Suporte
+  const [supportOrderNumber, setSupportOrderNumber] = useState<string | null>(null)
+  const [supportSubject, setSupportSubject] = useState('Dúvida sobre a produção')
+  const [supportMessage, setSupportMessage] = useState('')
+  const [isSendingSupport, setIsSendingSupport] = useState(false)
 
   // Novo endereço modal/form
   const [showAddressForm, setShowAddressForm] = useState(false)
@@ -73,17 +102,27 @@ export const StoreCustomerAuthPage: React.FC = () => {
   const [savingAddress, setSavingAddress] = useState(false)
 
   // Carregar histórico de pedidos quando o comprador estiver logado
-  useEffect(() => {
+  const loadOrders = () => {
     if (customerToken) {
       setLoadingOrders(true)
       storeService
         .getCustomerOrders(customerToken)
         .then((res) => {
-          if (res?.orders) setCustomerOrders(res.orders)
+          if (res?.orders) {
+            setCustomerOrders(res.orders)
+            if (selectedOrder) {
+              const updated = res.orders.find((o: any) => o.id === selectedOrder.id)
+              if (updated) setSelectedOrder(updated)
+            }
+          }
         })
         .catch(() => {})
         .finally(() => setLoadingOrders(false))
     }
+  }
+
+  useEffect(() => {
+    loadOrders()
   }, [customerToken])
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -281,6 +320,106 @@ export const StoreCustomerAuthPage: React.FC = () => {
     }
   }
 
+  // Ação de upload posterior de arte
+  const handleSubsequentArtUpload = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!uploadOrderNumber || !subsequentArtFile) {
+      toast({
+        title: 'Selecione um arquivo',
+        description: 'Escolha seu arquivo de arte em PDF, CDR, AI, JPG ou PNG.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      setIsSubmittingArt(true)
+      await storeService.uploadOrderArt(uploadOrderNumber, subsequentArtFile, subsequentArtNotes)
+      toast({
+        title: 'Arte enviada com sucesso!',
+        description: 'O arquivo foi vinculado ao seu pedido e passará por conferência.',
+      })
+      setUploadOrderNumber(null)
+      setSubsequentArtFile(null)
+      setSubsequentArtNotes('')
+      loadOrders()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao enviar arte',
+        description: err?.message || 'Falha no envio do arquivo.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSubmittingArt(false)
+    }
+  }
+
+  // Ação de aprovar ou solicitar ajustes de prova de arte
+  const handleProofDecision = async (approved: boolean) => {
+    if (!proofOrderNumber) return
+    try {
+      setIsProcessingProof(true)
+      const res = await storeService.approveOrAdjustArt(
+        proofOrderNumber,
+        approved,
+        artFeedbackNotes,
+      )
+      toast({
+        title: approved ? 'Arte Aprovada!' : 'Ajustes Solicitados',
+        description: res.message,
+      })
+      setProofOrderNumber(null)
+      setArtFeedbackNotes('')
+      loadOrders()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao processar prova',
+        description: err?.message || 'Não foi possível registrar sua resposta.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsProcessingProof(false)
+    }
+  }
+
+  // Ação de enviar chamado simples de suporte
+  const handleSendSupport = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!supportOrderNumber || !supportMessage.trim()) {
+      toast({
+        title: 'Atenção',
+        description: 'Preencha a mensagem da sua solicitação de suporte.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      setIsSendingSupport(true)
+      const res = await storeService.requestOrderSupport(
+        supportOrderNumber,
+        supportMessage,
+        supportSubject,
+        customerToken,
+      )
+      toast({
+        title: 'Suporte Solicitado',
+        description: res.message,
+      })
+      setSupportOrderNumber(null)
+      setSupportMessage('')
+      loadOrders()
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao enviar suporte',
+        description: err?.message || 'Não foi possível enviar a solicitação.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSendingSupport(false)
+    }
+  }
+
   // Se o comprador já está logado: tela da Minha Conta com Perfil, Endereços e Pedidos
   if (customer && customerToken) {
     return (
@@ -351,43 +490,372 @@ export const StoreCustomerAuthPage: React.FC = () => {
                     {customerOrders.map((ord) => (
                       <div
                         key={ord.id}
-                        className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 p-2 rounded-lg transition-colors"
+                        className="py-4 space-y-3 hover:bg-slate-50/50 p-3 rounded-lg transition-colors border border-slate-100 mb-3 last:mb-0"
                       >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-slate-900">
-                              {ord.order_number}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              className={
-                                ord.payment_status === 'paid'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }
-                            >
-                              {ord.payment_status === 'paid' ? 'Pago' : 'Aguardando Pagamento'}
-                            </Badge>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-bold text-slate-900">
+                                {ord.order_number}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  ord.payment_status === 'paid'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 text-[11px]'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200 text-[11px]'
+                                }
+                              >
+                                {ord.payment_status === 'paid' ? 'Pago' : 'Aguardando Pagamento'}
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  ord.art_status === 'approved'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 text-[11px]'
+                                    : ord.art_status === 'changes_requested'
+                                      ? 'bg-red-50 text-red-700 border-red-200 text-[11px]'
+                                      : 'bg-blue-50 text-blue-700 border-blue-200 text-[11px]'
+                                }
+                              >
+                                Arte:{' '}
+                                {ord.art_status === 'approved'
+                                  ? 'Aprovada'
+                                  : ord.art_status === 'changes_requested'
+                                    ? 'Ajustes Solicitados'
+                                    : ord.art_status === 'uploaded'
+                                      ? 'Em Conferência'
+                                      : 'Pendente de Envio'}
+                              </Badge>
+                              <Badge variant="secondary" className="text-[11px]">
+                                {ord.production_status === 'waiting_release'
+                                  ? 'Aguardando Liberação'
+                                  : ord.production_status === 'released_to_production'
+                                    ? 'Liberado p/ Produção'
+                                    : ord.production_status === 'in_production'
+                                      ? 'Em Produção'
+                                      : 'Concluído'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Realizado em {new Date(ord.created).toLocaleDateString('pt-BR')} às{' '}
+                              {new Date(ord.created).toLocaleTimeString('pt-BR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}{' '}
+                              •{' '}
+                              {ord.delivery_method === 'delivery'
+                                ? 'Entrega'
+                                : 'Retirada no Balcão'}
+                              {ord.estimated_delivery_date && (
+                                <span>
+                                  {' '}
+                                  • Previsão:{' '}
+                                  {new Date(ord.estimated_delivery_date).toLocaleDateString(
+                                    'pt-BR',
+                                  )}
+                                </span>
+                              )}
+                            </p>
                           </div>
-                          <p className="text-xs text-slate-500">
-                            Realizado em {new Date(ord.created).toLocaleDateString('pt-BR')} •{' '}
-                            {ord.delivery_method === 'delivery' ? 'Entrega' : 'Retirada no balcão'}
-                          </p>
+
+                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                            <div className="text-right">
+                              <span className="text-xs text-slate-400 block">Total</span>
+                              <span className="font-bold text-slate-900 text-base">
+                                R$ {ord.total_amount?.toFixed(2)}
+                              </span>
+                            </div>
+                            <Button asChild size="sm" variant="outline">
+                              <Link to={`/loja/pedido/${ord.order_number}`}>
+                                Ver Pedido <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                              </Link>
+                            </Button>
+                          </div>
                         </div>
 
-                        <div className="flex items-center justify-between sm:justify-end gap-4">
-                          <div className="text-right">
-                            <span className="text-xs text-slate-400 block">Total</span>
-                            <span className="font-bold text-slate-900">
-                              R$ {ord.total_amount?.toFixed(2)}
-                            </span>
+                        {/* Itens do Pedido */}
+                        {ord.items && ord.items.length > 0 && (
+                          <div className="bg-slate-50 p-2.5 rounded text-xs space-y-1">
+                            <span className="font-semibold text-slate-700 block">Itens:</span>
+                            {ord.items.map((it: any) => (
+                              <div key={it.id} className="flex justify-between text-slate-600">
+                                <span>
+                                  {it.quantity}x {it.product_name}
+                                  {it.art_option === 'request_creation' && (
+                                    <span className="text-blue-600 font-medium ml-1">
+                                      (Criação de Arte LaLetra)
+                                    </span>
+                                  )}
+                                  {it.art_option === 'send_later' && (
+                                    <span className="text-amber-600 font-medium ml-1">
+                                      (Arte a Enviar)
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="font-medium text-slate-800">
+                                  R$ {it.total_price?.toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
                           </div>
-                          <Button asChild size="sm" variant="outline">
-                            <Link to={`/loja/pedido/${ord.order_number}`}>
-                              Ver detalhes <ArrowRight className="w-3.5 h-3.5 ml-1" />
-                            </Link>
+                        )}
+
+                        {/* Barra de Ações Rápidas do Pedido */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+                          {/* Botão de Upload Posterior de Arte (Opção B) */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setUploadOrderNumber(ord.order_number)
+                              setProofOrderNumber(null)
+                              setSupportOrderNumber(null)
+                            }}
+                            className="text-xs h-8 text-blue-700 border-blue-200 hover:bg-blue-50"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5 mr-1" />
+                            {ord.art_status === 'pending_upload'
+                              ? 'Enviar Arte Agora'
+                              : 'Reenviar Arte'}
+                          </Button>
+
+                          {/* Botão de Avaliar Prova Técnica / Solicitar Ajuste */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setProofOrderNumber(ord.order_number)
+                              setUploadOrderNumber(null)
+                              setSupportOrderNumber(null)
+                            }}
+                            className="text-xs h-8 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                          >
+                            <FileText className="w-3.5 h-3.5 mr-1" />
+                            Aprovar / Ajustar Prova
+                          </Button>
+
+                          {/* Acompanhar Produção (via tracking_token público se liberado) */}
+                          {ord.tracking_token ? (
+                            <Button asChild size="sm" variant="outline" className="text-xs h-8">
+                              <Link to={`/acompanhar/${ord.tracking_token}`} target="_blank">
+                                <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                                Rastrear Produção
+                              </Link>
+                            </Button>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">
+                              Rastreamento liberado após aprovação da arte e pagamento
+                            </span>
+                          )}
+
+                          {/* Botão de Solicitação de Suporte */}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setSupportOrderNumber(ord.order_number)
+                              setUploadOrderNumber(null)
+                              setProofOrderNumber(null)
+                            }}
+                            className="text-xs h-8 text-slate-600 hover:text-slate-900 ml-auto"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 mr-1" />
+                            Suporte
                           </Button>
                         </div>
+
+                        {/* PAINEL INLINE: UPLOAD POSTERIOR DE ARTE */}
+                        {uploadOrderNumber === ord.order_number && (
+                          <form
+                            onSubmit={handleSubsequentArtUpload}
+                            className="p-4 bg-blue-50/70 border border-blue-200 rounded-lg space-y-3 mt-2 text-xs"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                                <UploadCloud className="w-4 h-4 text-blue-600" />
+                                Envio Posterior de Arte — Pedido {ord.order_number}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setUploadOrderNumber(null)}
+                                className="h-6 w-6 p-0 text-slate-500"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            <p className="text-[11px] text-slate-600">
+                              Formatos aceitos: PDF, CDR, AI, EPS, JPG, PNG ou ZIP (máx. 30MB).
+                            </p>
+                            <div>
+                              <Input
+                                type="file"
+                                accept=".pdf,.cdr,.ai,.eps,.jpg,.jpeg,.png,.zip"
+                                onChange={(e) => {
+                                  if (e.target.files && e.target.files[0]) {
+                                    setSubsequentArtFile(e.target.files[0])
+                                  }
+                                }}
+                                className="mt-1 bg-white text-xs"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[11px] font-semibold text-slate-700">
+                                Instruções / Observações sobre a arte:
+                              </Label>
+                              <Textarea
+                                placeholder="Ex: Arquivo fechado em CMYK com 3mm de sangria e fontes convertidas em curvas..."
+                                rows={2}
+                                value={subsequentArtNotes}
+                                onChange={(e) => setSubsequentArtNotes(e.target.value)}
+                                className="mt-1 bg-white text-xs"
+                              />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setUploadOrderNumber(null)}
+                              >
+                                Cancelar
+                              </Button>
+                              <Button
+                                type="submit"
+                                size="sm"
+                                disabled={!subsequentArtFile || isSubmittingArt}
+                              >
+                                {isSubmittingArt ? 'Enviando...' : 'Confirmar Envio da Arte'}
+                              </Button>
+                            </div>
+                          </form>
+                        )}
+
+                        {/* PAINEL INLINE: APROVAÇÃO / AJUSTES DE PROVA */}
+                        {proofOrderNumber === ord.order_number && (
+                          <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-lg space-y-3 mt-2 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-emerald-950 flex items-center gap-1.5">
+                                <FileText className="w-4 h-4 text-emerald-600" />
+                                Conferência e Aprovação de Prova — Pedido {ord.order_number}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setProofOrderNumber(null)}
+                                className="h-6 w-6 p-0 text-slate-500"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            <p className="text-[11px] text-slate-600">
+                              Confira as especificações técnicas, sangrias, ortografia e
+                              diagramação. Ao aprovar, a arte técnica é liberada para a fila de
+                              produção.
+                            </p>
+                            <div>
+                              <Label className="text-[11px] font-semibold text-slate-700">
+                                Comentários ou Ajustes Solicitados:
+                              </Label>
+                              <Textarea
+                                placeholder="Se você aprovou, deixe vazio ou confirme. Se precisa de ajuste, descreva o que corrigir..."
+                                rows={2}
+                                value={artFeedbackNotes}
+                                onChange={(e) => setArtFeedbackNotes(e.target.value)}
+                                className="mt-1 bg-white text-xs"
+                              />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleProofDecision(false)}
+                                disabled={isProcessingProof}
+                                className="text-red-700 border-red-300 hover:bg-red-50 text-xs"
+                              >
+                                <X className="w-3.5 h-3.5 mr-1" />
+                                Solicitar Ajustes
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleProofDecision(true)}
+                                disabled={isProcessingProof}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                              >
+                                <Check className="w-3.5 h-3.5 mr-1" />
+                                Aprovar Arte Técnica
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* PAINEL INLINE: SOLICITAÇÃO DE SUPORTE */}
+                        {supportOrderNumber === ord.order_number && (
+                          <form
+                            onSubmit={handleSendSupport}
+                            className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3 mt-2 text-xs"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                                <HelpCircle className="w-4 h-4 text-blue-600" />
+                                Suporte para o Pedido {ord.order_number}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setSupportOrderNumber(null)}
+                                className="h-6 w-6 p-0 text-slate-500"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <Label className="text-[11px] font-semibold text-slate-700">
+                                  Assunto
+                                </Label>
+                                <Input
+                                  value={supportSubject}
+                                  onChange={(e) => setSupportSubject(e.target.value)}
+                                  className="mt-1 bg-white text-xs"
+                                  placeholder="Assunto da solicitação"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <Label className="text-[11px] font-semibold text-slate-700">
+                                Mensagem
+                              </Label>
+                              <Textarea
+                                required
+                                rows={2}
+                                value={supportMessage}
+                                onChange={(e) => setSupportMessage(e.target.value)}
+                                placeholder="Descreva sua dúvida, necessidade de troca ou informe de pagamento..."
+                                className="mt-1 bg-white text-xs"
+                              />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setSupportOrderNumber(null)}
+                              >
+                                Cancelar
+                              </Button>
+                              <Button type="submit" size="sm" disabled={isSendingSupport}>
+                                {isSendingSupport ? 'Enviando...' : 'Enviar Solicitação'}
+                              </Button>
+                            </div>
+                          </form>
+                        )}
                       </div>
                     ))}
                   </div>
