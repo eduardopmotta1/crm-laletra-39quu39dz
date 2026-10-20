@@ -28,6 +28,12 @@ jobs:
         with:
           version: 9
 
+      - name: Configure single-package workspace for pnpm 9
+        run: |
+          if [ -f pnpm-workspace.yaml ] && ! grep -q "^packages:" pnpm-workspace.yaml; then
+            printf "packages:\n  - '.'\n\n%s\n" "$(cat pnpm-workspace.yaml)" > pnpm-workspace.yaml
+          fi
+
       - name: Setup Node.js (v20 LTS)
         uses: actions/setup-node@v4
         with:
