@@ -89,11 +89,11 @@ export default function StoreHomePage() {
       : products
 
   return (
-    <div className="space-y-12 pb-16">
+    <div className="space-y-8 pb-16">
       {/* 1. HERO BANNER SLIDER */}
       {!searchQuery && banners.length > 0 && (
-        <section className="relative overflow-hidden bg-slate-900 text-white">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">
+        <section className="relative overflow-hidden bg-slate-900 text-white rounded-3xl border border-slate-800 shadow-xl">
+          <div className="p-6 sm:p-10 md:p-12">
             {banners.map((banner, idx) => {
               const isActive = idx === activeBannerIndex
               if (!isActive) return null
@@ -182,8 +182,8 @@ export default function StoreHomePage() {
       )}
 
       {/* 2. Destaques de Vantagens */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
               <Zap className="w-5 h-5" />
@@ -228,58 +228,8 @@ export default function StoreHomePage() {
         </div>
       </div>
 
-      {/* 3. Grade de Categorias em Carrossel / Cards */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-              Categorias em Destaque
-            </h2>
-            <p className="text-xs text-slate-500">
-              Encontre o produto gráfico sob medida para o seu objetivo
-            </p>
-          </div>
-          <Link
-            to="/loja"
-            className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
-          >
-            Ver catálogo completo <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-          {categories.map((cat) => (
-            <Link
-              key={cat.id}
-              to={`/loja/categoria/${cat.slug}`}
-              className="group p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500 hover:shadow-lg transition-all text-center flex flex-col items-center justify-between gap-3 relative overflow-hidden"
-            >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700/60 text-slate-700 dark:text-slate-200 group-hover:from-emerald-50 group-hover:to-teal-100 group-hover:text-emerald-700 flex items-center justify-center transition-all shadow-xs group-hover:scale-105">
-                {cat.image_url ? (
-                  <img
-                    src={cat.image_url}
-                    alt={cat.name}
-                    className="w-full h-full object-cover rounded-2xl"
-                  />
-                ) : (
-                  <Printer className="w-7 h-7" />
-                )}
-              </div>
-              <div className="space-y-1">
-                <h3 className="font-bold text-xs text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors line-clamp-1">
-                  {cat.name}
-                </h3>
-                <span className="text-[10px] text-slate-400 font-medium block group-hover:text-slate-600 dark:group-hover:text-slate-300">
-                  Explorar opções →
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {/* 4. Vitrine de Produtos (Destaques ou Busca) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+      {/* 3. Vitrine de Produtos (Destaques ou Busca) */}
+      <section className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-4">
           <div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
@@ -429,9 +379,9 @@ export default function StoreHomePage() {
         )}
       </section>
 
-      {/* 5. CTA de Orçamento Sob Medida */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-r from-slate-900 to-emerald-950 text-white rounded-3xl p-8 sm:p-12 shadow-xl border border-slate-800 grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+      {/* 4. CTA de Orçamento Sob Medida */}
+      <section>
+        <div className="bg-gradient-to-r from-slate-900 to-emerald-950 text-white rounded-3xl p-6 sm:p-10 shadow-xl border border-slate-800 grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
           <div className="md:col-span-8 space-y-3">
             <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">
               Não encontrou o que procura?

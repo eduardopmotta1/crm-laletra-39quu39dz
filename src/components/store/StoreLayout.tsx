@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Outlet, Link, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
-  Printer,
   Search,
   ShoppingCart,
   User,
@@ -10,48 +9,83 @@ import {
   Phone,
   Clock,
   ShieldCheck,
-  ChevronRight,
   FileText,
   Truck,
   CreditCard,
-  Image as ImageIcon,
-  Tag,
-  Folder,
-  Gift,
-  FileSpreadsheet,
+  Layers,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { storeService } from '@/services/storeService'
-import type { StoreCategory } from '@/types/store'
-
-const iconMap: Record<string, React.ReactNode> = {
-  CreditCard: <CreditCard className="w-4 h-4" />,
-  Image: <ImageIcon className="w-4 h-4" />,
-  Tag: <Tag className="w-4 h-4" />,
-  FileSpreadsheet: <FileSpreadsheet className="w-4 h-4" />,
-  Folder: <Folder className="w-4 h-4" />,
-  Gift: <Gift className="w-4 h-4" />,
-}
+import type { StoreCategory, StoreAllSettings } from '@/types/store'
+import StoreSidebar from './StoreSidebar'
 
 export default function StoreLayout() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [categories, setCategories] = useState<StoreCategory[]>([])
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [mobileCategoriesDrawer, setMobileCategoriesDrawer] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [cartCount, setCartCount] = useState(0)
+  const [settings, setSettings] = useState<StoreAllSettings>({
+    appearance: {
+      primary_color: '#059669',
+      secondary_color: '#0f172a',
+      button_color: '#059669',
+      header_color: '#ffffff',
+      bg_color: '#f8fafc',
+      text_color: '#0f172a',
+      logo_url: '',
+      favicon_url: '',
+    },
+    commercial_info: {
+      whatsapp: '+55 (21) 2391-9112',
+      phone: '+55 (21) 2391-9112',
+      email: 'contato@laletragrafica.com.br',
+      business_hours: 'Seg a Sex das 08h às 18h',
+      address: 'Av. Marechal Floriano, 19, Sala 301 - Centro, Rio de Janeiro - RJ, 20080-003',
+      footer_text:
+        'Parque gráfico completo, tecnologia digital e offset, acabamentos especiais e atendimento humanizado para potencializar a marca da sua empresa.',
+      copyright_text: 'Gráfica LaLetra. Todos os direitos reservados.',
+    },
+    home_layout: {
+      show_hero_banners: true,
+      show_advantages_bar: true,
+      show_categories_grid: true,
+      show_featured_products: true,
+      show_custom_quote_cta: true,
+      hero_title: '',
+      hero_subtitle: '',
+      featured_product_ids: [],
+      custom_quote_title: 'Precisa de um projeto gráfico personalizado ou grandes tiragens?',
+      custom_quote_subtitle:
+        'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
+    },
+  })
 
   useEffect(() => {
-    async function loadCats() {
+    async function loadData() {
       try {
-        const list = await storeService.getCategories()
+        const [list, sets] = await Promise.all([
+          storeService.getCategories(),
+          storeService.getSettings(),
+        ])
         setCategories(list)
+        if (sets) {
+          setSettings(sets)
+          if (sets.appearance?.favicon_url) {
+            const favicon = document.querySelector<HTMLLinkElement>("link[rel*='icon']")
+            if (favicon) {
+              favicon.href = sets.appearance.favicon_url
+            }
+          }
+        }
       } catch (err) {
-        console.error('Falha ao carregar categorias da loja:', err)
+        console.error('Falha ao carregar dados da loja:', err)
       }
     }
-    loadCats()
+    loadData()
 
     // Ler quantidade do carrinho do localStorage se houver
     const updateCountFromStorage = () => {
@@ -133,34 +167,57 @@ export default function StoreLayout() {
           <div className="flex items-center justify-between h-20 gap-4">
             {/* Mobile Menu Button */}
             <div className="flex items-center lg:hidden">
-              <button
+              <Button
                 type="button"
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                variant="ghost"
+                size="sm"
+                onClick={() => setMobileCategoriesDrawer(true)}
+                className="p-2 text-slate-600 dark:text-slate-300 gap-1.5 text-xs font-bold"
                 aria-label="Menu de categorias"
               >
-                {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-              </button>
+                <Layers className="h-5 w-5 text-emerald-600" />
+                <span className="hidden sm:inline">Categorias</span>
+              </Button>
             </div>
 
             {/* Brand Logo */}
             <Link to="/loja" className="flex items-center gap-3 group">
-              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 group-hover:from-emerald-500 group-hover:to-teal-700 text-white flex items-center justify-center font-serif font-black text-2xl tracking-tighter shadow-md shadow-emerald-600/20 transition-all border border-emerald-500/30">
-                <span className="italic">L</span>
-              </div>
+              {settings.appearance.logo_url ? (
+                <img
+                  src={settings.appearance.logo_url}
+                  alt="LaLetra Store"
+                  className="h-11 max-w-[190px] object-contain"
+                />
+              ) : (
+                <div
+                  className="w-11 h-11 rounded-xl text-white flex items-center justify-center font-serif font-black text-2xl tracking-tighter shadow-md transition-all"
+                  style={{ backgroundColor: settings.appearance.primary_color || '#059669' }}
+                >
+                  <span className="italic">L</span>
+                </div>
+              )}
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-serif font-black text-xl tracking-tight text-slate-900 dark:text-white">
+                  <span
+                    className="font-serif font-black text-xl tracking-tight"
+                    style={{ color: settings.appearance.text_color || undefined }}
+                  >
                     LaLetra
                   </span>
-                  <span className="text-[10px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800">
+                  <span
+                    className="text-[10px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded font-bold border"
+                    style={{
+                      borderColor: settings.appearance.primary_color || '#059669',
+                      color: settings.appearance.primary_color || '#059669',
+                    }}
+                  >
                     STORE
                   </span>
                 </div>
                 <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">
                   Gráfica & Comunicação Visual
                 </p>
-              </div>{' '}
+              </div>
             </Link>
 
             {/* Search Bar Desktop */}
@@ -240,111 +297,77 @@ export default function StoreLayout() {
           </div>
         </div>
 
-        {/* Categories Bar Navigation */}
-        <nav className="hidden lg:block bg-slate-100/70 dark:bg-slate-950/60 border-t border-slate-200/70 dark:border-slate-800 text-xs font-medium">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 overflow-x-auto py-2 scrollbar-none">
-            <NavLink
-              to="/loja"
-              end
-              className={({ isActive }) =>
-                `px-3.5 py-1.5 rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                  isActive
-                    ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
-                    : 'text-slate-700 dark:text-slate-300 hover:text-emerald-600 hover:bg-white/50'
-                }`
-              }
-            >
-              Todos os Produtos
-            </NavLink>
+        {/* Mobile Bar com Botão Categorias */}
+        <div className="lg:hidden bg-slate-100/90 dark:bg-slate-950/80 border-t border-slate-200/70 dark:border-slate-800 py-2 px-4 flex items-center justify-between">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setMobileCategoriesDrawer(true)}
+            className="text-xs gap-2 font-bold bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 shadow-xs text-slate-800 dark:text-slate-100"
+          >
+            <Layers className="w-3.5 h-3.5 text-emerald-600" />
+            Departamentos & Categorias
+          </Button>
 
-            {categories.map((cat) => (
-              <NavLink
-                key={cat.id}
-                to={`/loja/categoria/${cat.slug}`}
-                className={({ isActive }) =>
-                  `px-3 py-1.5 rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                    isActive
-                      ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
-                      : 'text-slate-700 dark:text-slate-300 hover:text-emerald-600 hover:bg-white/50'
-                  }`
-                }
-              >
-                {cat.icon && iconMap[cat.icon] ? (
-                  <span className="text-slate-400">{iconMap[cat.icon]}</span>
-                ) : null}
-                {cat.name}
-              </NavLink>
-            ))}
-          </div>
-        </nav>
+          <span className="text-[11px] text-slate-500 font-medium">
+            {categories.length} seções disponíveis
+          </span>
+        </div>
       </header>
 
-      {/* Mobile Drawer Menu */}
-      {mobileMenuOpen && (
+      {/* Mobile Drawer de Categorias (Drawer recolhível) */}
+      {mobileCategoriesDrawer && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-xs"
-            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+            onClick={() => setMobileCategoriesDrawer(false)}
           />
-          <div className="relative w-4/5 max-w-sm bg-white dark:bg-slate-900 h-full shadow-2xl p-6 flex flex-col justify-between overflow-y-auto">
-            <div>
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="relative w-4/5 max-w-sm bg-white dark:bg-slate-900 h-full shadow-2xl p-4 flex flex-col justify-between overflow-y-auto animate-in slide-in-from-left duration-300">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center font-serif font-bold text-sm">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center font-serif font-black text-sm">
                     <span className="italic">L</span>
                   </div>
-                  <span className="font-bold text-slate-900 dark:text-white">
-                    Categorias LaLetra
-                  </span>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Departamentos
+                    </h2>
+                    <p className="text-[10px] text-slate-400">Navegue por nossas categorias</p>
+                  </div>
                 </div>
                 <button
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="p-1 rounded-md text-slate-400 hover:text-slate-600"
+                  type="button"
+                  onClick={() => setMobileCategoriesDrawer(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  aria-label="Fechar menu"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="py-4 space-y-1">
-                <Link
-                  to="/loja"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center justify-between p-2.5 rounded-lg text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  <span>Todos os Produtos</span>
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
-                </Link>
-
-                {categories.map((cat) => (
-                  <Link
-                    key={cat.id}
-                    to={`/loja/categoria/${cat.slug}`}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center justify-between p-2.5 rounded-lg text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      {cat.icon && iconMap[cat.icon] ? (
-                        <span className="text-emerald-600">{iconMap[cat.icon]}</span>
-                      ) : null}
-                      <span>{cat.name}</span>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400" />
-                  </Link>
-                ))}
-              </div>
+              {/* Sidebar dentro do Drawer Mobile */}
+              <StoreSidebar
+                categories={categories}
+                onSelectCategory={() => setMobileCategoriesDrawer(false)}
+              />
             </div>
 
-            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2 mt-4">
               <Link
                 to="/loja/conta"
-                onClick={() => setMobileMenuOpen(false)}
+                onClick={() => setMobileCategoriesDrawer(false)}
                 className="w-full block"
               >
                 <Button variant="outline" className="w-full text-xs gap-2">
                   <User className="w-4 h-4" /> Minha Conta / Pedidos
                 </Button>
               </Link>
-              <Link to="/login" onClick={() => setMobileMenuOpen(false)} className="w-full block">
+              <Link
+                to="/login"
+                onClick={() => setMobileCategoriesDrawer(false)}
+                className="w-full block"
+              >
                 <Button
                   variant="ghost"
                   className="w-full text-xs text-slate-400 hover:text-slate-200"
@@ -352,17 +375,24 @@ export default function StoreLayout() {
                   Acesso Equipe (CRM)
                 </Button>
               </Link>
-              <p className="text-[11px] text-center text-slate-400">
-                Gráfica LaLetra • Soluções em Impressão
-              </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Main Page Content */}
-      <main className="flex-1">
-        <Outlet />
+      {/* Main Container com Menu Lateral Desktop Fixo/Sticky e Conteúdo à Direita */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="lg:grid lg:grid-cols-12 lg:gap-8 items-start">
+          {/* Menu Lateral Esquerdo no Desktop */}
+          <div className="hidden lg:block lg:col-span-3 sticky top-28 self-start z-10">
+            <StoreSidebar categories={categories} />
+          </div>
+
+          {/* Área de Conteúdo à Direita (Banners, Vitrine de Produtos, Páginas) */}
+          <div className="lg:col-span-9 w-full min-w-0">
+            <Outlet />
+          </div>
+        </div>
       </main>
 
       {/* Institutional Footer */}
@@ -435,16 +465,25 @@ export default function StoreLayout() {
               </h4>
               <p className="text-xs text-slate-300 font-medium">WhatsApp Comercial:</p>
               <a
-                href="https://wa.me/552123919112"
+                href={`https://wa.me/${(settings?.commercial_info?.whatsapp || '552123919112').replace(/\D/g, '')}`}
                 target="_blank"
                 rel="noreferrer"
                 className="text-sm text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1.5"
               >
                 <Phone className="w-4 h-4" />
-                +55 (21) 2391-9112
+                {settings?.commercial_info?.whatsapp || '+55 (21) 2391-9112'}
               </a>
-              <p className="text-xs text-slate-400">Atendimento de Seg a Sex das 08h às 18h</p>
-              <p className="text-xs text-slate-400">contato@laletragrafica.com.br</p>
+              <p className="text-xs text-slate-400">
+                {settings?.commercial_info?.business_hours || 'Seg a Sex das 08h às 18h'}
+              </p>
+              <p className="text-xs text-slate-400">
+                {settings?.commercial_info?.email || 'contato@laletragrafica.com.br'}
+              </p>
+              {settings?.commercial_info?.address && (
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  {settings.commercial_info.address}
+                </p>
+              )}
               <div className="pt-2 flex flex-wrap gap-2">
                 <Link to="/loja-admin">
                   <Button
@@ -469,11 +508,15 @@ export default function StoreLayout() {
           </div>
 
           <div className="mt-12 pt-8 border-t border-slate-800 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p>© {new Date().getFullYear()} Gráfica LaLetra. Todos os direitos reservados.</p>
+            <p>
+              © {new Date().getFullYear()}{' '}
+              {settings?.commercial_info?.copyright_text ||
+                'Gráfica LaLetra. Todos os direitos reservados.'}
+            </p>
             <div className="flex gap-4">
-              <span className="hover:text-slate-400">Termos de Uso</span>
+              <span className="hover:text-slate-400 cursor-pointer">Termos de Uso</span>
               <span>•</span>
-              <span className="hover:text-slate-400">Política de Privacidade</span>
+              <span className="hover:text-slate-400 cursor-pointer">Política de Privacidade</span>
             </div>
           </div>
         </div>

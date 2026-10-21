@@ -18,14 +18,198 @@ export const storeService = {
         '/backend/v1/store/categories',
         { method: 'GET' },
       )
-      return res.data || []
+      if (res && res.data) {
+        return res.data
+      }
     } catch (err) {
       // Fallback para SDK PocketBase caso o hook não responda
+    }
+
+    try {
       const records = await pb.collection('store_categories').getFullList<StoreCategory>({
         filter: 'is_active = true',
         sort: 'order_index,name',
       })
-      return records
+      return records.map((r) => ({
+        ...r,
+        image_url: r.image ? pb.files.getURL(r, r.image) : r.image_url || null,
+      }))
+    } catch {
+      return []
+    }
+  },
+
+  /**
+   * Busca as configurações consolidadas da loja pública
+   */
+  async getSettings(): Promise<any> {
+    try {
+      const res = await pb.send<{ success: boolean; data: any }>('/backend/v1/store/settings', {
+        method: 'GET',
+      })
+      if (res && res.data) {
+        return res.data
+      }
+    } catch (err) {
+      // fallback
+    }
+
+    try {
+      const records = await pb.collection('store_settings').getFullList<any>()
+      const result: any = {
+        appearance: {
+          primary_color: '#059669',
+          secondary_color: '#0f172a',
+          button_color: '#059669',
+          header_color: '#ffffff',
+          bg_color: '#f8fafc',
+          text_color: '#0f172a',
+          logo_url: '',
+          favicon_url: '',
+        },
+        commercial_info: {
+          whatsapp: '+55 (21) 2391-9112',
+          phone: '+55 (21) 2391-9112',
+          email: 'contato@laletragrafica.com.br',
+          business_hours: 'Seg a Sex das 08h às 18h',
+          address: 'Av. Marechal Floriano, 19, Sala 301 - Centro, Rio de Janeiro - RJ, 20080-003',
+          footer_text:
+            'Parque gráfico completo, tecnologia digital e offset, acabamentos especiais e atendimento humanizado para potencializar a marca da sua empresa.',
+          copyright_text: 'Gráfica LaLetra. Todos os direitos reservados.',
+        },
+        home_layout: {
+          show_hero_banners: true,
+          show_advantages_bar: true,
+          show_categories_grid: true,
+          show_featured_products: true,
+          show_custom_quote_cta: true,
+          hero_title: '',
+          hero_subtitle: '',
+          featured_product_ids: [],
+          custom_quote_title: 'Precisa de um projeto gráfico personalizado ou grandes tiragens?',
+          custom_quote_subtitle:
+            'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
+        },
+      }
+      for (const rec of records) {
+        const val =
+          typeof rec.setting_value === 'string' ? JSON.parse(rec.setting_value) : rec.setting_value
+        if (result[rec.setting_key]) {
+          result[rec.setting_key] = { ...result[rec.setting_key], ...val }
+        }
+      }
+      return result
+    } catch {
+      return {
+        appearance: {
+          primary_color: '#059669',
+          secondary_color: '#0f172a',
+          button_color: '#059669',
+          header_color: '#ffffff',
+          bg_color: '#f8fafc',
+          text_color: '#0f172a',
+          logo_url: '',
+          favicon_url: '',
+        },
+        commercial_info: {
+          whatsapp: '+55 (21) 2391-9112',
+          phone: '+55 (21) 2391-9112',
+          email: 'contato@laletragrafica.com.br',
+          business_hours: 'Seg a Sex das 08h às 18h',
+          address: 'Av. Marechal Floriano, 19, Sala 301 - Centro, Rio de Janeiro - RJ, 20080-003',
+          footer_text:
+            'Parque gráfico completo, tecnologia digital e offset, acabamentos especiais e atendimento humanizado para potencializar a marca da sua empresa.',
+          copyright_text: 'Gráfica LaLetra. Todos os direitos reservados.',
+        },
+        home_layout: {
+          show_hero_banners: true,
+          show_advantages_bar: true,
+          show_categories_grid: true,
+          show_featured_products: true,
+          show_custom_quote_cta: true,
+          hero_title: '',
+          hero_subtitle: '',
+          featured_product_ids: [],
+          custom_quote_title: 'Precisa de um projeto gráfico personalizado ou grandes tiragens?',
+          custom_quote_subtitle:
+            'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
+        },
+      }
+    }
+  },
+
+  /**
+   * Salva configuração administrativa no backend
+   */
+  async adminSaveSetting(settingKey: string, settingValue: any): Promise<boolean> {
+    try {
+      await pb.send('/backend/v1/store/admin/settings', {
+        method: 'POST',
+        body: {
+          setting_key: settingKey,
+          setting_value: settingValue,
+        },
+      })
+      return true
+    } catch {
+      // Fallback direto via SDK na coleção store_settings
+      try {
+        const existing = await pb
+          .collection('store_settings')
+          .getFirstListItem(`setting_key = "${settingKey}"`)
+        await pb.collection('store_settings').update(existing.id, {
+          setting_value: settingValue,
+        })
+      } catch {
+        await pb.collection('store_settings').create({
+          setting_key: settingKey,
+          setting_value: settingValue,
+        })
+      }
+      return true
+    }
+  },
+
+  /**
+   * Upload direto de ativo comercial (logo, favicon, banner, foto produto)
+   */
+  async uploadMedia(
+    file: File,
+    purpose: 'logo' | 'favicon' | 'banner' | 'product' | 'general' = 'general',
+  ): Promise<{
+    url: string
+    id: string
+    name: string
+  }> {
+    const allowed = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/x-icon',
+      'image/vnd.microsoft.icon',
+    ]
+    if (!allowed.includes(file.type)) {
+      throw new Error('Formato inválido. Apenas JPG, PNG, WebP e ICO são permitidos.')
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      throw new Error('Tamanho máximo permitido é 10MB.')
+    }
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('title', file.name)
+    formData.append('purpose', purpose)
+    formData.append('original_name', file.name)
+    formData.append('file_size', String(file.size))
+    formData.append('file_type', file.type)
+
+    const record = await pb.collection('store_media_uploads').create<any>(formData)
+    const fileUrl = pb.files.getURL(record, record.file)
+
+    return {
+      url: fileUrl,
+      id: record.id,
+      name: file.name,
     }
   },
 

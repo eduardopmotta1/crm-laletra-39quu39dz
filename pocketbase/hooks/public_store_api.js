@@ -28,7 +28,7 @@ routerAdd('GET', '/backend/v1/store/categories', (c) => {
       'store_categories',
       'is_active = true',
       'order_index,name',
-      100,
+      200,
       0,
     )
 
@@ -37,6 +37,11 @@ routerAdd('GET', '/backend/v1/store/categories', (c) => {
 
     const data = cats.map((cat) => {
       const img = cat.getString('image')
+      let parentId = ''
+      try {
+        parentId = cat.getString('parent_id') || ''
+      } catch (_) {}
+
       return {
         id: cat.id,
         name: cat.getString('name'),
@@ -45,6 +50,7 @@ routerAdd('GET', '/backend/v1/store/categories', (c) => {
         icon: cat.getString('icon') || '',
         image_url: img ? `${cleanHost}/api/files/${colId}/${cat.id}/${img}` : null,
         order_index: cat.getInt('order_index') || 0,
+        parent_id: parentId || null,
       }
     })
 
@@ -87,15 +93,27 @@ routerAdd('GET', '/backend/v1/store/banners', (c) => {
 
     const data = banners.map((b) => {
       const img = b.getString('image')
+      let mobImg = ''
+      try {
+        mobImg = b.getString('mobile_image') || ''
+      } catch (_) {}
+
+      let desc = ''
+      try {
+        desc = b.getString('description') || ''
+      } catch (_) {}
+
       return {
         id: b.id,
         title: b.getString('title'),
         subtitle: b.getString('subtitle') || '',
+        description: desc,
         cta_text: b.getString('cta_text') || 'Ver Mais',
         link_url: b.getString('link_url') || '/loja',
         badge: b.getString('badge') || '',
         bg_color: b.getString('bg_color') || 'from-emerald-900 to-slate-900',
         image_url: img ? `${cleanHost}/api/files/${colId}/${b.id}/${img}` : null,
+        mobile_image_url: mobImg ? `${cleanHost}/api/files/${colId}/${b.id}/${mobImg}` : null,
         order_index: b.getInt('order_index') || 0,
       }
     })
@@ -498,5 +516,113 @@ routerAdd('POST', '/backend/v1/store/calculate-price', (c) => {
     })
   } catch (err) {
     return c.json(500, { error: 'Erro no cálculo do preço: ' + err.message })
+  }
+})
+
+/**
+ * GET /backend/v1/store/settings
+ * Retorna configurações públicas consolidadas da loja: appearance, commercial_info, home_layout
+ */
+routerAdd('GET', '/backend/v1/store/settings', (c) => {
+  try {
+    const parseJson = function (val) {
+      if (!val) return {}
+      if (typeof val === 'object') return val
+      try {
+        return JSON.parse(val)
+      } catch (_) {
+        return {}
+      }
+    }
+
+    const records = $app.findRecordsByFilter('store_settings', '', 'setting_key', 50, 0)
+    const result = {
+      appearance: {
+        primary_color: '#059669',
+        secondary_color: '#0f172a',
+        button_color: '#059669',
+        header_color: '#ffffff',
+        bg_color: '#f8fafc',
+        text_color: '#0f172a',
+        logo_url: '',
+        favicon_url: '',
+      },
+      commercial_info: {
+        whatsapp: '+55 (21) 2391-9112',
+        phone: '+55 (21) 2391-9112',
+        email: 'contato@laletragrafica.com.br',
+        business_hours: 'Seg a Sex das 08h às 18h',
+        address: 'Av. Marechal Floriano, 19, Sala 301 - Centro, Rio de Janeiro - RJ, 20080-003',
+        footer_text:
+          'Parque gráfico completo, tecnologia digital e offset, acabamentos especiais e atendimento humanizado para potencializar a marca da sua empresa.',
+        copyright_text: 'Gráfica LaLetra. Todos os direitos reservados.',
+      },
+      home_layout: {
+        show_hero_banners: true,
+        show_advantages_bar: true,
+        show_categories_grid: true,
+        show_featured_products: true,
+        show_custom_quote_cta: true,
+        hero_title: '',
+        hero_subtitle: '',
+        featured_product_ids: [],
+        custom_quote_title: 'Precisa de um projeto gráfico personalizado ou grandes tiragens?',
+        custom_quote_subtitle:
+          'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
+      },
+    }
+
+    for (const rec of records) {
+      const k = rec.getString('setting_key')
+      const val = parseJson(rec.get('setting_value'))
+      if (k === 'appearance') {
+        result.appearance = { ...result.appearance, ...val }
+      } else if (k === 'commercial_info') {
+        result.commercial_info = { ...result.commercial_info, ...val }
+      } else if (k === 'home_layout') {
+        result.home_layout = { ...result.home_layout, ...val }
+      }
+    }
+
+    return c.json(200, { success: true, data: result })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao carregar configurações da loja: ' + err.message })
+  }
+})
+
+/**
+ * POST /backend/v1/store/admin/settings
+ * Atualiza configuração específica (requer admin autenticado)
+ */
+routerAdd('POST', '/backend/v1/store/admin/settings', (c) => {
+  try {
+    const authRecord = c.auth
+    if (!authRecord) {
+      return c.json(401, { error: 'Acesso restrito a administradores autenticados' })
+    }
+
+    const body = c.requestInfo().body || {}
+    const settingKey = body.setting_key
+    const settingValue = body.setting_value
+
+    if (!settingKey) {
+      return c.json(400, { error: 'setting_key é obrigatório' })
+    }
+
+    let rec
+    try {
+      rec = $app.findFirstRecordByData('store_settings', 'setting_key', settingKey)
+    } catch (_) {
+      const col = $app.findCollectionByNameOrId('store_settings')
+      rec = new Record(col)
+      rec.set('setting_key', settingKey)
+    }
+
+    rec.set('setting_value', JSON.stringify(settingValue))
+    $app.save(rec)
+
+    return c.json(200, { success: true, message: 'Configuração salva com sucesso' })
+  } catch (err) {
+    return c.json(500, { error: 'Erro ao salvar configuração: ' + err.message })
   }
 })

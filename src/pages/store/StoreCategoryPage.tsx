@@ -82,7 +82,7 @@ export default function StoreCategoryPage() {
   })
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="space-y-6">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-xs text-slate-500">
         <Link to="/loja" className="hover:text-emerald-600 transition-colors">

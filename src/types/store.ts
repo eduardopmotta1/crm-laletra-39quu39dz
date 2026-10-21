@@ -34,24 +34,69 @@ export interface StoreCategory {
   image_url?: string | null
   order_index?: number
   is_active?: boolean
+  parent_id?: string | null
   created?: string
   updated?: string
+  children?: StoreCategory[]
 }
 
 export interface StoreBanner {
   id: string
   title: string
   subtitle?: string
+  description?: string
   cta_text?: string
   link_url?: string
   image?: string
   image_url?: string | null
+  mobile_image?: string
+  mobile_image_url?: string | null
   badge?: string
   bg_color?: string
   order_index?: number
   is_active?: boolean
   created?: string
   updated?: string
+}
+
+export interface StoreAppearanceSettings {
+  primary_color: string
+  secondary_color: string
+  button_color: string
+  header_color: string
+  bg_color: string
+  text_color: string
+  logo_url?: string
+  favicon_url?: string
+}
+
+export interface StoreCommercialInfoSettings {
+  whatsapp: string
+  phone: string
+  email: string
+  business_hours: string
+  address: string
+  footer_text: string
+  copyright_text: string
+}
+
+export interface StoreHomeLayoutSettings {
+  show_hero_banners: boolean
+  show_advantages_bar: boolean
+  show_categories_grid: boolean
+  show_featured_products: boolean
+  show_custom_quote_cta: boolean
+  hero_title?: string
+  hero_subtitle?: string
+  featured_product_ids?: string[]
+  custom_quote_title?: string
+  custom_quote_subtitle?: string
+}
+
+export interface StoreAllSettings {
+  appearance: StoreAppearanceSettings
+  commercial_info: StoreCommercialInfoSettings
+  home_layout: StoreHomeLayoutSettings
 }
 
 export interface StoreProduct {
