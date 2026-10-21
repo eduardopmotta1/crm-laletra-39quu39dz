@@ -252,15 +252,26 @@ export default function StoreHomePage() {
             <Link
               key={cat.id}
               to={`/loja/categoria/${cat.slug}`}
-              className="group p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500 hover:shadow-md transition-all text-center flex flex-col items-center justify-center gap-3"
+              className="group p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500 hover:shadow-lg transition-all text-center flex flex-col items-center justify-between gap-3 relative overflow-hidden"
             >
-              <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 group-hover:bg-emerald-50 group-hover:text-emerald-600 flex items-center justify-center transition-colors">
-                <Printer className="w-6 h-6" />
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700/60 text-slate-700 dark:text-slate-200 group-hover:from-emerald-50 group-hover:to-teal-100 group-hover:text-emerald-700 flex items-center justify-center transition-all shadow-xs group-hover:scale-105">
+                {cat.image_url ? (
+                  <img
+                    src={cat.image_url}
+                    alt={cat.name}
+                    className="w-full h-full object-cover rounded-2xl"
+                  />
+                ) : (
+                  <Printer className="w-7 h-7" />
+                )}
               </div>
-              <div>
-                <h3 className="font-bold text-xs text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors">
+              <div className="space-y-1">
+                <h3 className="font-bold text-xs text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors line-clamp-1">
                   {cat.name}
                 </h3>
+                <span className="text-[10px] text-slate-400 font-medium block group-hover:text-slate-600 dark:group-hover:text-slate-300">
+                  Explorar opções →
+                </span>
               </div>
             </Link>
           ))}
@@ -324,8 +335,16 @@ export default function StoreHomePage() {
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400">
-                        <Printer className="w-12 h-12 stroke-[1.5]" />
+                      <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800/80 p-4 text-center">
+                        <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-800 shadow-xs flex items-center justify-center text-emerald-600 mb-2">
+                          <Printer className="w-6 h-6 stroke-[1.5]" />
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 font-serif">
+                          Gráfica LaLetra
+                        </span>
+                        <span className="text-[10px] text-slate-400 mt-0.5">
+                          {p.unit_label || 'Configurável'}
+                        </span>
                       </div>
                     )}
 
@@ -436,7 +455,7 @@ export default function StoreHomePage() {
               </Button>
             </Link>
             <a
-              href="https://wa.me/5511998819988?text=Ol%C3%A1!%20Gostaria%20de%20um%20or%C3%A7amento%20personalizado%20da%20Laletra%20Store"
+              href="https://wa.me/552123919112?text=Ol%C3%A1!%20Gostaria%20de%20um%20or%C3%A7amento%20personalizado%20da%20Gr%C3%A1fica%20LaLetra"
               target="_blank"
               rel="noreferrer"
               className="w-full"
@@ -446,7 +465,7 @@ export default function StoreHomePage() {
                 size="lg"
                 className="w-full border-slate-700 text-white hover:bg-slate-800 rounded-xl"
               >
-                Falar com Vendedor no WhatsApp
+                Falar com Atendimento no WhatsApp
               </Button>
             </a>
           </div>

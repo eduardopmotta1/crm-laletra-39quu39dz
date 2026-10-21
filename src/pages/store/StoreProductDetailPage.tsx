@@ -253,8 +253,16 @@ export default function StoreProductDetailPage() {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-400">
-                <Printer className="w-16 h-16 stroke-[1.2]" />
+              <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-8 text-center">
+                <div className="w-20 h-20 rounded-2xl bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center text-emerald-600 mb-3">
+                  <Printer className="w-10 h-10 stroke-[1.2]" />
+                </div>
+                <span className="text-base font-serif font-black text-slate-800 dark:text-slate-100">
+                  Gráfica LaLetra
+                </span>
+                <span className="text-xs text-slate-400 mt-1 max-w-xs">
+                  Especificações técnicas e gabarito profissional sob medida
+                </span>
               </div>
             )}
             {product.badge_label && (
@@ -340,13 +348,13 @@ export default function StoreProductDetailPage() {
                   </Button>
                 </Link>
                 <a
-                  href={`https://wa.me/5511998819988?text=Ol%C3%A1!%20Gostaria%20de%20or%C3%A7amento%20para%20o%20produto%20${encodeURIComponent(product.name)}`}
+                  href={`https://wa.me/552123919112?text=Ol%C3%A1!%20Gostaria%20de%20or%C3%A7amento%20para%20o%20produto%20${encodeURIComponent(product.name)}`}
                   target="_blank"
                   rel="noreferrer"
                   className="flex-1"
                 >
                   <Button variant="outline" className="w-full rounded-xl text-xs gap-2">
-                    <PhoneCall className="w-4 h-4 text-emerald-600" /> WhatsApp Direto
+                    <PhoneCall className="w-4 h-4 text-emerald-600" /> WhatsApp Comercial
                   </Button>
                 </a>
               </div>
@@ -596,7 +604,7 @@ export default function StoreProductDetailPage() {
                     Salvar no Pedido
                   </Button>
                   <a
-                    href={`https://wa.me/5511998819988?text=Ol%C3%A1!%20Gostaria%20de%20fechar%20o%20produto%20${encodeURIComponent(product.name)}%20(Qtd:%20${quantity},%20Total:%20${encodeURIComponent(formatCurrency(calcResult?.total))})`}
+                    href={`https://wa.me/552123919112?text=Ol%C3%A1!%20Gostaria%20de%20fechar%20o%20produto%20${encodeURIComponent(product.name)}%20(Qtd:%20${quantity},%20Total:%20${encodeURIComponent(formatCurrency(calcResult?.total))})`}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -646,10 +654,13 @@ export default function StoreProductDetailPage() {
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400">
-                      <Printer className="w-8 h-8" />
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-800/80 p-3 text-center">
+                      <Printer className="w-7 h-7 text-emerald-600 mb-1" />
+                      <span className="text-[10px] font-serif font-bold text-slate-600 dark:text-slate-300">
+                        LaLetra
+                      </span>
                     </div>
-                  )}
+                  )}{' '}
                 </Link>
                 <CardContent className="p-4 space-y-2">
                   <Link to={`/loja/produto/${rel.seo_slug}`}>

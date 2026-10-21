@@ -412,6 +412,14 @@ export default function StoreAdminPage() {
                             Destaque
                           </Badge>
                         )}
+                        {!p.main_image_url && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/40"
+                          >
+                            Sem foto
+                          </Badge>
+                        )}
                       </div>
                       <span className="text-[11px] text-slate-400 font-mono">
                         /loja/produto/{p.seo_slug}
@@ -518,7 +526,17 @@ export default function StoreAdminPage() {
               <Card key={c.id} className="border-slate-200 dark:border-slate-800">
                 <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between">
                   <div>
-                    <CardTitle className="text-sm font-bold">{c.name}</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-sm font-bold">{c.name}</CardTitle>
+                      {!c.image_url && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/40"
+                        >
+                          Sem ícone
+                        </Badge>
+                      )}
+                    </div>
                     <CardDescription className="text-xs font-mono text-emerald-600">
                       /loja/categoria/{c.slug}
                     </CardDescription>
@@ -582,7 +600,17 @@ export default function StoreAdminPage() {
                 <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between">
                   <div>
                     {b.badge && <Badge className="text-[10px] mb-1">{b.badge}</Badge>}
-                    <CardTitle className="text-sm font-bold">{b.title}</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-sm font-bold">{b.title}</CardTitle>
+                      {!b.image_url && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/40"
+                        >
+                          Sem imagem de fundo
+                        </Badge>
+                      )}
+                    </div>
                     <CardDescription className="text-xs text-slate-500">
                       {b.subtitle}
                     </CardDescription>
@@ -633,6 +661,21 @@ export default function StoreAdminPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-xs font-semibold">URL da Imagem Principal</Label>
+              <Input
+                className="mt-1 text-xs"
+                placeholder="https://... ou caminho de imagem"
+                value={editingProduct?.main_image_url || ''}
+                onChange={(e) =>
+                  setEditingProduct((prev) => ({ ...prev, main_image_url: e.target.value }))
+                }
+              />
+              <span className="text-[10px] text-slate-400">
+                Link direto para foto do produto no catálogo ou upload pelo storage.
+              </span>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-xs font-semibold">Nome do Produto *</Label>
@@ -891,6 +934,17 @@ export default function StoreAdminPage() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
+              <Label className="text-xs font-semibold">URL do Ícone/Imagem da Categoria</Label>
+              <Input
+                className="mt-1 text-xs"
+                placeholder="https://..."
+                value={editingCategory?.image_url || ''}
+                onChange={(e) =>
+                  setEditingCategory((prev) => ({ ...prev, image_url: e.target.value }))
+                }
+              />
+            </div>
+            <div>
               <Label className="text-xs font-semibold">Nome da Categoria *</Label>
               <Input
                 className="mt-1 text-xs"
@@ -970,6 +1024,17 @@ export default function StoreAdminPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs font-semibold">URL da Imagem de Fundo do Banner</Label>
+              <Input
+                className="mt-1 text-xs"
+                placeholder="https://..."
+                value={editingBanner?.image_url || ''}
+                onChange={(e) =>
+                  setEditingBanner((prev) => ({ ...prev, image_url: e.target.value }))
+                }
+              />
+            </div>
             <div>
               <Label className="text-xs font-semibold">Título Principal *</Label>
               <Input

@@ -165,8 +165,16 @@ export default function StoreCategoryPage() {
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400">
-                      <Printer className="w-12 h-12 stroke-[1.5]" />
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800/80 p-4 text-center">
+                      <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-800 shadow-xs flex items-center justify-center text-emerald-600 mb-2">
+                        <Printer className="w-6 h-6 stroke-[1.5]" />
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 font-serif">
+                        Gráfica LaLetra
+                      </span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">
+                        {p.unit_label || 'Configurável'}
+                      </span>
                     </div>
                   )}
 

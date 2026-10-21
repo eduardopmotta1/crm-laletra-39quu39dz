@@ -369,7 +369,7 @@ export const StoreCartPage: React.FC = () => {
 
               <Button
                 onClick={handleProceedToCheckout}
-                className="w-full font-semibold py-6 text-base"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-6 text-base rounded-xl shadow-md transition-all"
                 size="lg"
               >
                 Prosseguir para o Checkout

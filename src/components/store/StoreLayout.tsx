@@ -106,17 +106,22 @@ export default function StoreLayout() {
           </div>
 
           <div className="flex items-center gap-4 text-xs">
-            <span className="flex items-center gap-1 text-slate-300 hover:text-white">
+            <a
+              href="https://wa.me/552123919112"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-slate-300 hover:text-emerald-400 transition-colors"
+            >
               <Phone className="w-3.5 h-3.5 text-emerald-400" />
-              (11) 99881-9988
-            </span>
+              +55 (21) 2391-9112
+            </a>
             <span className="text-slate-600">|</span>
             <Link
               to="/orcamentos/novo"
               className="text-amber-400 hover:text-amber-300 flex items-center gap-1 font-medium"
             >
               <FileText className="w-3.5 h-3.5" />
-              Solicitar Orçamento Personalizado
+              Orçamento Sob Medida
             </Link>
           </div>
         </div>
@@ -140,25 +145,22 @@ export default function StoreLayout() {
 
             {/* Brand Logo */}
             <Link to="/loja" className="flex items-center gap-3 group">
-              <div className="w-11 h-11 rounded-xl bg-emerald-600 group-hover:bg-emerald-500 text-white flex items-center justify-center font-black text-2xl tracking-tighter shadow-md shadow-emerald-600/20 transition-all">
-                L
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 group-hover:from-emerald-500 group-hover:to-teal-700 text-white flex items-center justify-center font-serif font-black text-2xl tracking-tighter shadow-md shadow-emerald-600/20 transition-all border border-emerald-500/30">
+                <span className="italic">L</span>
               </div>
               <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-extrabold text-xl tracking-tight text-slate-900 dark:text-white">
-                    LALETRA
+                <div className="flex items-center gap-2">
+                  <span className="font-serif font-black text-xl tracking-tight text-slate-900 dark:text-white">
+                    LaLetra
                   </span>
-                  <Badge
-                    variant="secondary"
-                    className="bg-emerald-100 text-emerald-800 text-[10px] uppercase font-bold py-0 px-1.5"
-                  >
-                    Store
-                  </Badge>
+                  <span className="text-[10px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800">
+                    STORE
+                  </span>
                 </div>
-                <p className="text-[11px] text-slate-500 font-medium tracking-wide">
-                  Gráfica Rápida & Comunicação Visual
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">
+                  Gráfica & Comunicação Visual
                 </p>
-              </div>
+              </div>{' '}
             </Link>
 
             {/* Search Bar Desktop */}
@@ -288,10 +290,12 @@ export default function StoreLayout() {
             <div>
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold">
-                    L
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center font-serif font-bold text-sm">
+                    <span className="italic">L</span>
                   </div>
-                  <span className="font-extrabold text-slate-900 dark:text-white">Categorias</span>
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Categorias LaLetra
+                  </span>
                 </div>
                 <button
                   onClick={() => setMobileMenuOpen(false)}
@@ -349,7 +353,7 @@ export default function StoreLayout() {
                 </Button>
               </Link>
               <p className="text-[11px] text-center text-slate-400">
-                Laletra Gráfica e Comunicação Visual
+                Gráfica LaLetra • Soluções em Impressão
               </p>
             </div>
           </div>
@@ -368,12 +372,14 @@ export default function StoreLayout() {
             {/* Col 1: Sobre */}
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-2xl tracking-tighter">
-                  L
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center font-serif font-black text-2xl tracking-tighter border border-emerald-500/30">
+                  <span className="italic">L</span>
                 </div>
                 <div>
-                  <h3 className="text-white font-extrabold text-lg">Gráfica Laletra</h3>
-                  <p className="text-xs text-slate-400">Desde 2012 inovando em impressão</p>
+                  <h3 className="text-white font-serif font-extrabold text-lg">Gráfica LaLetra</h3>
+                  <p className="text-xs text-slate-400">
+                    Excelência e precisão em impressão gráfica
+                  </p>
                 </div>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">
@@ -424,11 +430,22 @@ export default function StoreLayout() {
 
             {/* Col 4: Contato */}
             <div className="space-y-3">
-              <h4 className="text-white text-xs font-bold uppercase tracking-wider">Atendimento</h4>
+              <h4 className="text-white text-xs font-bold uppercase tracking-wider">
+                Atendimento LaLetra
+              </h4>
               <p className="text-xs text-slate-300 font-medium">WhatsApp Comercial:</p>
-              <p className="text-sm text-emerald-400 font-bold">(11) 99881-9988</p>
+              <a
+                href="https://wa.me/552123919112"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1.5"
+              >
+                <Phone className="w-4 h-4" />
+                +55 (21) 2391-9112
+              </a>
+              <p className="text-xs text-slate-400">Atendimento de Seg a Sex das 08h às 18h</p>
               <p className="text-xs text-slate-400">contato@laletragrafica.com.br</p>
-              <div className="pt-2">
+              <div className="pt-2 flex flex-wrap gap-2">
                 <Link to="/loja-admin">
                   <Button
                     variant="outline"
@@ -438,15 +455,21 @@ export default function StoreLayout() {
                     Gerenciar Loja (Admin)
                   </Button>
                 </Link>
+                <Link to="/loja/conta">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[11px] h-8 text-slate-400 hover:text-slate-200"
+                  >
+                    Área do Comprador
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>
 
           <div className="mt-12 pt-8 border-t border-slate-800 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p>
-              © {new Date().getFullYear()} Gráfica Laletra. Todos os direitos reservados. CNPJ:
-              00.000.000/0001-00
-            </p>
+            <p>© {new Date().getFullYear()} Gráfica LaLetra. Todos os direitos reservados.</p>
             <div className="flex gap-4">
               <span className="hover:text-slate-400">Termos de Uso</span>
               <span>•</span>
