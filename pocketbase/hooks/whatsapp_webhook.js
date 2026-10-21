@@ -295,8 +295,11 @@
       for (let i = 0; i < variants.length; i++) {
         const variant = variants[i]
         try {
-          client = txApp.findFirstRecordByData('clients', 'normalized_phone', variant)
-          if (client) break
+          const match = txApp.findFirstRecordByData('clients', 'normalized_phone', variant)
+          if (match) {
+            client = match
+            break
+          }
         } catch (_) {}
       }
 
@@ -305,24 +308,32 @@
         for (let i = 0; i < variants.length; i++) {
           const variant = variants[i]
           try {
-            client = txApp.findFirstRecordByData('clients', 'phone', variant)
-            if (client) break
+            const match = txApp.findFirstRecordByData('clients', 'phone', variant)
+            if (match) {
+              client = match
+              break
+            }
           } catch (_) {}
         }
       }
 
-      // 3. Fallback: busca por filtro com variantes do normalized_phone ou sufixo dos últimos 8 dígitos
+      // 3. Fallback: busca por filtro com variantes do normalized_phone
       if (!client && variants.length > 0) {
         try {
           const filterConditions = variants.map((v) => `normalized_phone = '${v}'`).join(' || ')
-          const records = txApp.findRecordsByFilter('clients', filterConditions, '-created', 1, 0)
+          const records = txApp.findRecordsByFilter('clients', filterConditions, '-created', 10, 0)
           if (records && records.length > 0) {
-            client = records[0]
+            // Se encontrar múltiplos, NÃO escolher arbitrariamente: filtrar por canonical consolidado ou telefone exato
+            const nonMerged = records.filter((r) => {
+              const notes = r.get('notes') || ''
+              return !notes.includes('[DUPLICADO_CONSOLIDADO')
+            })
+            client = nonMerged.length > 0 ? nonMerged[0] : records[0]
           }
         } catch (_) {}
       }
 
-      // 4. Fallback final pelo sufixo do telefone (últimos 8 dígitos)
+      // 4. Fallback final pelo sufixo dos últimos 8 dígitos APENAS com desambiguação segura
       if (!client) {
         try {
           const last8 = phone.slice(-8)
@@ -331,14 +342,54 @@
               'clients',
               `phone ~ '${last8}'`,
               '-created',
-              1,
+              10,
               0,
             )
             if (records && records.length > 0) {
-              client = records[0]
+              // Se houver mais de um cliente com o mesmo sufixo de 8 dígitos mas DDDs diferentes,
+              // NUNCA escolher arbitrariamente (evita associar cliente de outro DDD!).
+              const exactAreaMatches = records.filter((r) => {
+                const rNorm = normalizePhone(r.get('phone') || '')
+                const incomingNorm = normalizePhone(phone)
+                if (rNorm.length >= 10 && incomingNorm.length >= 10) {
+                  // Compara os 2 primeiros dígitos do DDD (excluindo 55 se presente)
+                  const rDdd = rNorm.startsWith('55')
+                    ? rNorm.substring(2, 4)
+                    : rNorm.substring(0, 2)
+                  const inDdd = incomingNorm.startsWith('55')
+                    ? incomingNorm.substring(2, 4)
+                    : incomingNorm.substring(0, 2)
+                  return rDdd === inDdd
+                }
+                return false
+              })
+
+              if (exactAreaMatches.length === 1) {
+                client = exactAreaMatches[0]
+              } else if (records.length === 1) {
+                client = records[0]
+              } else {
+                console.warn(
+                  `[Webhook findOrCreateClient] Correspondência ambígua para sufixo ${last8} entre ${records.length} clientes. Nenhum cliente arbitrário selecionado.`,
+                )
+              }
             }
           }
         } catch (_) {}
+      }
+
+      // Resolver ID canônico se o cliente encontrado foi consolidado/mesclado
+      if (client) {
+        const notes = client.get('notes') || ''
+        const matchMerged = notes.match(/\[DUPLICADO_CONSOLIDADO\s*->\s*([a-zA-Z0-9_-]+)\]/i)
+        if (matchMerged && matchMerged[1]) {
+          try {
+            const canonical = txApp.findRecordById('clients', matchMerged[1])
+            if (canonical) {
+              client = canonical
+            }
+          } catch (_) {}
+        }
       }
 
       if (client) {

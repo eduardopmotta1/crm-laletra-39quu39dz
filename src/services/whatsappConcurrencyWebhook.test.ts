@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 /**
  * SUÍTE COMPLETA DE TESTES DE CONCORRÊNCIA E IDEMPOTÊNCIA DO WHATSAPP WEBHOOK
@@ -31,6 +31,7 @@ function createRecord(colName: string, initial: Record<string, any>): MockDbReco
   const recordId = initial.id || `${colName}_${Math.random().toString(36).substring(2, 9)}`
   const data: Record<string, any> = {
     ...initial,
+    _collection: colName,
     id: recordId,
     created: initial.created || new Date().toISOString(),
     updated: initial.updated || new Date().toISOString(),
@@ -64,6 +65,7 @@ class MockPocketBaseStore {
 
   // Simula o lock de escrita única do SQLite
   private _txLock = Promise.resolve()
+  private _inTx = false
 
   // In-memory deduplication cache como em globalThis.__pb_processedWamids
   processedWamids = new Map<string, number>()
@@ -137,18 +139,31 @@ class MockPocketBaseStore {
         return
       }
     }
+    const col = record.get('_collection')
+    if (col && this.collections[col as keyof typeof this.collections]) {
+      this.collections[col as keyof typeof this.collections].push(record)
+      return
+    }
     // Novo registro: detectar pelo tipo
-    if (record.get('whatsapp_message_id') !== undefined || record.get('direction') !== undefined) {
+    if (
+      record.id.startsWith('msg_') ||
+      record.get('whatsapp_message_id') !== undefined ||
+      record.get('direction') !== undefined
+    ) {
       this.collections.messages.push(record)
     } else if (
-      record.get('channel') !== undefined &&
-      record.get('client_id') !== undefined &&
-      record.get('is_archived') !== undefined
+      record.id.startsWith('att_') ||
+      (record.get('channel') !== undefined &&
+        record.get('client_id') !== undefined &&
+        record.get('is_archived') !== undefined)
     ) {
       this.collections.attendances.push(record)
-    } else if (record.get('stage') !== undefined && record.get('attendance_id') !== undefined) {
+    } else if (
+      record.id.startsWith('deal_') ||
+      (record.get('stage') !== undefined && record.get('attendance_id') !== undefined)
+    ) {
       this.collections.deals.push(record)
-    } else if (record.get('phone') !== undefined) {
+    } else if (record.id.startsWith('cli_') || record.get('phone') !== undefined) {
       this.collections.clients.push(record)
     } else if (record.get('setting_key') !== undefined) {
       this.collections.system_settings.push(record)
@@ -159,6 +174,10 @@ class MockPocketBaseStore {
    * Simula a execução atômica serializada de runInTransaction do SQLite/PocketBase
    */
   async runInTransaction<T>(fn: (txApp: MockPocketBaseStore) => T | Promise<T>): Promise<T> {
+    if (this._inTx) {
+      return await fn(this)
+    }
+
     const currentLock = this._txLock
     let releaseLock: () => void = () => {}
     this._txLock = new Promise<void>((resolve) => {
@@ -166,9 +185,11 @@ class MockPocketBaseStore {
     })
 
     await currentLock
+    this._inTx = true
     try {
       return await fn(this)
     } finally {
+      this._inTx = false
       releaseLock()
     }
   }
@@ -352,7 +373,14 @@ describe('Testes Obrigatórios de Concorrência e Idempotência — Webhook What
   let db: MockPocketBaseStore
 
   beforeEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
     db = new MockPocketBaseStore()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
   })
 
   it('1) mesmo WAMID processado 3x simultaneamente → 1 message, 1 attendance, 1 deal', async () => {

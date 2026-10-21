@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 /**
  * SUÍTE DE TESTES OBRIGATÓRIOS DA ETAPA 2 (A, B, C, D, E, F)
@@ -30,6 +30,7 @@ function makeRecord(col: string, data: Record<string, any>): MockRecord {
   const id = data.id || `${col}_${Math.random().toString(36).substring(2, 9)}`
   const record: Record<string, any> = {
     ...data,
+    _collection: col,
     id,
     created: data.created || new Date().toISOString(),
     updated: data.updated || new Date().toISOString(),
@@ -64,9 +65,16 @@ class MockBackendStore {
   }
 
   private _txQueue: Promise<void> = Promise.resolve()
+  private _inTx = false
   warnLogs: string[] = []
 
   async runInTransaction<T>(fn: (tx: MockBackendStore) => Promise<T> | T): Promise<T> {
+    // Se a chamada já estiver dentro do contexto de uma transação aberta (reentrância),
+    // executa diretamente sem enfileirar nem causar deadlock
+    if (this._inTx) {
+      return await fn(this)
+    }
+
     const prev = this._txQueue
     let release: () => void = () => {}
     this._txQueue = new Promise<void>((res) => {
@@ -74,9 +82,11 @@ class MockBackendStore {
     })
 
     await prev
+    this._inTx = true
     try {
       return await fn(this)
     } finally {
+      this._inTx = false
       release()
     }
   }
@@ -115,6 +125,9 @@ class MockBackendStore {
         const m = filterStr.match(/attendance_id = ['"]([^'"]+)['"]/)
         if (m && r.get('attendance_id') !== m[1]) return false
       }
+      if (filterStr.includes("reason = 'won'")) {
+        if (r.get('reason') !== 'won') return false
+      }
       return true
     })
 
@@ -133,18 +146,36 @@ class MockBackendStore {
         return
       }
     }
-    // New record routing
-    if (rec.get('whatsapp_message_id') !== undefined || rec.get('direction') !== undefined) {
+    const col = rec.get('_collection')
+    if (col && this.collections[col as keyof typeof this.collections]) {
+      this.collections[col as keyof typeof this.collections].push(rec)
+      return
+    }
+    // New record routing fallback
+    if (
+      rec.id.startsWith('msg_') ||
+      rec.get('whatsapp_message_id') !== undefined ||
+      rec.get('direction') !== undefined
+    ) {
       this.collections.messages.push(rec)
-    } else if (rec.get('channel') !== undefined && rec.get('client_id') !== undefined) {
+    } else if (
+      rec.id.startsWith('att_') ||
+      (rec.get('channel') !== undefined && rec.get('client_id') !== undefined)
+    ) {
       this.collections.attendances.push(rec)
-    } else if (rec.get('order_number') !== undefined) {
+    } else if (rec.id.startsWith('ord_') || rec.get('order_number') !== undefined) {
       this.collections.production_orders.push(rec)
-    } else if (rec.get('reason') !== undefined && rec.get('original_attendance_id') !== undefined) {
+    } else if (
+      rec.id.startsWith('arch_') ||
+      (rec.get('reason') !== undefined && rec.get('original_attendance_id') !== undefined)
+    ) {
       this.collections.archived_deals.push(rec)
-    } else if (rec.get('stage') !== undefined && rec.get('attendance_id') !== undefined) {
+    } else if (
+      rec.id.startsWith('deal_') ||
+      (rec.get('stage') !== undefined && rec.get('attendance_id') !== undefined)
+    ) {
       this.collections.deals.push(rec)
-    } else if (rec.get('phone') !== undefined) {
+    } else if (rec.id.startsWith('cli_') || rec.get('phone') !== undefined) {
       this.collections.clients.push(rec)
     } else if (rec.get('setting_key') !== undefined) {
       this.collections.system_settings.push(rec)
@@ -332,7 +363,14 @@ describe('Etapa 2 — Testes Obrigatórios A, B, C, D, E, F', () => {
   let db: MockBackendStore
 
   beforeEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
     db = new MockBackendStore()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
   })
 
   it('Teste A: 10 requisições simultâneas resolvendo/criando attendance para o mesmo cliente sem attendance → 1 attendance criado, 9 reutilizam o mesmo ID', async () => {
