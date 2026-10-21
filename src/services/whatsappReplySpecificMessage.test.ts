@@ -1,10 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { whatsappService } from './whatsapp'
 import pb from '../lib/pocketbase/client'
 import type { Message } from '../types/crm'
 
 describe('WhatsApp Reply to Specific Message — Unit & Integration Logic Tests', () => {
   beforeEach(() => {
+    vi.restoreAllMocks()
+
+    // Autenticação mockada como admin para isolar regras de permissão
+    pb.authStore.save('mock_token_for_tests', {
+      id: 'usr_mock_test_1',
+      name: 'Atendente Teste',
+      email: 'atendente@teste.com',
+      role_slug: 'admin',
+    } as any)
+
+    // Mock determinístico de attendances.getList para evitar consumo indevido de pb.send
+    vi.spyOn(pb.collection('attendances'), 'getList').mockResolvedValue({
+      items: [],
+      page: 1,
+      perPage: 1,
+      totalItems: 0,
+      totalPages: 1,
+    } as any)
+  })
+
+  afterEach(() => {
+    pb.authStore.clear()
     vi.restoreAllMocks()
   })
 
