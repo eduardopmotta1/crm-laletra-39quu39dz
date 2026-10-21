@@ -23,8 +23,10 @@ import {
   Upload,
   Layout,
   RefreshCw,
+  ChevronRight,
 } from 'lucide-react'
 import { slugifyCategory } from '@/lib/slugUtils'
+import { buildCategoryTree } from '@/components/store/StoreSidebar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -440,6 +442,29 @@ export default function StoreAdminPage() {
       return
     }
 
+    const targetParentId = editingCategory.parent_id || null
+
+    // Validação preventiva anti-ciclo na interface
+    if (editingCategory.id && targetParentId) {
+      if (targetParentId === editingCategory.id) {
+        toast({
+          title: 'Referência inválida',
+          description: 'Uma categoria não pode ser subcategoria de si mesma.',
+          variant: 'destructive',
+        })
+        return
+      }
+      const descendants = getDescendantIds(editingCategory.id)
+      if (descendants.has(targetParentId)) {
+        toast({
+          title: 'Referência circular detectada',
+          description: 'A categoria pai selecionada já é descendente desta categoria.',
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     try {
       const payload: any = {
         name: editingCategory.name.trim(),
@@ -447,7 +472,7 @@ export default function StoreAdminPage() {
         description: editingCategory.description || '',
         order_index: Number(editingCategory.order_index) || 0,
         is_active: editingCategory.is_active === true,
-        parent_id: editingCategory.parent_id || null,
+        parent_id: targetParentId,
         icon: editingCategory.icon || '',
         image_url: editingCategory.image_url || '',
       }
@@ -561,8 +586,132 @@ export default function StoreAdminPage() {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0)
   }
 
-  // Lista de categorias pai para seleção de subcategoria
-  const parentCategoryOptions = categories.filter((c) => !c.parent_id)
+  // Coleta recursiva de todos os descendentes de uma categoria (para impedir ciclos no seletor)
+  const getDescendantIds = React.useCallback(
+    (categoryId: string): Set<string> => {
+      const descendants = new Set<string>()
+      const queue = [categoryId]
+      while (queue.length > 0) {
+        const curr = queue.shift()!
+        for (const c of categories) {
+          if (c.parent_id === curr && !descendants.has(c.id)) {
+            descendants.add(c.id)
+            queue.push(c.id)
+          }
+        }
+      }
+      return descendants
+    },
+    [categories],
+  )
+
+  // Monta lista plana ordenada hierarquicamente com profundidade e caminho para o seletor
+  const hierarchicalCategoryOptions = React.useMemo(() => {
+    // Mapa id -> StoreCategory
+    const catMap = new Map<string, StoreCategory>()
+    categories.forEach((c) => catMap.set(c.id, c))
+
+    // Calcula o caminho completo até a raiz para cada categoria
+    const getFullPath = (cat: StoreCategory): string => {
+      const parts: string[] = [cat.name]
+      let currParentId = cat.parent_id
+      const visited = new Set<string>([cat.id])
+      while (currParentId && !visited.has(currParentId)) {
+        visited.add(currParentId)
+        const parent = catMap.get(currParentId)
+        if (parent) {
+          parts.unshift(parent.name)
+          currParentId = parent.parent_id
+        } else {
+          break
+        }
+      }
+      return parts.join(' › ')
+    }
+
+    // Calcula a profundidade (0 para raiz, 1 para filho, etc.)
+    const getDepth = (cat: StoreCategory): number => {
+      let d = 0
+      let currParentId = cat.parent_id
+      const visited = new Set<string>([cat.id])
+      while (currParentId && !visited.has(currParentId)) {
+        visited.add(currParentId)
+        const parent = catMap.get(currParentId)
+        if (parent) {
+          d++
+          currParentId = parent.parent_id
+        } else {
+          break
+        }
+      }
+      return d
+    }
+
+    // Lista organizada recursivamente
+    const result: Array<{
+      id: string
+      name: string
+      fullPath: string
+      depth: number
+      is_active?: boolean
+    }> = []
+
+    const addNodes = (parentId: string | null) => {
+      const nodes = categories.filter((c) => (c.parent_id || null) === parentId)
+      nodes.sort(
+        (a, b) => (a.order_index ?? 0) - (b.order_index ?? 0) || a.name.localeCompare(b.name),
+      )
+      for (const node of nodes) {
+        result.push({
+          id: node.id,
+          name: node.name,
+          fullPath: getFullPath(node),
+          depth: getDepth(node),
+          is_active: node.is_active,
+        })
+        addNodes(node.id)
+      }
+    }
+
+    addNodes(null)
+
+    // Adiciona órfãos eventuais no final para segurança
+    const addedIds = new Set(result.map((r) => r.id))
+    for (const c of categories) {
+      if (!addedIds.has(c.id)) {
+        result.push({
+          id: c.id,
+          name: c.name,
+          fullPath: getFullPath(c),
+          depth: getDepth(c),
+          is_active: c.is_active,
+        })
+      }
+    }
+
+    return result
+  }, [categories])
+
+  // Categorias disponíveis para serem "pai" da categoria em edição (exclui a própria e suas descendentes)
+  const validParentOptions = React.useMemo(() => {
+    if (!editingCategory?.id) {
+      return hierarchicalCategoryOptions
+    }
+    const forbidden = getDescendantIds(editingCategory.id)
+    forbidden.add(editingCategory.id)
+    return hierarchicalCategoryOptions.filter((opt) => !forbidden.has(opt.id))
+  }, [editingCategory?.id, hierarchicalCategoryOptions, getDescendantIds])
+
+  // Estado de expansão dos nós na aba de gerenciamento de categorias do admin
+  const [adminExpandedCats, setAdminExpandedCats] = useState<Record<string, boolean>>({})
+  const toggleAdminExpand = (id: string) => {
+    setAdminExpandedCats((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  // Árvore de categorias para a aba de Categorias do Admin
+  const adminCategoryTree = React.useMemo(() => {
+    return buildCategoryTree(categories)
+  }, [categories])
 
   return (
     <div className="space-y-6 p-4 sm:p-6 max-w-7xl mx-auto">
@@ -1171,81 +1320,175 @@ export default function StoreAdminPage() {
         </TabsContent>
 
         {/* ========================================================
-            ABA D: CATEGORIAS E SUBCATEGORIAS
+            ABA D: CATEGORIAS E SUBCATEGORIAS MULTINÍVEL
         ======================================================== */}
         <TabsContent value="categories" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-slate-500">
-              Gerencie a árvore de departamentos e subcategorias expansíveis da loja pública.
-            </p>
-            <Button
-              size="sm"
-              onClick={handleOpenNewCategory}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
-            >
-              <Plus className="w-4 h-4" /> Nova Categoria
-            </Button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <FolderTree className="w-4 h-4 text-emerald-600" />
+                Árvore Hierárquica de Categorias ({categories.length} cadastradas)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Organize departamentos principais e subcategorias com múltiplos níveis de
+                profundidade (Lonas › Lonas UV › Lona Brilho UV).
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const allIds: Record<string, boolean> = {}
+                  categories.forEach((c) => {
+                    allIds[c.id] = true
+                  })
+                  setAdminExpandedCats(allIds)
+                }}
+                className="text-xs"
+              >
+                Expandir Tudo
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAdminExpandedCats({})}
+                className="text-xs"
+              >
+                Recolher Tudo
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleOpenNewCategory}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
+              >
+                <Plus className="w-4 h-4" /> Nova Categoria
+              </Button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {categories.map((c) => {
-              const parentCat = categories.find((it) => it.id === c.parent_id)
+          {/* Renderização em Árvore Hierárquica Expansível */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden shadow-xs">
+            {adminCategoryTree.length === 0 ? (
+              <div className="p-12 text-center text-xs text-slate-400">
+                Nenhuma categoria cadastrada até o momento.
+              </div>
+            ) : (
+              (function renderTree(nodes: StoreCategory[], depth = 0) {
+                return nodes.map((c) => {
+                  const hasChildren = Boolean(c.children && c.children.length > 0)
+                  const isExpanded = adminExpandedCats[c.id] !== false // aberto por padrão para facilitar visão
+                  const directProds = products.filter((p) => p.category_id === c.id)
 
-              return (
-                <Card key={c.id} className="border-slate-200 dark:border-slate-800">
-                  <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-sm font-bold">{c.name}</CardTitle>
-                        {parentCat && (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] text-blue-600 border-blue-200"
+                  return (
+                    <React.Fragment key={c.id}>
+                      <div
+                        className={`flex items-center justify-between p-3.5 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
+                          depth > 0 ? 'bg-slate-50/40 dark:bg-slate-800/20' : ''
+                        }`}
+                        style={{ paddingLeft: `${Math.max(16, depth * 28 + 16)}px` }}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          {hasChildren ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleAdminExpand(c.id)}
+                              className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                              title={
+                                isExpanded ? 'Recolher subcategorias' : 'Expandir subcategorias'
+                              }
+                            >
+                              <ChevronRight
+                                className={`w-4 h-4 transition-transform duration-200 ${
+                                  isExpanded ? 'rotate-90 text-emerald-600' : ''
+                                }`}
+                              />
+                            </button>
+                          ) : (
+                            <span className="w-6 h-6 flex items-center justify-center text-slate-300">
+                              {depth > 0 ? '↳' : '•'}
+                            </span>
+                          )}
+
+                          <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200/60 overflow-hidden">
+                            {c.image_url ? (
+                              <img
+                                src={c.image_url}
+                                alt={c.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <FolderTree className="w-3.5 h-3.5 text-slate-400" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                {c.name}
+                              </span>
+                              <Badge
+                                variant={c.is_active ? 'default' : 'secondary'}
+                                className="text-[10px] px-1.5 py-0 h-4"
+                              >
+                                {c.is_active ? 'Ativa' : 'Inativa'}
+                              </Badge>
+                              {depth > 0 && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] text-blue-600 border-blue-200 px-1 py-0 h-4"
+                                >
+                                  Nível {depth + 1}
+                                </Badge>
+                              )}
+                              <span className="text-[10px] text-slate-400">
+                                {directProds.length}{' '}
+                                {directProds.length === 1 ? 'produto direto' : 'produtos diretos'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 font-mono truncate">
+                              <span className="text-emerald-600">/loja/categoria/{c.slug}</span>
+                              {c.description && (
+                                <span className="text-slate-500 font-sans truncate">
+                                  — {c.description}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 ml-3">
+                          <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+                            Ordem: {c.order_index ?? 0}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs px-2"
+                            onClick={() => {
+                              setEditingCategory(c)
+                              setCategoryDialogOpen(true)
+                            }}
                           >
-                            Subcategoria de {parentCat.name}
-                          </Badge>
-                        )}
+                            <Edit className="w-3.5 h-3.5 mr-1" /> Editar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs text-rose-500 hover:text-rose-700 px-2"
+                            onClick={() => handleDeleteCategory(c)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </div>
-                      <CardDescription className="text-xs font-mono text-emerald-600">
-                        /loja/categoria/{c.slug}
-                      </CardDescription>
-                    </div>
-                    <Badge variant={c.is_active ? 'default' : 'secondary'} className="text-[10px]">
-                      {c.is_active ? 'Ativa' : 'Inativa'}
-                    </Badge>
-                  </CardHeader>
-                  <CardContent className="p-4 pt-1 space-y-3">
-                    <p className="text-xs text-slate-500 line-clamp-2">
-                      {c.description || 'Sem descrição cadastrada'}
-                    </p>
-                    <div className="flex justify-between items-center pt-2 border-t text-[11px] text-slate-400">
-                      <span>Ordem: {c.order_index}</span>
-                      <div className="space-x-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={() => {
-                            setEditingCategory(c)
-                            setCategoryDialogOpen(true)
-                          }}
-                        >
-                          Editar
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs text-rose-500"
-                          onClick={() => handleDeleteCategory(c)}
-                        >
-                          Desativar / Excluir
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
+
+                      {hasChildren && isExpanded && renderTree(c.children!, depth + 1)}
+                    </React.Fragment>
+                  )
+                })
+              })(adminCategoryTree, 0)
+            )}
           </div>
         </TabsContent>
 
@@ -1624,9 +1867,9 @@ export default function StoreAdminPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Nenhuma (Sem categoria vinculada)</SelectItem>
-                    {categories.map((c) => (
+                    {hierarchicalCategoryOptions.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
-                        {c.parent_id ? `↳ ${c.name}` : c.name}
+                        {`${'— '.repeat(c.depth)}${c.name}`}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1848,7 +2091,20 @@ export default function StoreAdminPage() {
             />
 
             <div>
-              <Label className="text-xs font-semibold">Categoria Pai (para Subcategoria)</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">
+                  Categoria Pai (para Subcategoria Multinível)
+                </Label>
+                {editingCategory?.parent_id && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingCategory((prev) => ({ ...prev, parent_id: null }))}
+                    className="text-[10px] text-slate-400 hover:text-rose-500 underline"
+                  >
+                    Tornar Categoria Principal
+                  </button>
+                )}
+              </div>
               <Select
                 value={editingCategory?.parent_id || 'none'}
                 onValueChange={(val) =>
@@ -1861,17 +2117,19 @@ export default function StoreAdminPage() {
                 <SelectTrigger className="mt-1 text-xs">
                   <SelectValue placeholder="Nenhuma (Categoria Principal)" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Nenhuma (Categoria Principal)</SelectItem>
-                  {parentCategoryOptions
-                    .filter((c) => c.id !== editingCategory?.id)
-                    .map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
+                <SelectContent className="max-h-[280px]">
+                  <SelectItem value="none">Nenhuma (Categoria Principal no 1º Nível)</SelectItem>
+                  {validParentOptions.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.fullPath}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Permite organizar qualquer subcategoria dentro de outra (ex: Lonas › Lonas UV › Lona
+                Brilho UV). Auto-vinculação e ciclos são bloqueados automaticamente.
+              </p>
             </div>
 
             <div>

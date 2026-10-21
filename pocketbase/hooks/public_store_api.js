@@ -176,18 +176,47 @@ routerAdd('GET', '/backend/v1/store/products', (c) => {
         }
 
         if (cat) {
-          // Busca também produtos de subcategorias vinculadas à categoria pai
-          let catIds = [cat.id]
+          // Coleta recursiva de toda a subárvore ativa (proteção contra ciclos, única consulta para todos os nós)
+          const catIds = [cat.id]
           try {
-            const subCats = $app.findRecordsByFilter(
+            const allActiveCats = $app.findRecordsByFilter(
               'store_categories',
-              `parent_id = '${cat.id}' && is_active = true`,
+              'is_active = true',
               'order_index',
-              100,
+              500,
               0,
             )
-            for (let sc = 0; sc < subCats.length; sc++) {
-              catIds.push(subCats[sc].id)
+
+            // Mapa parent_id -> lista de filhos ativos
+            const childrenMap = {}
+            for (let i = 0; i < allActiveCats.length; i++) {
+              const cRec = allActiveCats[i]
+              let pId = ''
+              try {
+                pId = (cRec.getString('parent_id') || '').trim()
+              } catch (_) {}
+              if (pId) {
+                if (!childrenMap[pId]) childrenMap[pId] = []
+                childrenMap[pId].push(cRec.id)
+              }
+            }
+
+            // BFS com Set para evitar duplicações e ciclos
+            const queue = [cat.id]
+            const visited = {}
+            visited[cat.id] = true
+
+            while (queue.length > 0) {
+              const currentId = queue.shift()
+              const directChildren = childrenMap[currentId] || []
+              for (let k = 0; k < directChildren.length; k++) {
+                const childId = directChildren[k]
+                if (!visited[childId]) {
+                  visited[childId] = true
+                  catIds.push(childId)
+                  queue.push(childId)
+                }
+              }
             }
           } catch (_) {}
 

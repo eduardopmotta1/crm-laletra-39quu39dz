@@ -287,11 +287,32 @@ export const storeService = {
           if (cat) {
             let catIds = [cat.id]
             try {
-              const subCats = await pb.collection('store_categories').getFullList({
-                filter: `parent_id = "${cat.id}" && is_active = true`,
+              const allActiveCats = await pb.collection('store_categories').getFullList({
+                filter: 'is_active = true',
               })
-              for (const sc of subCats) {
-                catIds.push(sc.id)
+
+              const childrenMap = new Map<string, string[]>()
+              for (const cRec of allActiveCats) {
+                if (cRec.parent_id) {
+                  const list = childrenMap.get(cRec.parent_id) || []
+                  list.push(cRec.id)
+                  childrenMap.set(cRec.parent_id, list)
+                }
+              }
+
+              const queue: string[] = [cat.id]
+              const visited = new Set<string>([cat.id])
+
+              while (queue.length > 0) {
+                const currentId = queue.shift()!
+                const directChildren = childrenMap.get(currentId) || []
+                for (const childId of directChildren) {
+                  if (!visited.has(childId)) {
+                    visited.add(childId)
+                    catIds.push(childId)
+                    queue.push(childId)
+                  }
+                }
               }
             } catch {
               /* intentionally ignored */

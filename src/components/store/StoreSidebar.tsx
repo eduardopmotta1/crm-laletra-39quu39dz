@@ -51,14 +51,17 @@ export function buildCategoryTree(flatCategories: StoreCategory[]): StoreCategor
     }
   })
 
-  // Ordenar raízes e filhos por order_index
-  roots.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
-  roots.forEach((root) => {
-    if (root.children && root.children.length > 0) {
-      root.children.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
-    }
-  })
+  // Ordenar recursivamente todos os níveis por order_index
+  const sortRecursive = (nodes: StoreCategory[]) => {
+    nodes.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+    nodes.forEach((n) => {
+      if (n.children && n.children.length > 0) {
+        sortRecursive(n.children)
+      }
+    })
+  }
 
+  sortRecursive(roots)
   return roots
 }
 
@@ -78,32 +81,224 @@ export default function StoreSidebar({
     return match ? decodeURIComponent(match[1]) : ''
   }, [currentCategorySlug, location.pathname])
 
+  // Mapa para busca rápida de ancestrais
+  const catMap = React.useMemo(() => {
+    const map = new Map<string, StoreCategory>()
+    categories.forEach((c) => map.set(c.id, c))
+    return map
+  }, [categories])
+
+  // Função auxiliar para coletar todos os IDs de ancestrais de uma categoria
+  const getAncestorIds = React.useCallback(
+    (startCat: StoreCategory): string[] => {
+      const ancestors: string[] = []
+      let currParentId = startCat.parent_id
+      const visited = new Set<string>()
+      while (currParentId && !visited.has(currParentId)) {
+        visited.add(currParentId)
+        ancestors.push(currParentId)
+        const parentCat = catMap.get(currParentId)
+        currParentId = parentCat ? parentCat.parent_id : null
+      }
+      return ancestors
+    },
+    [catMap],
+  )
+
   // Identificar categorias com filhos para expansão
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
-    // Se a categoria selecionada for filha de alguém, abre o pai por padrão
-    categories.forEach((cat) => {
-      if (activeSlug && (cat.slug === activeSlug || cat.id === activeSlug) && cat.parent_id) {
-        initial[cat.parent_id] = true
+    if (activeSlug) {
+      const activeCat = categories.find((c) => c.slug === activeSlug || c.id === activeSlug)
+      if (activeCat) {
+        // Abre todos os ancestrais da categoria ativa
+        let currParentId = activeCat.parent_id
+        const visited = new Set<string>()
+        while (currParentId && !visited.has(currParentId)) {
+          visited.add(currParentId)
+          initial[currParentId] = true
+          const p = categories.find((c) => c.id === currParentId)
+          currParentId = p ? p.parent_id : null
+        }
       }
-    })
+    }
     return initial
   })
 
-  // Sincronizar expansão quando a rota mudar para uma subcategoria ou categoria com filhos
+  // Sincronizar expansão quando a rota mudar para uma subcategoria de qualquer nível
   React.useEffect(() => {
     if (!activeSlug) return
     const activeCat = categories.find((c) => c.slug === activeSlug || c.id === activeSlug)
-    if (activeCat?.parent_id) {
-      setExpandedCats((prev) => ({ ...prev, [activeCat.parent_id!]: true }))
+    if (activeCat) {
+      const ancestors = getAncestorIds(activeCat)
+      if (ancestors.length > 0) {
+        setExpandedCats((prev) => {
+          const nextState = { ...prev }
+          ancestors.forEach((ancId) => {
+            nextState[ancId] = true
+          })
+          return nextState
+        })
+      }
     }
-  }, [activeSlug, categories])
+  }, [activeSlug, categories, getAncestorIds])
 
   const toggleExpand = (catId: string) => {
     setExpandedCats((prev) => ({ ...prev, [catId]: !prev[catId] }))
   }
 
+  // Verifica se uma categoria contém a categoria ativa em qualquer nível de sua descendência
+  const hasActiveDescendant = React.useCallback(
+    (cat: StoreCategory): boolean => {
+      if (!cat.children || cat.children.length === 0) return false
+      for (const child of cat.children) {
+        if (
+          child.slug === activeSlug ||
+          child.id === activeSlug ||
+          location.pathname === `/loja/categoria/${child.slug}`
+        ) {
+          return true
+        }
+        if (hasActiveDescendant(child)) {
+          return true
+        }
+      }
+      return false
+    },
+    [activeSlug, location.pathname],
+  )
+
   const isAllSelected = location.pathname === '/loja' || location.pathname === '/'
+
+  // Renderizador recursivo para nós da árvore com profundidade N
+  const renderCategoryNode = (cat: StoreCategory, depth = 0) => {
+    const hasChildren = Boolean(cat.children && cat.children.length > 0)
+    const isExpanded = !!expandedCats[cat.id]
+    const isCurrentActive =
+      cat.slug === activeSlug || location.pathname === `/loja/categoria/${cat.slug}`
+    const isDescendantActive = Boolean(hasChildren && hasActiveDescendant(cat))
+    const isHighlighted = isCurrentActive || isDescendantActive
+    const subcategoryId = `subcategories-${cat.id}`
+
+    // Ícone da categoria (nível raiz ou níveis mais profundos)
+    const categoryIcon =
+      depth === 0 ? (
+        <div className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden border border-slate-200/60 dark:border-slate-700/60">
+          {cat.image_url ? (
+            <img src={cat.image_url} alt={cat.name} className="w-full h-full object-cover" />
+          ) : cat.icon && iconMap[cat.icon] ? (
+            <span className="text-emerald-600">{iconMap[cat.icon]}</span>
+          ) : (
+            <Printer className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600" />
+          )}
+        </div>
+      ) : null
+
+    const indentPaddingClass =
+      depth === 0
+        ? 'px-3 py-2.5 min-h-[44px]'
+        : depth === 1
+          ? 'px-2.5 py-2 min-h-[36px]'
+          : 'px-2 py-1.5 min-h-[32px]'
+
+    const textSizeClass = depth === 0 ? 'text-xs' : depth === 1 ? 'text-[11px]' : 'text-[10.5px]'
+
+    return (
+      <div key={cat.id} className="space-y-0.5">
+        <div className="flex items-center">
+          {hasChildren ? (
+            /* Categoria COM subcategorias: o elemento inteiro é um botão que expande/recolhe */
+            <button
+              type="button"
+              onClick={() => toggleExpand(cat.id)}
+              aria-expanded={isExpanded}
+              aria-controls={subcategoryId}
+              className={`w-full group flex items-center justify-between ${indentPaddingClass} rounded-xl ${textSizeClass} font-medium transition-all text-left select-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+                isHighlighted
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200/60 dark:border-emerald-800/60 shadow-xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 truncate">
+                {categoryIcon}
+                <span className="truncate">{cat.name}</span>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isDescendantActive && !isCurrentActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+                )}
+                {isCurrentActive && (
+                  <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                )}
+                <span
+                  className="p-1 rounded-md text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-colors"
+                  aria-hidden="true"
+                >
+                  <ChevronRight
+                    className={`w-3.5 h-3.5 transition-transform duration-200 ease-in-out ${
+                      isExpanded ? 'rotate-90 text-emerald-600 dark:text-emerald-400' : ''
+                    }`}
+                  />
+                </span>
+              </div>
+            </button>
+          ) : (
+            /* Categoria terminal (sem filhos): clique abre direto a página da categoria */
+            <NavLink
+              to={`/loja/categoria/${cat.slug}`}
+              onClick={onSelectCategory}
+              className={({ isActive }) =>
+                `flex-1 group flex items-center justify-between ${indentPaddingClass} rounded-xl ${textSizeClass} font-medium transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+                  isActive || isCurrentActive
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200/60 dark:border-emerald-800/60 shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
+                }`
+              }
+            >
+              <div className="flex items-center gap-2.5 truncate">
+                {categoryIcon}
+                <span className="truncate">{cat.name}</span>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isCurrentActive && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+              </div>
+            </NavLink>
+          )}
+        </div>
+
+        {/* Subcategorias Indentadas Recursivas */}
+        {hasChildren && isExpanded && (
+          <div
+            id={subcategoryId}
+            role="region"
+            aria-label={`Subcategorias de ${cat.name}`}
+            className="pl-5 pr-1 py-1 space-y-1 border-l-2 border-emerald-100 dark:border-emerald-950/60 ml-3.5 animate-in fade-in slide-in-from-top-1 duration-200"
+          >
+            {/* Link "Ver todos": acesso direto a todos os produtos desta subárvore */}
+            <NavLink
+              to={`/loja/categoria/${cat.slug}`}
+              onClick={onSelectCategory}
+              className={({ isActive }) =>
+                `flex items-center justify-between px-2.5 py-1.5 min-h-[32px] rounded-lg text-[11px] transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+                  isActive || isCurrentActive
+                    ? 'bg-emerald-100/80 dark:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 font-bold border border-emerald-200/70 dark:border-emerald-800/70'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-slate-100/60 dark:hover:bg-slate-800/50 font-medium italic'
+                }`
+              }
+            >
+              <span className="truncate">Ver todos em {cat.name}</span>
+              {isCurrentActive && <Check className="w-3 h-3 text-emerald-600 shrink-0" />}
+            </NavLink>
+
+            {/* Recursão para os filhos */}
+            {cat.children!.map((sub) => renderCategoryNode(sub, depth + 1))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <aside
@@ -150,152 +345,8 @@ export default function StoreSidebar({
           {isAllSelected && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
         </NavLink>
 
-        {/* Categorias e Subcategorias Dinâmicas */}
-        {tree.map((cat) => {
-          const hasChildren = Boolean(cat.children && cat.children.length > 0)
-          const isExpanded = !!expandedCats[cat.id]
-          const isCurrentActive =
-            cat.slug === activeSlug || location.pathname === `/loja/categoria/${cat.slug}`
-          const isChildActive = Boolean(
-            hasChildren &&
-            cat.children?.some(
-              (sub) =>
-                sub.slug === activeSlug || location.pathname === `/loja/categoria/${sub.slug}`,
-            ),
-          )
-          const isParentHighlighted = isCurrentActive || isChildActive
-          const subcategoryId = `subcategories-${cat.id}`
-
-          const categoryIcon = (
-            <div className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden border border-slate-200/60 dark:border-slate-700/60">
-              {cat.image_url ? (
-                <img src={cat.image_url} alt={cat.name} className="w-full h-full object-cover" />
-              ) : cat.icon && iconMap[cat.icon] ? (
-                <span className="text-emerald-600">{iconMap[cat.icon]}</span>
-              ) : (
-                <Printer className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600" />
-              )}
-            </div>
-          )
-
-          return (
-            <div key={cat.id} className="space-y-0.5">
-              <div className="flex items-center">
-                {hasChildren ? (
-                  /* Categoria COM subcategorias: o elemento inteiro é um botão que expande/recolhe */
-                  <button
-                    type="button"
-                    onClick={() => toggleExpand(cat.id)}
-                    aria-expanded={isExpanded}
-                    aria-controls={subcategoryId}
-                    className={`w-full group flex items-center justify-between px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-medium transition-all text-left select-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-                      isParentHighlighted
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200/60 dark:border-emerald-800/60 shadow-xs'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 truncate">
-                      {categoryIcon}
-                      <span className="truncate">{cat.name}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {isChildActive && !isCurrentActive && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
-                      )}
-                      {isCurrentActive && (
-                        <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      )}
-                      <span
-                        className="p-1 rounded-md text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-colors"
-                        aria-hidden="true"
-                      >
-                        <ChevronRight
-                          className={`w-3.5 h-3.5 transition-transform duration-200 ease-in-out ${
-                            isExpanded ? 'rotate-90 text-emerald-600 dark:text-emerald-400' : ''
-                          }`}
-                        />
-                      </span>
-                    </div>
-                  </button>
-                ) : (
-                  /* Categoria SEM subcategorias: clique abre direto a página da categoria */
-                  <NavLink
-                    to={`/loja/categoria/${cat.slug}`}
-                    onClick={onSelectCategory}
-                    className={({ isActive }) =>
-                      `flex-1 group flex items-center justify-between px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-medium transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-                        isActive || isCurrentActive
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200/60 dark:border-emerald-800/60 shadow-xs'
-                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
-                      }`
-                    }
-                  >
-                    <div className="flex items-center gap-2.5 truncate">
-                      {categoryIcon}
-                      <span className="truncate">{cat.name}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {isCurrentActive && (
-                        <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      )}
-                    </div>
-                  </NavLink>
-                )}
-              </div>
-
-              {/* Subcategorias Indentadas */}
-              {hasChildren && isExpanded && (
-                <div
-                  id={subcategoryId}
-                  role="region"
-                  aria-label={`Subcategorias de ${cat.name}`}
-                  className="pl-7 pr-1 py-1 space-y-1 border-l-2 border-emerald-100 dark:border-emerald-950/60 ml-4 animate-in fade-in slide-in-from-top-1 duration-200"
-                >
-                  {/* Link "Ver todos": acesso direto a todos os produtos da categoria pai */}
-                  <NavLink
-                    to={`/loja/categoria/${cat.slug}`}
-                    onClick={onSelectCategory}
-                    className={({ isActive }) =>
-                      `flex items-center justify-between px-2.5 py-2 min-h-[36px] rounded-lg text-[11px] transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-                        isActive || isCurrentActive
-                          ? 'bg-emerald-100/80 dark:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 font-bold border border-emerald-200/70 dark:border-emerald-800/70'
-                          : 'text-slate-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-slate-100/60 dark:hover:bg-slate-800/50 font-medium italic'
-                      }`
-                    }
-                  >
-                    <span className="truncate">Ver todos em {cat.name}</span>
-                    {isCurrentActive && <Check className="w-3 h-3 text-emerald-600 shrink-0" />}
-                  </NavLink>
-
-                  {cat.children!.map((sub) => {
-                    const isSubActive =
-                      sub.slug === activeSlug || location.pathname === `/loja/categoria/${sub.slug}`
-
-                    return (
-                      <NavLink
-                        key={sub.id}
-                        to={`/loja/categoria/${sub.slug}`}
-                        onClick={onSelectCategory}
-                        className={({ isActive }) =>
-                          `flex items-center justify-between px-2.5 py-2 min-h-[36px] rounded-lg text-[11px] transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-                            isActive || isSubActive
-                              ? 'bg-emerald-100/70 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 font-bold'
-                              : 'text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-slate-100/50 dark:hover:bg-slate-800/40'
-                          }`
-                        }
-                      >
-                        <span className="truncate">{sub.name}</span>
-                        {isSubActive && <Check className="w-3 h-3 text-emerald-600 shrink-0" />}
-                      </NavLink>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
+        {/* Categorias e Subcategorias Dinâmicas em N níveis */}
+        {tree.map((cat) => renderCategoryNode(cat, 0))}
       </nav>
 
       {/* Box Inferior: Atendimento Rápido */}

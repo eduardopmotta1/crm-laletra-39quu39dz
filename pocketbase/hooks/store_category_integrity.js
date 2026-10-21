@@ -41,6 +41,24 @@ onRecordCreateRequest((e) => {
     throw new BadRequestError('O campo slug (URL) é obrigatório para a categoria.')
   }
 
+  // Validação anti-circular e existência do parent_id na criação
+  let parentId = ''
+  try {
+    parentId = (record.getString('parent_id') || '').trim()
+  } catch (_) {}
+
+  if (parentId) {
+    try {
+      const parentRecord = $app.findRecordById('store_categories', parentId)
+      if (!parentRecord) {
+        throw new BadRequestError('A categoria pai selecionada não foi encontrada.')
+      }
+    } catch (err) {
+      if (err instanceof BadRequestError) throw err
+      throw new BadRequestError('A categoria pai selecionada não existe no cadastro.')
+    }
+  }
+
   // Verifica unicidade do slug
   try {
     const existing = $app.findFirstRecordByData('store_categories', 'slug', slug)
@@ -89,6 +107,68 @@ onRecordUpdateRequest((e) => {
 
   if (!slug) {
     throw new BadRequestError('O campo slug (URL) é obrigatório para a categoria.')
+  }
+
+  // Validação anti-circular estrita no update
+  let parentId = ''
+  try {
+    parentId = (record.getString('parent_id') || '').trim()
+  } catch (_) {}
+
+  if (parentId) {
+    // 1. Auto-vinculação proibida
+    if (parentId === record.id) {
+      throw new BadRequestError('Uma categoria não pode ser subcategoria de si mesma.')
+    }
+
+    // 2. A categoria pai deve existir
+    let parentRecord = null
+    try {
+      parentRecord = $app.findRecordById('store_categories', parentId)
+    } catch (_) {}
+
+    if (!parentRecord) {
+      throw new BadRequestError('A categoria pai selecionada não existe no cadastro.')
+    }
+
+    // 3. Proibição de ciclos na árvore: percorrer os ancestrais de parentId
+    // Se o próprio record.id for encontrado nos ancestrais de parentId, significa que parentId é descendente de record.id
+    let curr = parentRecord
+    let safetyCounter = 0
+    const visited = {}
+    visited[parentRecord.id] = true
+
+    while (curr && safetyCounter < 100) {
+      safetyCounter++
+      let nextParentId = ''
+      try {
+        nextParentId = (curr.getString('parent_id') || '').trim()
+      } catch (_) {}
+
+      if (!nextParentId) {
+        break
+      }
+
+      if (nextParentId === record.id) {
+        throw new BadRequestError(
+          'Referência circular detectada: a categoria pai selecionada é descendente desta categoria.',
+        )
+      }
+
+      if (visited[nextParentId]) {
+        // Ciclo preexistente na cadeia
+        throw new BadRequestError(
+          'Estrutura hierárquica corrompida: ciclo detectado na linhagem da categoria selecionada.',
+        )
+      }
+      visited[nextParentId] = true
+
+      try {
+        curr = $app.findRecordById('store_categories', nextParentId)
+      } catch (_) {
+        curr = null
+      }
+    }
   }
 
   // Verifica unicidade com outros registros

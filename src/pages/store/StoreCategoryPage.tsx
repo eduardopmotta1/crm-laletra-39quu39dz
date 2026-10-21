@@ -76,11 +76,31 @@ export default function StoreCategoryPage() {
     return allCategories.filter((c) => c.parent_id === category.id && c.is_active !== false)
   }, [category, allCategories])
 
-  // Categoria pai (caso esta página seja uma subcategoria)
-  const parentCategory = useMemo(() => {
-    if (!category || !category.parent_id) return null
-    return allCategories.find((c) => c.id === category.parent_id) || null
+  // Cadeia completa de ancestrais para o breadcrumb (da raiz até a categoria pai imediata)
+  const breadcrumbTrail = useMemo(() => {
+    if (!category) return []
+    const trail: StoreCategory[] = []
+    let currParentId = category.parent_id
+    const visited = new Set<string>()
+
+    while (currParentId && !visited.has(currParentId)) {
+      visited.add(currParentId)
+      const parent = allCategories.find((c) => c.id === currParentId)
+      if (parent) {
+        trail.unshift(parent)
+        currParentId = parent.parent_id
+      } else {
+        break
+      }
+    }
+    return trail
   }, [category, allCategories])
+
+  // Categoria pai imediata (para badges informativos)
+  const parentCategory = useMemo(() => {
+    if (breadcrumbTrail.length === 0) return null
+    return breadcrumbTrail[breadcrumbTrail.length - 1]
+  }, [breadcrumbTrail])
 
   const formatCurrency = (val?: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -130,22 +150,22 @@ export default function StoreCategoryPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb navegável com suporte a categoria pai */}
+      {/* Breadcrumb navegável com suporte a cadeia completa de múltiplos níveis */}
       <nav className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
         <Link to="/loja" className="hover:text-emerald-600 transition-colors">
           Loja
         </Link>
-        {parentCategory && (
-          <>
+        {breadcrumbTrail.map((ancestor) => (
+          <React.Fragment key={ancestor.id}>
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
             <Link
-              to={`/loja/categoria/${parentCategory.slug}`}
+              to={`/loja/categoria/${ancestor.slug}`}
               className="hover:text-emerald-600 transition-colors"
             >
-              {parentCategory.name}
+              {ancestor.name}
             </Link>
-          </>
-        )}
+          </React.Fragment>
+        ))}
         <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
         <span className="text-slate-900 dark:text-white font-medium">
           {category ? category.name : slug}
