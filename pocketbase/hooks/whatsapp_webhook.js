@@ -105,32 +105,91 @@
 
     function getPhoneVariants(rawPhone) {
       if (!rawPhone) return []
-      let digits = String(rawPhone).replace(/\D/g, '')
-      if (!digits) return []
+      var digits = String(rawPhone).replace(/\D/g, '')
+      if (!digits || digits.length < 8) return []
 
-      const set = new Set()
+      var set = new Set()
       set.add(digits)
 
-      // Se começar com 0 (ex: 021970156756 ou 011...)
-      if (digits.startsWith('0') && digits.length > 10) {
-        const withoutZero = digits.replace(/^0+/, '')
-        if (withoutZero) set.add(withoutZero)
-      }
+      // 1. Extrair número nacional limpo (sem DDI 55, sem zeros e sem código de operadora legado)
+      var national = ''
 
-      // Se começar com prefixo do país 55 (Brasil) e tiver tamanho válido (ex: 5521970156756)
       if (digits.startsWith('55') && digits.length >= 12) {
-        const national = digits.substring(2)
-        set.add(national)
-        if (national.startsWith('0')) {
-          const nationalNoZero = national.replace(/^0+/, '')
-          if (nationalNoZero) set.add(nationalNoZero)
+        var after55 = digits.substring(2)
+        if (after55.startsWith('0')) {
+          var matchOp55 = after55.match(/^0\d{2}([1-9]\d{9,10})$/)
+          if (matchOp55) {
+            national = matchOp55[1]
+          } else {
+            national = after55.replace(/^0+/, '')
+          }
+        } else {
+          national = after55
+        }
+      } else if (digits.startsWith('0')) {
+        // Tratar prefixos de operadora (ex: 021, 015, 031, 041 seguidos de DDD + número)
+        var matchOp = digits.match(/^0\d{2}([1-9]\d{9,10})$/)
+        if (matchOp) {
+          national = matchOp[1]
+        } else {
+          var withoutZero = digits.replace(/^0+/, '')
+          if (withoutZero.startsWith('55') && withoutZero.length >= 12) {
+            national = withoutZero.substring(2).replace(/^0+/, '')
+          } else {
+            national = withoutZero
+          }
         }
       } else if (digits.length === 10 || digits.length === 11) {
-        // Se for número nacional sem 55 (ex: 21970156756)
-        set.add('55' + digits)
+        national = digits
       }
 
-      return Array.from(set).filter((v) => v && v.length >= 8)
+      // 2. Se temos um número nacional reconhecível (DDD de 2 dígitos + 8 ou 9 dígitos)
+      if (national && (national.length === 10 || national.length === 11)) {
+        var ddd = national.substring(0, 2)
+        var subscriber = national.substring(2)
+
+        set.add(national)
+        set.add('55' + national)
+
+        // Se for celular com 9 dígitos (começando com 9 e tamanho 9)
+        if (subscriber.length === 9 && subscriber.startsWith('9')) {
+          var subscriber8 = subscriber.substring(1)
+          var national8 = ddd + subscriber8
+          set.add(national8)
+          set.add('55' + national8)
+        } else if (subscriber.length === 8) {
+          // Se for celular legado de 8 dígitos (começando com 6, 7, 8 ou 9)
+          var firstDigit = subscriber.charAt(0)
+          if (firstDigit >= '6' && firstDigit <= '9') {
+            var national9 = ddd + '9' + subscriber
+            set.add(national9)
+            set.add('55' + national9)
+          }
+        }
+      } else if (national && national.length >= 8) {
+        set.add(national)
+        if (!national.startsWith('55')) {
+          set.add('55' + national)
+        }
+      }
+
+      // Se os dígitos originais começavam com 0, garantir versão sem zero e com 55
+      if (digits.startsWith('0')) {
+        var simpleNoZero = digits.replace(/^0+/, '')
+        if (simpleNoZero && simpleNoZero.length >= 8) {
+          set.add(simpleNoZero)
+          if (
+            (simpleNoZero.length === 10 || simpleNoZero.length === 11) &&
+            !simpleNoZero.startsWith('55')
+          ) {
+            set.add('55' + simpleNoZero)
+          }
+        }
+      }
+
+      return Array.from(set).filter(function (v) {
+        return Boolean(v && v.length >= 8)
+      })
     }
 
     function parseMessageContent(msg) {
@@ -726,10 +785,10 @@
     try {
       if (typeof c.requestInfo === 'function') {
         const reqInfo = c.requestInfo()
-        body = reqInfo ? reqInfo.data || reqInfo.body : null
+        body = reqInfo ? reqInfo.body : null
       } else if (typeof $apis !== 'undefined' && typeof $apis.requestInfo === 'function') {
         const reqInfo = $apis.requestInfo(c)
-        body = reqInfo ? reqInfo.data || reqInfo.body : null
+        body = reqInfo ? reqInfo.body : null
       }
     } catch (_) {}
 

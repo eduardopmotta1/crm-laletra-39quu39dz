@@ -32,6 +32,103 @@ export function normalizePhone(rawPhone?: string | null): string {
 }
 
 /**
+ * Gera variantes válidas de números de telefone para busca e matching no CRM/WhatsApp.
+ * Trata:
+ * - Remoção de zero inicial e códigos de operadora legados (ex: 021, 015, 031, 041, etc.)
+ * - Preservação do DDD nacional
+ * - Variantes com e sem o prefixo internacional 55 (Brasil)
+ * - Celulares com e sem o nono dígito (9 dígitos vs 8 dígitos legados)
+ * - Preservação de números fixos de 8 dígitos (sem adicionar 9º dígito indevido)
+ * - Deduplicação automática via Set
+ */
+export function getPhoneVariants(rawPhone?: string | null): string[] {
+  if (!rawPhone) return []
+  const digits = String(rawPhone).replace(/\D/g, '')
+  if (!digits || digits.length < 8) return []
+
+  const set = new Set<string>()
+  set.add(digits)
+
+  // 1. Extrair número nacional limpo (sem DDI 55, sem zeros e sem código de operadora)
+  let national = ''
+
+  if (digits.startsWith('55') && digits.length >= 12) {
+    const after55 = digits.substring(2)
+    if (after55.startsWith('0')) {
+      const matchOp = after55.match(/^0\d{2}([1-9]\d{9,10})$/)
+      if (matchOp) {
+        national = matchOp[1]
+      } else {
+        national = after55.replace(/^0+/, '')
+      }
+    } else {
+      national = after55
+    }
+  } else if (digits.startsWith('0')) {
+    // Tratar prefixos de operadora (ex: 021, 015, 031, 041 seguidos de DDD + número)
+    const matchOp = digits.match(/^0\d{2}([1-9]\d{9,10})$/)
+    if (matchOp) {
+      national = matchOp[1]
+    } else {
+      const withoutZero = digits.replace(/^0+/, '')
+      if (withoutZero.startsWith('55') && withoutZero.length >= 12) {
+        national = withoutZero.substring(2).replace(/^0+/, '')
+      } else {
+        national = withoutZero
+      }
+    }
+  } else if (digits.length === 10 || digits.length === 11) {
+    national = digits
+  }
+
+  // 2. Se temos um número nacional reconhecível (DDD de 2 dígitos + 8 ou 9 dígitos)
+  if (national && (national.length === 10 || national.length === 11)) {
+    const ddd = national.substring(0, 2)
+    const subscriber = national.substring(2)
+
+    set.add(national)
+    set.add('55' + national)
+
+    // Se for celular com 9 dígitos (começando com 9 e tamanho 9)
+    if (subscriber.length === 9 && subscriber.startsWith('9')) {
+      const subscriber8 = subscriber.substring(1)
+      const national8 = ddd + subscriber8
+      set.add(national8)
+      set.add('55' + national8)
+    } else if (subscriber.length === 8) {
+      // Se for celular legado de 8 dígitos (começando com 6, 7, 8 ou 9)
+      const firstDigit = subscriber.charAt(0)
+      if (firstDigit >= '6' && firstDigit <= '9') {
+        const national9 = ddd + '9' + subscriber
+        set.add(national9)
+        set.add('55' + national9)
+      }
+    }
+  } else if (national && national.length >= 8) {
+    set.add(national)
+    if (!national.startsWith('55')) {
+      set.add('55' + national)
+    }
+  }
+
+  // Se os dígitos originais começavam com 0, garantir versão sem zero e com 55
+  if (digits.startsWith('0')) {
+    const simpleNoZero = digits.replace(/^0+/, '')
+    if (simpleNoZero && simpleNoZero.length >= 8) {
+      set.add(simpleNoZero)
+      if (
+        (simpleNoZero.length === 10 || simpleNoZero.length === 11) &&
+        !simpleNoZero.startsWith('55')
+      ) {
+        set.add('55' + simpleNoZero)
+      }
+    }
+  }
+
+  return Array.from(set).filter((v) => Boolean(v && v.length >= 8))
+}
+
+/**
  * Normaliza datas (em especial birth_date do PocketBase) para o formato 'YYYY-MM-DD'
  * esperado por campos <input type="date">.
  * Preserva exatamente o ano, mês e dia originais sem conversão de timezone.

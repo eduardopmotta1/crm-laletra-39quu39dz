@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { getPhoneVariants } from '@/lib/utils'
 
 /**
  * Teste unitário e de validação sintética do comportamento do Webhook WhatsApp
@@ -117,33 +118,7 @@ describe('Simulação Automatizada do Webhook WhatsApp (Meta Cloud API)', () => 
   })
 
   describe('Matching de cliente por variantes de telefone (v0.0.260)', () => {
-    // Implementação espelho dos helpers de pocketbase/hooks/whatsapp_webhook.js
-    function getPhoneVariants(rawPhone: string): string[] {
-      if (!rawPhone) return []
-      const digits = String(rawPhone).replace(/\D/g, '')
-      if (!digits) return []
-
-      const set = new Set<string>()
-      set.add(digits)
-
-      if (digits.startsWith('0') && digits.length > 10) {
-        const withoutZero = digits.replace(/^0+/, '')
-        if (withoutZero) set.add(withoutZero)
-      }
-
-      if (digits.startsWith('55') && digits.length >= 12) {
-        const national = digits.substring(2)
-        set.add(national)
-        if (national.startsWith('0')) {
-          const nationalNoZero = national.replace(/^0+/, '')
-          if (nationalNoZero) set.add(nationalNoZero)
-        }
-      } else if (digits.length === 10 || digits.length === 11) {
-        set.add('55' + digits)
-      }
-
-      return Array.from(set).filter((v) => v && v.length >= 8)
-    }
+    // getPhoneVariants importada diretamente de @/lib/utils (canônica compartilhada)
 
     interface MockClientRecord {
       id: string
