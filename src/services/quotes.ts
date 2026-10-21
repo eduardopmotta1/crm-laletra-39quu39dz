@@ -1,5 +1,6 @@
 import pb from '@/lib/pocketbase/client'
 import type { Quote, PublicQuoteData, QuoteStatus } from '@/types/quotes'
+import { getAppPublicUrl } from '@/lib/publicUrl'
 
 export const quotesService = {
   /**
@@ -20,9 +21,8 @@ export const quotesService = {
   getPublicQuoteUrl(quote: Quote | { public_token?: string; id?: string }): string {
     const token = quote.public_token
     if (!token || typeof token !== 'string' || token.trim() === '') return ''
-    const origin =
-      typeof window !== 'undefined' && window.location.origin ? window.location.origin : ''
-    return `${origin}/orcamento/${token.trim()}`
+    const baseUrl = getAppPublicUrl()
+    return `${baseUrl}/orcamento/${token.trim()}`
   },
   async getAll(filter?: string, sort = '-created'): Promise<Quote[]> {
     try {

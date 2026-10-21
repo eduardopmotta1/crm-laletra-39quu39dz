@@ -1,5 +1,6 @@
 import pb from '@/lib/pocketbase/client'
 import type { Attendance, Client, Message, SlaConfig, SlaInfo } from '@/types/crm'
+import { getAppPublicUrl } from '@/lib/publicUrl'
 
 export const DEFAULT_SLA_CONFIG: SlaConfig = {
   urgentMinutes: 1440, // 24h
@@ -720,11 +721,10 @@ export function formatQuoteWhatsAppMessage(
       ? quote.final_total
       : quote.total_sale || 0
 
-  const origin =
-    typeof window !== 'undefined' && window.location.origin ? window.location.origin : ''
+  const baseUrl = getAppPublicUrl()
   const publicQuoteUrl =
     quote.public_token && quote.public_token.trim()
-      ? `${origin}/orcamento/${quote.public_token.trim()}`
+      ? `${baseUrl}/orcamento/${quote.public_token.trim()}`
       : ''
 
   const lines: string[] = []

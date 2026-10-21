@@ -155,11 +155,17 @@ describe('clientsService.getPublicClientUrl', () => {
     expect(url).toContain('/cadastro/tok_abc_789')
   })
 
-  it('usa fallback de id caso public_token não esteja presente', () => {
+  /**
+   * REQUISITO DE SEGURANÇA:
+   * Links públicos de cliente só devem ser gerados através de token seguro (public_token).
+   * Sem token, a URL retornada deve ser string vazia para NUNCA expor dados públicos
+   * por ID sequencial/previsível no frontend.
+   */
+  it('retorna string vazia caso public_token não esteja presente (comportamento seguro, sem expor ID previsível)', () => {
     const url = clientsService.getPublicClientUrl({
       id: 'client123',
     })
-    expect(url).toContain('/cadastro/client123')
+    expect(url).toBe('')
   })
 })
 

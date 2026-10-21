@@ -10,6 +10,7 @@ import type {
 import { productionStagesService } from './productionStages'
 import { settingsService } from './settings'
 import { tasksService } from './tasks'
+import { getAppPublicUrl } from '@/lib/publicUrl'
 
 export interface OrdersPaginatedFilterOptions {
   search?: string
@@ -684,7 +685,7 @@ export const productionService = {
       try {
         const task = await pb.collection('tasks').create({
           title: `⭐ Pós-venda [Pedido ${order.order_number}]: ${order.client_name}`,
-          description: `Realizar contato de pós-venda para verificar entrega do pedido ${order.order_number} (${order.product}) e coletar avaliação do cliente. Link de avaliação: ${window.location.origin}/avaliacao/${evalToken}`,
+          description: `Realizar contato de pós-venda para verificar entrega do pedido ${order.order_number} (${order.product}) e coletar avaliação do cliente. Link de avaliação: ${getAppPublicUrl()}/avaliacao/${evalToken}`,
           client_id: order.client_id,
           assigned_to: order.sales_rep_id || pb.authStore.record?.id,
           due_date: scheduledDateStr,

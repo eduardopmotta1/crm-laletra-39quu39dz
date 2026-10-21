@@ -6,6 +6,7 @@ import { settingsService } from './settings'
 import { isWithin24HourWindow } from '@/types/crm'
 import { lastInboundAt } from './whatsappWindow'
 import type { PostSale, Client } from '@/types/crm'
+import { getAppPublicUrl } from '@/lib/publicUrl'
 
 /**
  * Helper que replica a lógica de disparo de pós-venda via WhatsApp Cloud API
@@ -37,7 +38,7 @@ export async function executeSendPostSaleWhatsApp(
     'Olá {{nome}}! Seu pedido foi entregue recentemente pela Laletra. Poderia avaliar sua experiência conosco no link: {{link_avaliacao}} ? Agradecemos muito!'
 
   const token = ps.evaluation_token || 'eval_test_token'
-  const evalLink = `https://crm-grafica-whatsapp-7b1a5.goskip.app/avaliacao/${token}`
+  const evalLink = `${getAppPublicUrl()}/avaliacao/${token}`
   const clientName = client.name || 'Cliente'
   const orderNumber = ps.order_number || ''
 
@@ -121,6 +122,24 @@ describe('PostSales WhatsApp Cloud API Integration', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks()
+
+    // Configurar pb.authStore como usuário autenticado para evitar falhas de autenticação
+    pb.authStore.save('mock_token_for_tests', {
+      id: 'usr_mock_test_1',
+      name: 'Atendente Teste',
+      email: 'atendente@teste.com',
+      role_slug: 'admin',
+    } as any)
+
+    // Garantir fallback determinístico para chamadas a attendances
+    vi.spyOn(pb.collection('attendances'), 'getList').mockResolvedValue({
+      items: [],
+      page: 1,
+      perPage: 1,
+      totalItems: 0,
+      totalPages: 1,
+    } as any)
+
     vi.spyOn(settingsService, 'getPostSaleConfig').mockResolvedValue({
       customMessage:
         'Olá {{nome}}! Seu pedido {{pedido}} foi entregue. Avalie em: {{link_avaliacao}}',

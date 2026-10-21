@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { evaluationsService } from '@/services/evaluations'
 import { postSalesService } from '@/services/postSales'
+import { getAppPublicUrl } from '@/lib/publicUrl'
 import { clientsService } from '@/services/clients'
 import { productionService } from '@/services/production'
 import { usersService } from '@/services/whatsapp'
@@ -224,7 +225,7 @@ export default function PostSalesDashboardPage() {
 
       // 3. Gerar link oficial (NUNCA window.location.origin)
       const token = ps.evaluation_token || 'eval_' + Math.random().toString(36).substring(2, 10)
-      const evalLink = `https://crm-grafica-whatsapp-7b1a5.goskip.app/avaliacao/${token}`
+      const evalLink = `${getAppPublicUrl()}/avaliacao/${token}`
       const clientName = client.name || 'Cliente'
       const orderNumber = ps.order_number || ''
 

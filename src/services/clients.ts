@@ -1,6 +1,7 @@
 import pb from '@/lib/pocketbase/client'
 import type { Attendance, Client, KanbanStage, PublicClientProfileData } from '@/types/crm'
 import { normalizePhone } from '@/lib/utils'
+import { getAppPublicUrl } from '@/lib/publicUrl'
 import { dealsService } from './deals'
 import { attendancesService } from './attendances'
 
@@ -131,9 +132,8 @@ export const clientsService = {
   getPublicClientUrl(client: Client | { public_token?: string; id?: string }): string {
     const token = client.public_token
     if (!token || typeof token !== 'string' || token.trim() === '') return ''
-    const origin =
-      typeof window !== 'undefined' && window.location.origin ? window.location.origin : ''
-    return `${origin}/cadastro/${token.trim()}`
+    const baseUrl = getAppPublicUrl()
+    return `${baseUrl}/cadastro/${token.trim()}`
   },
 
   /**
