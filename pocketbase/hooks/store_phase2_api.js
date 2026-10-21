@@ -649,6 +649,23 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
       throw new Error('Produto ' + productId + ' indisponível')
     }
 
+    // Regra de Integridade: se o produto mestre no CRM existir e estiver inativo, bloquear
+    const masterQuoteId = product.getString('quote_product_id')
+    if (masterQuoteId) {
+      try {
+        const masterRec = $app.findRecordById('quote_products', masterQuoteId)
+        if (masterRec && masterRec.get('is_active') === false) {
+          throw new Error(
+            'O produto "' + product.getString('name') + '" está temporariamente indisponível.',
+          )
+        }
+      } catch (errMaster) {
+        if (errMaster.message && errMaster.message.includes('indisponível')) {
+          throw errMaster
+        }
+      }
+    }
+
     const pricingType = product.getString('pricing_type')
     let baseTotal = 0
     let areaM2 = 0
@@ -873,6 +890,23 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
     const product = $app.findRecordById('store_products', productId)
     if (!product || product.getBool('published') !== true) {
       throw new Error('Produto ' + productId + ' indisponível')
+    }
+
+    // Regra de Integridade: se o produto mestre no CRM existir e estiver inativo, bloquear
+    const masterQuoteId = product.getString('quote_product_id')
+    if (masterQuoteId) {
+      try {
+        const masterRec = $app.findRecordById('quote_products', masterQuoteId)
+        if (masterRec && masterRec.get('is_active') === false) {
+          throw new Error(
+            'O produto "' + product.getString('name') + '" está temporariamente indisponível.',
+          )
+        }
+      } catch (errMaster) {
+        if (errMaster.message && errMaster.message.includes('indisponível')) {
+          throw errMaster
+        }
+      }
     }
 
     const pricingType = product.getString('pricing_type')

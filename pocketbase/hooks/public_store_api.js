@@ -243,7 +243,30 @@ routerAdd('GET', '/backend/v1/store/products', (c) => {
       filter += ` && (name ~ '${term}' || subtitle ~ '${term}')`
     }
 
-    const products = $app.findRecordsByFilter('store_products', filter, 'order_index,name', 100, 0)
+    const rawProducts = $app.findRecordsByFilter(
+      'store_products',
+      filter,
+      'order_index,name',
+      100,
+      0,
+    )
+
+    // Filtrar produtos cujo produto mestre no CRM (quote_products) esteja com is_active = false
+    let inactiveMasterMap = {}
+    try {
+      const inactives = $app.findRecordsByFilter('quote_products', 'is_active = false', '', 0, 0)
+      if (inactives && inactives.length > 0) {
+        for (const inact of inactives) {
+          inactiveMasterMap[inact.id] = true
+        }
+      }
+    } catch (_) {}
+
+    const products = (rawProducts || []).filter((p) => {
+      const qid = p.getString('quote_product_id')
+      if (!qid) return true
+      return !inactiveMasterMap[qid]
+    })
 
     const prodCol = $app.findCollectionByNameOrId('store_products')
     const colId = prodCol ? prodCol.id : 'store_products'
@@ -341,6 +364,17 @@ routerAdd('GET', '/backend/v1/store/product/{slug}', (c) => {
     }
 
     const p = prods[0]
+
+    // Validação de mestre CRM ativo: se estiver inativo, retornar 404 (indisponível)
+    const masterQuoteId = p.getString('quote_product_id')
+    if (masterQuoteId) {
+      try {
+        const masterRec = $app.findRecordById('quote_products', masterQuoteId)
+        if (masterRec && masterRec.get('is_active') === false) {
+          return c.json(404, { error: 'Produto temporariamente indisponível na loja' })
+        }
+      } catch (_) {}
+    }
     const prodCol = $app.findCollectionByNameOrId('store_products')
     const colId = prodCol ? prodCol.id : 'store_products'
 
@@ -466,6 +500,20 @@ routerAdd('POST', '/backend/v1/store/calculate-price', (c) => {
     const product = $app.findRecordById('store_products', productId)
     if (!product || product.getBool('published') !== true) {
       return c.json(404, { error: 'Produto não disponível para cálculo' })
+    }
+
+    // Validação de mestre CRM ativo
+    const calcMasterId = product.getString('quote_product_id')
+    if (calcMasterId) {
+      try {
+        const masterRec = $app.findRecordById('quote_products', calcMasterId)
+        if (masterRec && masterRec.get('is_active') === false) {
+          return c.json(400, {
+            error:
+              'O produto "' + product.getString('name') + '" está temporariamente indisponível.',
+          })
+        }
+      } catch (_) {}
     }
 
     if (product.getBool('quote_only') === true) {

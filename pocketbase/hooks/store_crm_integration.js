@@ -219,6 +219,18 @@ routerAdd('POST', '/backend/v1/crm/products/{id}/store-unlink', (c) => {
       })
     }
 
+    // TRAVA CRÍTICA DE INTEGRIDADE: store_product deve pertencer de fato a este mestre
+    const currentBoundMasterId = storeProduct.getString('quote_product_id')
+    if (currentBoundMasterId && currentBoundMasterId !== quoteProductId) {
+      return c.json(400, {
+        success: false,
+        error:
+          'A publicação informada (' +
+          storeProduct.id +
+          ') pertence a outro produto mestre CRM e não pode ser desvinculada por este mestre.',
+      })
+    }
+
     const prevSnapshot = storeProduct.publicExport()
     // Preservar publicação, preços, slugs, fotos e histórico. Apenas limpa quote_product_id
     storeProduct.set('quote_product_id', '')
@@ -549,6 +561,18 @@ routerAdd('POST', '/backend/v1/crm/products/{id}/store-publish', (c) => {
       })
     }
 
+    // TRAVA CRÍTICA DE INTEGRIDADE: store_product deve pertencer de fato a este mestre
+    const currentBoundMasterId = storeProduct.getString('quote_product_id')
+    if (currentBoundMasterId && currentBoundMasterId !== quoteProductId) {
+      return c.json(400, {
+        success: false,
+        error:
+          'A publicação informada (' +
+          storeProduct.id +
+          ') pertence a outro produto mestre CRM e não pode ser publicada por este mestre.',
+      })
+    }
+
     // TRAVA 2: Validação obrigatória de Categoria válida
     const catId = storeProduct.getString('category_id')
     if (!catId) {
@@ -722,6 +746,18 @@ routerAdd('POST', '/backend/v1/crm/products/{id}/store-unpublish', (c) => {
       })
     }
 
+    // TRAVA CRÍTICA DE INTEGRIDADE: store_product deve pertencer de fato a este mestre
+    const currentBoundMasterId = storeProduct.getString('quote_product_id')
+    if (currentBoundMasterId && currentBoundMasterId !== quoteProductId) {
+      return c.json(400, {
+        success: false,
+        error:
+          'A publicação informada (' +
+          storeProduct.id +
+          ') pertence a outro produto mestre CRM e não pode ser despublicada por este mestre.',
+      })
+    }
+
     const prevSnapshot = storeProduct.publicExport()
     storeProduct.set('published', false)
     $app.save(storeProduct)
@@ -785,6 +821,14 @@ routerAdd('GET', '/backend/v1/crm/products/{id}/store-status', (c) => {
     }
     if (auth.get('is_active') === false) {
       return c.json(403, { success: false, error: 'Usuário CRM inativo.' })
+    }
+    const roleSlug = auth.get('role_slug') || ''
+    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
+    if (roleSlug && !allowedRoles.includes(roleSlug)) {
+      return c.json(403, {
+        success: false,
+        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      })
     }
 
     const quoteProductId = c.request.pathValue('id')
@@ -854,6 +898,14 @@ onRecordCreateRequest((e) => {
   if (colName !== 'users') {
     throw new ForbiddenError('Apenas membros da equipe CRM podem cadastrar produtos na loja.')
   }
+  if (auth.get('is_active') === false) {
+    throw new ForbiddenError('Usuário CRM inativo.')
+  }
+  const roleSlug = auth.get('role_slug') || ''
+  const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
+  if (roleSlug && !allowedRoles.includes(roleSlug)) {
+    throw new ForbiddenError('Perfil de usuário sem permissão para gerenciar produtos na loja.')
+  }
   return e.next()
 }, 'store_products')
 
@@ -866,6 +918,14 @@ onRecordUpdateRequest((e) => {
   if (colName !== 'users') {
     throw new ForbiddenError('Apenas membros da equipe CRM podem editar produtos na loja.')
   }
+  if (auth.get('is_active') === false) {
+    throw new ForbiddenError('Usuário CRM inativo.')
+  }
+  const roleSlug = auth.get('role_slug') || ''
+  const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
+  if (roleSlug && !allowedRoles.includes(roleSlug)) {
+    throw new ForbiddenError('Perfil de usuário sem permissão para gerenciar produtos na loja.')
+  }
   return e.next()
 }, 'store_products')
 
@@ -877,6 +937,14 @@ onRecordDeleteRequest((e) => {
   const colName = (auth.collection && auth.collection().name) || ''
   if (colName !== 'users') {
     throw new ForbiddenError('Apenas membros da equipe CRM podem excluir produtos da loja.')
+  }
+  if (auth.get('is_active') === false) {
+    throw new ForbiddenError('Usuário CRM inativo.')
+  }
+  const roleSlug = auth.get('role_slug') || ''
+  const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
+  if (roleSlug && !allowedRoles.includes(roleSlug)) {
+    throw new ForbiddenError('Perfil de usuário sem permissão para gerenciar produtos na loja.')
   }
   return e.next()
 }, 'store_products')

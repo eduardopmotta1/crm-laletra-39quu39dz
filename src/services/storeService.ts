@@ -268,6 +268,19 @@ export const storeService = {
       if (params?.search)
         filter += ` && (name ~ '${params.search}' || subtitle ~ '${params.search}')`
 
+      let inactiveMasterIds = new Set<string>()
+      try {
+        const inactives = await pb.collection('quote_products').getFullList({
+          filter: 'is_active = false',
+          fields: 'id',
+        })
+        for (const inact of inactives) {
+          inactiveMasterIds.add(inact.id)
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+
       if (params?.category) {
         try {
           // Tenta resolver por slug ou por id
@@ -335,6 +348,12 @@ export const storeService = {
         sort: 'order_index,name',
         expand: 'category_id',
       })
+
+      if (inactiveMasterIds.size > 0) {
+        return records.filter(
+          (r) => !r.quote_product_id || !inactiveMasterIds.has(r.quote_product_id),
+        )
+      }
       return records
     }
   },
@@ -362,6 +381,20 @@ export const storeService = {
         .getFirstListItem<StoreProduct>(`seo_slug = "${slug}" && published = true`, {
           expand: 'category_id',
         })
+
+      if (record.quote_product_id) {
+        try {
+          const master = await pb.collection('quote_products').getOne(record.quote_product_id)
+          if (master && (master as any).is_active === false) {
+            throw new Error('Produto temporariamente indisponível')
+          }
+        } catch (mErr: any) {
+          if (mErr.message && mErr.message.includes('indisponível')) {
+            throw mErr
+          }
+        }
+      }
+
       return {
         product: record,
         related: [],
