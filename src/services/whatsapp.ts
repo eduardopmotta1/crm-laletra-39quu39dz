@@ -265,6 +265,8 @@ export const whatsappService = {
 
         return {
           success: true,
+          whatsapp_message_id:
+            mediaRes.whatsapp_message_id || mediaRes.message?.whatsapp_message_id,
           message: mediaRes.message,
           client: mediaRes.client,
           api_dispatched: true,

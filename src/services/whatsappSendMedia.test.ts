@@ -28,6 +28,9 @@ describe('whatsappService.sendMessage with media', () => {
     })
 
     const dummyFile = new File(['dummy content'], 'arte.png', { type: 'image/png' })
+    vi.spyOn(pb.collection('attendances'), 'getList').mockResolvedValue({
+      items: [],
+    } as any)
 
     const result = await whatsappService.sendMessage({
       clientId: 'c_test',
@@ -72,6 +75,9 @@ describe('whatsappService.sendMessage with media', () => {
     })
 
     const octetPngFile = new File(['png-data'], 'foto.PNG', { type: 'application/octet-stream' })
+    vi.spyOn(pb.collection('attendances'), 'getList').mockResolvedValue({
+      items: [],
+    } as any)
 
     const result = await whatsappService.sendMessage({
       clientId: 'c_test',
@@ -98,6 +104,9 @@ describe('whatsappService.sendMessage with media', () => {
     })
 
     const octetPdfFile = new File(['pdf-data'], 'contrato.pdf', { type: '' })
+    vi.spyOn(pb.collection('attendances'), 'getList').mockResolvedValue({
+      items: [],
+    } as any)
 
     const result = await whatsappService.sendMessage({
       clientId: 'c_test',
@@ -120,6 +129,9 @@ describe('whatsappService.sendMessage with media', () => {
     })
 
     const dummyPdf = new File(['%PDF-1.4 dummy'], 'proposta.pdf', { type: 'application/pdf' })
+    vi.spyOn(pb.collection('attendances'), 'getList').mockResolvedValue({
+      items: [],
+    } as any)
 
     const result = await whatsappService.sendMessage({
       clientId: 'c_test',
