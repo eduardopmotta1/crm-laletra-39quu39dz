@@ -371,3 +371,23 @@ export interface StoreOrderSummary {
     pix_qr_code?: string
   }>
 }
+
+// -------------------------------------------------------------
+// FASE 1: Integração CRM ↔ Loja Virtual
+// -------------------------------------------------------------
+
+export type ProductStorePublicationState =
+  | 'not_linked' // Não publicada (sem vínculo com store_products)
+  | 'draft' // Rascunho (store_product vinculado, mas published = false)
+  | 'published' // Publicada (store_product vinculado, published = true e mestre ativo)
+  | 'unavailable' // Indisponível (store_product vinculado com published = true, mas mestre is_active = false)
+
+export interface ProductStoreLinkStatus {
+  success: boolean
+  master_id: string
+  master_name: string
+  master_is_active: boolean
+  publication_state: ProductStorePublicationState
+  store_product: StoreProduct | null
+  category: StoreCategory | null
+}

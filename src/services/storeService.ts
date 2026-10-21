@@ -793,4 +793,114 @@ export const storeService = {
       },
     )
   },
+
+  // ==========================================
+  // FASE 1: Integração Produtos CRM <-> Laletra Store
+  // ==========================================
+
+  /**
+   * Consulta o status de publicação e vínculo do produto CRM na loja
+   */
+  async adminGetProductStoreStatus(quoteProductId: string): Promise<{
+    success: boolean
+    master_id: string
+    master_name: string
+    master_is_active: boolean
+    publication_state: 'not_linked' | 'draft' | 'published' | 'unavailable'
+    store_product: StoreProduct | null
+    category: StoreCategory | null
+  }> {
+    return await pb.send(
+      `/backend/v1/crm/products/${encodeURIComponent(quoteProductId)}/store-status`,
+      {
+        method: 'GET',
+      },
+    )
+  },
+
+  /**
+   * Vincula um produto existente da loja a um produto mestre do CRM
+   */
+  async adminLinkProductToStore(
+    quoteProductId: string,
+    storeProductId: string,
+  ): Promise<{ success: boolean; message: string; store_product: StoreProduct }> {
+    return await pb.send(
+      `/backend/v1/crm/products/${encodeURIComponent(quoteProductId)}/store-link`,
+      {
+        method: 'POST',
+        body: { store_product_id: storeProductId },
+      },
+    )
+  },
+
+  /**
+   * Remove o vínculo de uma publicação da loja com o produto mestre do CRM
+   * A publicação na loja é preservada (não excluída).
+   */
+  async adminUnlinkProductFromStore(
+    quoteProductId: string,
+    storeProductId?: string,
+  ): Promise<{ success: boolean; message: string; store_product: StoreProduct }> {
+    return await pb.send(
+      `/backend/v1/crm/products/${encodeURIComponent(quoteProductId)}/store-unlink`,
+      {
+        method: 'POST',
+        body: storeProductId ? { store_product_id: storeProductId } : {},
+      },
+    )
+  },
+
+  /**
+   * Cria um rascunho de publicação na loja pré-preenchido a partir do mestre do CRM
+   */
+  async adminCreateProductStoreDraft(
+    quoteProductId: string,
+    data: {
+      category_id: string
+      store_price?: number
+      subtitle?: string
+      description_public?: string
+    },
+  ): Promise<{ success: boolean; message: string; store_product: StoreProduct }> {
+    return await pb.send(
+      `/backend/v1/crm/products/${encodeURIComponent(quoteProductId)}/store-draft`,
+      {
+        method: 'POST',
+        body: data,
+      },
+    )
+  },
+
+  /**
+   * Publica o produto na loja (exige mestre ativo, categoria e preço válido)
+   */
+  async adminPublishProductToStore(
+    quoteProductId: string,
+    storeProductId?: string,
+  ): Promise<{ success: boolean; message: string; store_product: StoreProduct }> {
+    return await pb.send(
+      `/backend/v1/crm/products/${encodeURIComponent(quoteProductId)}/store-publish`,
+      {
+        method: 'POST',
+        body: storeProductId ? { store_product_id: storeProductId } : {},
+      },
+    )
+  },
+
+  /**
+   * Despublica o produto da loja (retorna para rascunho sem excluir dados nem pedidos)
+   */
+  async adminUnpublishProductFromStore(
+    quoteProductId: string,
+    storeProductId?: string,
+  ): Promise<{ success: boolean; message: string; store_product: StoreProduct }> {
+    return await pb.send(
+      `/backend/v1/crm/products/${encodeURIComponent(quoteProductId)}/store-unpublish`,
+      {
+        method: 'POST',
+        body: storeProductId ? { store_product_id: storeProductId } : {},
+      },
+    )
+  },
 }

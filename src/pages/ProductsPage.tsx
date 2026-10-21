@@ -3,36 +3,45 @@ import {
   Package,
   Plus,
   Search,
+  Upload,
+  X,
   Edit2,
   Copy,
+  Scissors,
+  Calculator,
+  ImageIcon,
   Power,
   PowerOff,
-  Image as ImageIcon,
-  Calculator,
-  Upload,
-  Check,
-  Layers,
-  Sparkles,
-  Info,
-  DollarSign,
-  TrendingUp,
-  Percent,
-  CheckCircle2,
-  X,
-  FileText,
-  Scissors,
+  Store,
+  ExternalLink,
+  Link2,
+  Unlink,
+  Globe,
   Eye,
+  EyeOff,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Sparkles,
+  ArrowRight,
+  Info,
 } from 'lucide-react'
 import { productsService } from '@/services/quoteProducts'
 import { materialsService } from '@/services/quoteMaterials'
 import { additionalsService } from '@/services/quoteAdditionals'
-import type { QuoteProduct, QuoteMaterial, QuoteAdditional, ProductCalcRule } from '@/types/quotes'
-import { CALC_RULE_LABELS, CALC_UNIT_LABELS } from '@/types/quotes'
+import { storeService } from '@/services/storeService'
 import { calculateQuoteItem } from '@/lib/quoteCalculator'
+import { QuoteProduct, QuoteMaterial, QuoteAdditional, ProductCalcRule } from '@/types/quotes'
+import {
+  StoreProduct,
+  StoreCategory,
+  ProductStorePublicationState,
+  ProductStoreLinkStatus,
+} from '@/types/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -52,10 +61,28 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from '@/hooks/use-toast'
 
+const CALC_RULE_LABELS: Record<ProductCalcRule, string> = {
+  m2: 'Metro Quadrado (m²)',
+  metro_linear: 'Metro Linear',
+  unidade: 'Por Unidade',
+  preco_fixo: 'Preço Fixo',
+}
+
+const CALC_UNIT_LABELS: Record<string, string> = {
+  m2: 'm²',
+  metro_linear: 'm lin.',
+  unidade: 'un.',
+  kg: 'kg',
+  par: 'par',
+  kit: 'kit',
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<QuoteProduct[]>([])
   const [materials, setMaterials] = useState<QuoteMaterial[]>([])
   const [additionals, setAdditionals] = useState<QuoteAdditional[]>([])
+  const [storeCategories, setStoreCategories] = useState<StoreCategory[]>([])
+  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([])
   const [loading, setLoading] = useState(true)
 
   // Filter & Search
@@ -63,6 +90,9 @@ export default function ProductsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedCalcRule, setSelectedCalcRule] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [storeStatusFilter, setStoreStatusFilter] = useState<'all' | ProductStorePublicationState>(
+    'all',
+  )
 
   // Product Modal State
   const [modalOpen, setModalOpen] = useState(false)
@@ -116,22 +146,155 @@ export default function ProductsPage() {
     is_active: true,
     additionals: [],
   })
+
   // File Upload State
   const [mainImageFile, setMainImageFile] = useState<File | null>(null)
   const [mainImagePreview, setMainImagePreview] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // =========================================================================
+  // ESTADOS DA INTEGRAÇÃO FASE 1: LOJA VIRTUAL NA FICHA DO PRODUTO
+  // =========================================================================
+  const [activeStoreStatus, setActiveStoreStatus] = useState<ProductStoreLinkStatus | null>(null)
+  const [loadingStoreStatus, setLoadingStoreStatus] = useState(false)
+  const [storeActionBusy, setStoreActionBusy] = useState(false)
+
+  // Sub-modal / Assistente: Criar Rascunho na Loja
+  const [draftAssistantOpen, setDraftAssistantOpen] = useState(false)
+  const [draftCategoryId, setDraftCategoryId] = useState<string>('')
+  const [draftStorePrice, setDraftStorePrice] = useState<number>(0)
+  const [draftSubtitle, setDraftSubtitle] = useState<string>('')
+  const [draftDescription, setDraftDescription] = useState<string>('')
+
+  // Sub-modal: Vincular Produto Existente da Loja
+  const [linkExistingOpen, setLinkExistingOpen] = useState(false)
+  const [selectedExistingStoreProdId, setSelectedExistingStoreProdId] = useState<string>('')
+  const [existingSearchQuery, setExistingSearchQuery] = useState('')
+
+  // Sub-modal: Confirmação de Desvinculação
+  const [unlinkConfirmOpen, setUnlinkConfirmOpen] = useState(false)
+
+  // Árvore plana ordenada de categorias multinível da loja
+  const hierarchicalStoreCategories = useMemo(() => {
+    const catMap = new Map<string, StoreCategory>()
+    storeCategories.forEach((c) => catMap.set(c.id, c))
+
+    const getFullPath = (cat: StoreCategory): string => {
+      const parts: string[] = [cat.name]
+      let currParentId = cat.parent_id
+      const visited = new Set<string>([cat.id])
+      while (currParentId && !visited.has(currParentId)) {
+        visited.add(currParentId)
+        const parent = catMap.get(currParentId)
+        if (parent) {
+          parts.unshift(parent.name)
+          currParentId = parent.parent_id
+        } else {
+          break
+        }
+      }
+      return parts.join(' › ')
+    }
+
+    const getDepth = (cat: StoreCategory): number => {
+      let d = 0
+      let currParentId = cat.parent_id
+      const visited = new Set<string>([cat.id])
+      while (currParentId && !visited.has(currParentId)) {
+        visited.add(currParentId)
+        const parent = catMap.get(currParentId)
+        if (parent) {
+          d++
+          currParentId = parent.parent_id
+        } else {
+          break
+        }
+      }
+      return d
+    }
+
+    const result: Array<{
+      id: string
+      name: string
+      fullPath: string
+      depth: number
+      is_active?: boolean
+    }> = []
+
+    const addNodes = (parentId: string | null) => {
+      const nodes = storeCategories.filter((c) => (c.parent_id || null) === parentId)
+      nodes.sort(
+        (a, b) => (a.order_index ?? 0) - (b.order_index ?? 0) || a.name.localeCompare(b.name),
+      )
+      for (const node of nodes) {
+        result.push({
+          id: node.id,
+          name: node.name,
+          fullPath: getFullPath(node),
+          depth: getDepth(node),
+          is_active: node.is_active,
+        })
+        addNodes(node.id)
+      }
+    }
+
+    addNodes(null)
+
+    // Adiciona eventuais categorias órfãs
+    const added = new Set(result.map((r) => r.id))
+    for (const c of storeCategories) {
+      if (!added.has(c.id)) {
+        result.push({
+          id: c.id,
+          name: c.name,
+          fullPath: getFullPath(c),
+          depth: getDepth(c),
+          is_active: c.is_active,
+        })
+      }
+    }
+    return result
+  }, [storeCategories])
+
+  // Produtos da loja disponíveis para vinculação (somente os sem quote_product_id)
+  const unlinkedStoreProducts = useMemo(() => {
+    return storeProducts.filter((sp) => !sp.quote_product_id)
+  }, [storeProducts])
+
+  const filteredUnlinkedStoreProducts = useMemo(() => {
+    if (!existingSearchQuery.trim()) return unlinkedStoreProducts
+    const q = existingSearchQuery.toLowerCase()
+    return unlinkedStoreProducts.filter(
+      (sp) => sp.name.toLowerCase().includes(q) || sp.seo_slug?.toLowerCase().includes(q),
+    )
+  }, [unlinkedStoreProducts, existingSearchQuery])
+
+  // Mapa de quote_product_id -> StoreProduct para exibição rápida nos cards
+  const storeProductByQuoteId = useMemo(() => {
+    const map = new Map<string, StoreProduct>()
+    storeProducts.forEach((sp) => {
+      if (sp.quote_product_id) {
+        map.set(sp.quote_product_id, sp)
+      }
+    })
+    return map
+  }, [storeProducts])
+
   const loadAll = async () => {
     setLoading(true)
     try {
-      const [prods, mats, adds] = await Promise.all([
+      const [prods, mats, adds, cats, sProds] = await Promise.all([
         productsService.getAll(undefined, 'name'),
         materialsService.getActive(),
         additionalsService.getActive(),
+        storeService.getCategories(),
+        storeService.adminGetAllProducts().catch(() => []),
       ])
       setProducts(prods)
       setMaterials(mats)
       setAdditionals(adds)
+      setStoreCategories(cats)
+      setStoreProducts(sProds)
     } catch (err) {
       console.error('Error loading products data:', err)
       toast({
@@ -147,6 +310,61 @@ export default function ProductsPage() {
   useEffect(() => {
     loadAll()
   }, [])
+
+  // Carrega status da loja para o produto atualmente em edição na modal
+  const loadProductStoreStatus = async (quoteProductId: string) => {
+    setLoadingStoreStatus(true)
+    try {
+      const res = await storeService.adminGetProductStoreStatus(quoteProductId)
+      if (res && res.success) {
+        setActiveStoreStatus(res)
+      } else {
+        setActiveStoreStatus(null)
+      }
+    } catch (err) {
+      console.warn('Erro ao obter status da loja do produto:', err)
+      // Fallback em caso de erro no endpoint
+      const linked = storeProducts.find((sp) => sp.quote_product_id === quoteProductId)
+      const currentMaster = products.find((p) => p.id === quoteProductId)
+      const isMasterActive = currentMaster ? currentMaster.is_active !== false : true
+      let pubState: ProductStorePublicationState = 'not_linked'
+      if (linked) {
+        if (linked.published) {
+          pubState = isMasterActive ? 'published' : 'unavailable'
+        } else {
+          pubState = 'draft'
+        }
+      }
+      setActiveStoreStatus({
+        success: true,
+        master_id: quoteProductId,
+        master_name: currentMaster?.name || '',
+        master_is_active: isMasterActive,
+        publication_state: pubState,
+        store_product: linked || null,
+        category: null,
+      })
+    } finally {
+      setLoadingStoreStatus(false)
+    }
+  }
+
+  // Preço de referência sugerido do cálculo do CRM
+  const calculateCrmReferencePrice = (prod: QuoteProduct): number => {
+    const mat = materials.find((m) => m.id === prod.main_material_id)
+    const w = prod.default_width || 1.0
+    const h = prod.default_height || 1.0
+    const q = prod.default_quantity || 1
+    const res = calculateQuoteItem({
+      product: prod,
+      material: mat,
+      width: w,
+      height: h,
+      quantity: q,
+      additionalsSelection: [],
+    })
+    return res.applied_unit_price || res.item_total_sale || 0
+  }
 
   // Categories list
   const productCategories = useMemo(() => {
@@ -168,14 +386,39 @@ export default function ProductsPage() {
       const matchesStatus =
         statusFilter === 'all' ? true : statusFilter === 'active' ? p.is_active : !p.is_active
 
-      return matchesSearch && matchesCat && matchesRule && matchesStatus
+      // Filtro por estado na Loja Virtual
+      let matchesStore = true
+      if (storeStatusFilter !== 'all') {
+        const linked = storeProductByQuoteId.get(p.id)
+        let state: ProductStorePublicationState = 'not_linked'
+        if (linked) {
+          if (linked.published) {
+            state = p.is_active !== false ? 'published' : 'unavailable'
+          } else {
+            state = 'draft'
+          }
+        }
+        matchesStore = state === storeStatusFilter
+      }
+
+      return matchesSearch && matchesCat && matchesRule && matchesStatus && matchesStore
     })
-  }, [products, searchQuery, selectedCategory, selectedCalcRule, statusFilter])
+  }, [
+    products,
+    searchQuery,
+    selectedCategory,
+    selectedCalcRule,
+    statusFilter,
+    storeStatusFilter,
+    storeProductByQuoteId,
+  ])
 
   // Open Modal for Create or Edit
   const handleOpenModal = (prod?: QuoteProduct) => {
     setMainImageFile(null)
     setIsDuplicating(false)
+    setActiveStoreStatus(null)
+
     if (prod) {
       setEditingProduct(prod)
       setForm({
@@ -199,6 +442,8 @@ export default function ProductsPage() {
         additionals: prod.additionals || [],
       })
       setMainImagePreview(prod.main_image ? productsService.getImageUrl(prod) : null)
+      // Carregar status da loja virtual
+      loadProductStoreStatus(prod.id)
     } else {
       setEditingProduct(null)
       setForm({
@@ -231,6 +476,7 @@ export default function ProductsPage() {
     setIsDuplicating(true)
     setMainImageFile(null)
     setMainImagePreview(null)
+    setActiveStoreStatus(null)
     setForm({
       name: `${prod.name} - Cópia`,
       category: prod.category,
@@ -319,7 +565,6 @@ export default function ProductsPage() {
         formData.append('fixed_cost', String(form.fixed_cost))
       }
 
-      // Append additionals relations array (garantindo envio de lista vazia para PocketBase remover vínculos)
       if (form.additionals.length === 0) {
         formData.append('additionals', '')
       } else {
@@ -328,7 +573,6 @@ export default function ProductsPage() {
         }
       }
 
-      // If new image uploaded
       if (mainImageFile) {
         formData.append('main_image', mainImageFile)
       }
@@ -373,11 +617,210 @@ export default function ProductsPage() {
         title: newStatus ? 'Produto reativado' : 'Produto desativado',
         description: `O produto "${prod.name}" foi ${newStatus ? 'reativado' : 'desativado'}.`,
       })
+      // Atualizar store status se a modal estiver aberta
+      if (editingProduct && editingProduct.id === prod.id) {
+        loadProductStoreStatus(prod.id)
+      }
     } catch (err) {
       toast({
         title: 'Erro ao alterar status',
         variant: 'destructive',
       })
+    }
+  }
+
+  // =========================================================================
+  // HANDLERS DE AÇÕES DA LOJA VIRTUAL (FASE 1)
+  // =========================================================================
+
+  // Iniciar assistente de criação de rascunho
+  const handleOpenDraftAssistant = () => {
+    if (!editingProduct) return
+    const refPrice = calculateCrmReferencePrice(editingProduct)
+    setDraftStorePrice(refPrice > 0 ? Number(refPrice.toFixed(2)) : 0)
+    setDraftCategoryId(hierarchicalStoreCategories[0]?.id || '')
+    setDraftSubtitle(editingProduct.description || '')
+    setDraftDescription(editingProduct.description || '')
+    setDraftAssistantOpen(true)
+  }
+
+  // Executar criação de rascunho
+  const handleConfirmCreateDraft = async () => {
+    if (!editingProduct) return
+    if (!draftCategoryId) {
+      toast({
+        title: 'Categoria obrigatória',
+        description: 'Selecione uma categoria da loja para prosseguir.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setStoreActionBusy(true)
+    try {
+      const res = await storeService.adminCreateProductStoreDraft(editingProduct.id, {
+        category_id: draftCategoryId,
+        store_price: draftStorePrice,
+        subtitle: draftSubtitle,
+        description_public: draftDescription,
+      })
+
+      toast({
+        title: 'Rascunho criado na Loja!',
+        description: res.message || 'Produto cadastrado como rascunho na vitrine.',
+      })
+
+      setDraftAssistantOpen(false)
+      await loadAll()
+      await loadProductStoreStatus(editingProduct.id)
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao criar rascunho',
+        description: err?.message || 'Falha ao comunicar com o servidor da loja.',
+        variant: 'destructive',
+      })
+    } finally {
+      setStoreActionBusy(false)
+    }
+  }
+
+  // Iniciar diálogo de vinculação com produto existente
+  const handleOpenLinkExisting = () => {
+    setSelectedExistingStoreProdId('')
+    setExistingSearchQuery('')
+    setLinkExistingOpen(true)
+  }
+
+  // Executar vinculação com produto existente
+  const handleConfirmLinkExisting = async () => {
+    if (!editingProduct || !selectedExistingStoreProdId) return
+
+    setStoreActionBusy(true)
+    try {
+      const res = await storeService.adminLinkProductToStore(
+        editingProduct.id,
+        selectedExistingStoreProdId,
+      )
+
+      toast({
+        title: 'Vínculo realizado!',
+        description: res.message || 'Publicação da loja associada ao produto mestre.',
+      })
+
+      setLinkExistingOpen(false)
+      await loadAll()
+      await loadProductStoreStatus(editingProduct.id)
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao vincular publicação',
+        description: err?.message || 'Não foi possível associar a publicação.',
+        variant: 'destructive',
+      })
+    } finally {
+      setStoreActionBusy(false)
+    }
+  }
+
+  // Executar desvinculação
+  const handleConfirmUnlink = async () => {
+    if (!editingProduct) return
+    const storeProdId = activeStoreStatus?.store_product?.id
+
+    setStoreActionBusy(true)
+    try {
+      const res = await storeService.adminUnlinkProductFromStore(editingProduct.id, storeProdId)
+
+      toast({
+        title: 'Vínculo removido!',
+        description: res.message || 'A publicação na loja foi mantida intacta.',
+      })
+
+      setUnlinkConfirmOpen(false)
+      await loadAll()
+      await loadProductStoreStatus(editingProduct.id)
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao desvincular',
+        description: err?.message || 'Falha ao desassociar a publicação.',
+        variant: 'destructive',
+      })
+    } finally {
+      setStoreActionBusy(false)
+    }
+  }
+
+  // Publicar na loja (Exibir na Loja Virtual)
+  // Regra do usuário: O botão "Exibir na Loja Virtual" respeita o fluxo de rascunho:
+  // se não existir configuração de vitrine válida, abre o assistente em vez de publicar imediatamente.
+  const handlePublishToStore = async () => {
+    if (!editingProduct) return
+
+    // Se não há vínculo ou store_product, abrir assistente
+    if (!activeStoreStatus?.store_product) {
+      handleOpenDraftAssistant()
+      return
+    }
+
+    const sp = activeStoreStatus.store_product
+    // Se faltar categoria ou preço configurado, abrir assistente para que a equipe ajuste antes
+    const hasCategory = !!sp.category_id
+    const hasPrice =
+      sp.pricing_type === 'square_meter'
+        ? (sp.sqm_base_price || 0) > 0 || (sp.store_price || 0) > 0
+        : (sp.store_price || 0) > 0
+
+    if (!hasCategory || !hasPrice) {
+      toast({
+        title: 'Configuração incompleta',
+        description: 'Defina a categoria e preço na loja antes de publicar.',
+      })
+      handleOpenDraftAssistant()
+      return
+    }
+
+    setStoreActionBusy(true)
+    try {
+      const res = await storeService.adminPublishProductToStore(editingProduct.id, sp.id)
+      toast({
+        title: 'Produto publicado!',
+        description: res.message || 'O item agora está visível na vitrine pública da loja.',
+      })
+      await loadAll()
+      await loadProductStoreStatus(editingProduct.id)
+    } catch (err: any) {
+      toast({
+        title: 'Publicação bloqueada',
+        description: err?.message || 'Verifique se o produto atende a todas as exigências.',
+        variant: 'destructive',
+      })
+    } finally {
+      setStoreActionBusy(false)
+    }
+  }
+
+  // Despublicar da loja (Ocultar da loja / Retornar a rascunho)
+  const handleUnpublishFromStore = async () => {
+    if (!editingProduct) return
+    const sp = activeStoreStatus?.store_product
+    if (!sp) return
+
+    setStoreActionBusy(true)
+    try {
+      const res = await storeService.adminUnpublishProductFromStore(editingProduct.id, sp.id)
+      toast({
+        title: 'Produto recolhido da loja',
+        description: res.message || 'O produto não aparece mais na vitrine, mantendo o rascunho.',
+      })
+      await loadAll()
+      await loadProductStoreStatus(editingProduct.id)
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao despublicar',
+        description: err?.message || 'Falha ao despublicar produto.',
+        variant: 'destructive',
+      })
+    } finally {
+      setStoreActionBusy(false)
     }
   }
 
@@ -388,11 +831,10 @@ export default function ProductsPage() {
     setSimHeight(prod.default_height || 1.5)
     setSimQuantity(prod.default_quantity || 1)
 
-    // Pre-populate available additionals
     const initialAdds: Record<string, number> = {}
     if (prod.additionals) {
       for (const addId of prod.additionals) {
-        initialAdds[addId] = 1 // default 1 unit or metric
+        initialAdds[addId] = 1
       }
     }
     setSimSelectedAdds(initialAdds)
@@ -402,11 +844,7 @@ export default function ProductsPage() {
   // Computed Live Calculation for Simulation
   const liveCalcResult = useMemo(() => {
     if (!simProduct) return null
-
-    // Find main material
     const mat = materials.find((m) => m.id === simProduct.main_material_id)
-
-    // Build additionals selection
     const additionalsSelection = Object.entries(simSelectedAdds)
       .filter(([_, qty]) => qty > 0)
       .map(([addId, qty]) => {
@@ -442,12 +880,21 @@ export default function ProductsPage() {
             Catálogo de Produtos
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Cadastre banners, lonas, adesivos, brindes e configure regras de cálculo por m², metro
-            linear ou unidade.
+            Cadastro mestre de produtos no CRM (quote_products) com camada de publicação e vitrine
+            na Laletra Store (store_products).
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <a href="/admin/store" target="_blank" rel="noreferrer">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs gap-1.5 border-emerald-500 text-emerald-700 hover:bg-emerald-50"
+            >
+              <Store className="w-3.5 h-3.5" /> Painel da Loja
+            </Button>
+          </a>
           <Button
             onClick={() => handleOpenModal()}
             className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-sm"
@@ -460,23 +907,23 @@ export default function ProductsPage() {
 
       {/* Filter and Search Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
-        <div className="sm:col-span-5 relative">
+        <div className="sm:col-span-4 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Pesquisar produtos por nome, categoria..."
-            className="pl-9 bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800"
+            placeholder="Pesquisar por nome, categoria..."
+            className="pl-9 bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 text-xs"
           />
         </div>
 
         <div className="sm:col-span-3">
           <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-            <SelectTrigger className="bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800">
+            <SelectTrigger className="bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 text-xs">
               <SelectValue placeholder="Todas as categorias" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas as categorias</SelectItem>
+              <SelectItem value="all">Todas as categorias CRM</SelectItem>
               {productCategories.map((cat) => (
                 <SelectItem key={cat} value={cat}>
                   {cat}
@@ -488,7 +935,7 @@ export default function ProductsPage() {
 
         <div className="sm:col-span-2">
           <Select value={selectedCalcRule} onValueChange={setSelectedCalcRule}>
-            <SelectTrigger className="bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800">
+            <SelectTrigger className="bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 text-xs">
               <SelectValue placeholder="Regra de cálculo" />
             </SelectTrigger>
             <SelectContent>
@@ -501,15 +948,17 @@ export default function ProductsPage() {
           </Select>
         </div>
 
-        <div className="sm:col-span-2">
-          <Select value={statusFilter} onValueChange={(val: any) => setStatusFilter(val)}>
-            <SelectTrigger className="bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800">
-              <SelectValue placeholder="Status" />
+        <div className="sm:col-span-3">
+          <Select value={storeStatusFilter} onValueChange={(val: any) => setStoreStatusFilter(val)}>
+            <SelectTrigger className="bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 text-xs">
+              <SelectValue placeholder="Status Loja Virtual" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="active">Ativos</SelectItem>
-              <SelectItem value="inactive">Inativos</SelectItem>
+              <SelectItem value="all">Loja: Todos os estados</SelectItem>
+              <SelectItem value="published">Loja: Publicada</SelectItem>
+              <SelectItem value="draft">Loja: Rascunho</SelectItem>
+              <SelectItem value="unavailable">Loja: Indisponível</SelectItem>
+              <SelectItem value="not_linked">Loja: Não publicada</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -541,6 +990,38 @@ export default function ProductsPage() {
             const mat =
               prod.expand?.main_material_id || materials.find((m) => m.id === prod.main_material_id)
             const imgUrl = prod.main_image ? productsService.getImageUrl(prod) : null
+            const linkedStoreProd = storeProductByQuoteId.get(prod.id)
+
+            // Determinar badge do estado na loja
+            let storeBadge = {
+              label: 'Loja: Não publicada',
+              className:
+                'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300',
+              icon: Globe,
+            }
+            if (linkedStoreProd) {
+              if (linkedStoreProd.published) {
+                if (prod.is_active !== false) {
+                  storeBadge = {
+                    label: 'Loja: Publicada',
+                    className: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+                    icon: CheckCircle2,
+                  }
+                } else {
+                  storeBadge = {
+                    label: 'Loja: Indisponível (Mestre inativo)',
+                    className: 'bg-amber-100 text-amber-800 border-amber-300 font-bold',
+                    icon: AlertTriangle,
+                  }
+                }
+              } else {
+                storeBadge = {
+                  label: 'Loja: Rascunho',
+                  className: 'bg-blue-100 text-blue-800 border-blue-300 font-bold',
+                  icon: Clock,
+                }
+              }
+            }
 
             return (
               <Card
@@ -596,7 +1077,7 @@ export default function ProductsPage() {
                           variant="secondary"
                           className="text-[10px] bg-slate-700/90 text-slate-200 backdrop-blur-xs font-semibold"
                         >
-                          Sem Prova de Arte
+                          Sem Prova
                         </Badge>
                       ) : (
                         <Badge
@@ -610,6 +1091,26 @@ export default function ProductsPage() {
                   </div>
 
                   <CardHeader className="pb-2 pt-3.5">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] px-2 py-0.5 gap-1 ${storeBadge.className}`}
+                      >
+                        <storeBadge.icon className="w-3 h-3" />
+                        {storeBadge.label}
+                      </Badge>
+                      {linkedStoreProd?.seo_slug && (
+                        <a
+                          href={`/loja/produto/${linkedStoreProd.seo_slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[10px] text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5"
+                          title="Ver na loja pública"
+                        >
+                          Ver <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
+                    </div>
                     <CardTitle className="text-base font-bold text-slate-900 dark:text-white leading-snug">
                       {prod.name}
                     </CardTitle>
@@ -661,11 +1162,16 @@ export default function ProductsPage() {
                         </div>
                       ) : null}
 
-                      {prod.has_default_dimensions && (
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-200/50 dark:border-slate-800">
-                          <span>Medidas padrão:</span>
-                          <span className="font-mono text-slate-700 dark:text-slate-300">
-                            {prod.default_width}m × {prod.default_height}m
+                      {/* Preço configurado na loja para comparação informativa */}
+                      {linkedStoreProd && (
+                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-200/50 dark:border-slate-800">
+                          <span className="text-slate-600 dark:text-slate-300 font-medium flex items-center gap-1">
+                            <Store className="w-3 h-3 text-emerald-600" /> Preço na Loja:
+                          </span>
+                          <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                            {linkedStoreProd.pricing_type === 'square_meter'
+                              ? `R$ ${(linkedStoreProd.sqm_base_price || linkedStoreProd.store_price || 0).toFixed(2)}/m²`
+                              : `R$ ${(linkedStoreProd.store_price || 0).toFixed(2)}`}
                           </span>
                         </div>
                       )}
@@ -699,7 +1205,7 @@ export default function ProductsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      title="Editar Produto"
+                      title="Editar Produto & Loja Virtual"
                       onClick={() => handleOpenModal(prod)}
                       className="h-8 text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 px-2"
                     >
@@ -741,9 +1247,11 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* MODAL: CREATE / EDIT / DUPLICATE PRODUCT */}
+      {/* ========================================================
+          MODAL: CREATE / EDIT / DUPLICATE PRODUCT COM SEÇÃO "LOJA VIRTUAL"
+      ======================================================== */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-4xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-white">
               {isDuplicating ? (
@@ -754,15 +1262,229 @@ export default function ProductsPage() {
               {isDuplicating
                 ? 'Duplicar Produto'
                 : editingProduct
-                  ? 'Editar Produto do Catálogo'
-                  : 'Cadastrar Novo Produto'}
+                  ? 'Ficha do Produto Mestre & Loja Virtual'
+                  : 'Cadastrar Novo Produto Mestre'}
             </DialogTitle>
             <DialogDescription>
               {isDuplicating
-                ? 'Revise as informações abaixo e faça as alterações necessárias antes de criar o novo produto.'
-                : 'Configure regras de cálculo, material vinculado, medidas padrão e fotos do item.'}
+                ? 'Revise as informações antes de criar a cópia do produto.'
+                : 'Cadastro mestre com regras de precificação no CRM e publicação opcional na Laletra Store.'}
             </DialogDescription>
           </DialogHeader>
+
+          {/* ====================================================
+              SEÇÃO EXCLUSIVA DA FASE 1: LOJA VIRTUAL NA FICHA DO PRODUTO
+          ==================================================== */}
+          {editingProduct && (
+            <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-emerald-100 dark:border-emerald-900/60 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg text-emerald-700 dark:text-emerald-300">
+                    <Store className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      Loja Virtual (Laletra Store)
+                      {loadingStoreStatus ? (
+                        <span className="text-xs text-slate-400 font-normal">
+                          Conferindo status...
+                        </span>
+                      ) : activeStoreStatus ? (
+                        <Badge
+                          variant="outline"
+                          className={
+                            activeStoreStatus.publication_state === 'published'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold text-xs'
+                              : activeStoreStatus.publication_state === 'draft'
+                                ? 'bg-blue-100 text-blue-800 border-blue-300 font-bold text-xs'
+                                : activeStoreStatus.publication_state === 'unavailable'
+                                  ? 'bg-amber-100 text-amber-800 border-amber-300 font-bold text-xs'
+                                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-xs'
+                          }
+                        >
+                          {activeStoreStatus.publication_state === 'published' &&
+                            '● Publicada na Loja'}
+                          {activeStoreStatus.publication_state === 'draft' &&
+                            '● Rascunho (Não visível)'}
+                          {activeStoreStatus.publication_state === 'unavailable' &&
+                            '● Indisponível (Mestre inativo no CRM)'}
+                          {activeStoreStatus.publication_state === 'not_linked' &&
+                            '○ Não publicada (Sem vínculo)'}
+                        </Badge>
+                      ) : null}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Vincule este cadastro mestre a uma publicação da loja com categoria, preço e
+                      imagens.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Ações Rápidas da Loja Virtual */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {!activeStoreStatus?.store_product ? (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handleOpenLinkExisting}
+                        disabled={storeActionBusy}
+                        className="text-xs h-8 border-slate-300 gap-1.5"
+                      >
+                        <Link2 className="w-3.5 h-3.5 text-slate-600" />
+                        Vincular Produto Existente
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleOpenDraftAssistant}
+                        disabled={storeActionBusy}
+                        className="text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Criar Rascunho na Loja
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {activeStoreStatus.publication_state === 'published' ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleUnpublishFromStore}
+                          disabled={storeActionBusy}
+                          className="text-xs h-8 border-amber-300 text-amber-700 hover:bg-amber-50 gap-1.5"
+                        >
+                          <EyeOff className="w-3.5 h-3.5" />
+                          Despublicar (Ocultar)
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handlePublishToStore}
+                          disabled={storeActionBusy || !form.is_active}
+                          title={
+                            !form.is_active ? 'Ative o produto mestre para publicar na loja' : ''
+                          }
+                          className="text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Exibir na Loja Virtual
+                        </Button>
+                      )}
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setUnlinkConfirmOpen(true)}
+                        disabled={storeActionBusy}
+                        className="text-xs h-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50 gap-1"
+                      >
+                        <Unlink className="w-3.5 h-3.5" />
+                        Desvincular
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Detalhes da publicação vinculada quando existir */}
+              {activeStoreStatus?.store_product && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                      Publicação Vinculada
+                    </span>
+                    <strong className="text-slate-800 dark:text-slate-200 block truncate">
+                      {activeStoreStatus.store_product.name}
+                    </strong>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      Slug: /{activeStoreStatus.store_product.seo_slug || '—'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                      Categoria na Loja
+                    </span>
+                    <strong className="text-slate-800 dark:text-slate-200 block truncate">
+                      {activeStoreStatus.category?.name ||
+                        storeCategories.find(
+                          (c) => c.id === activeStoreStatus.store_product?.category_id,
+                        )?.name ||
+                        'Sem categoria'}
+                    </strong>
+                    <span className="text-[10px] text-slate-500">
+                      Tipo: {activeStoreStatus.store_product.pricing_type}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                      Preço Configurado na Loja
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <strong className="text-emerald-700 dark:text-emerald-400 text-sm">
+                        R${' '}
+                        {(
+                          activeStoreStatus.store_product.sqm_base_price ||
+                          activeStoreStatus.store_product.store_price ||
+                          0
+                        ).toFixed(2)}
+                      </strong>
+                    </div>
+
+                    {/* Comparação informativa com preço de referência do CRM */}
+                    {(() => {
+                      const refPrice = calculateCrmReferencePrice(editingProduct)
+                      const storePrice =
+                        activeStoreStatus.store_product.sqm_base_price ||
+                        activeStoreStatus.store_product.store_price ||
+                        0
+                      const diff = storePrice - refPrice
+                      const hasSignificantDiff = Math.abs(diff) > 0.05
+                      return (
+                        <div className="text-[10px] mt-0.5 space-y-0.5">
+                          <span className="text-slate-400">
+                            Preço referência CRM: R$ {refPrice.toFixed(2)}
+                          </span>
+                          {hasSignificantDiff && (
+                            <span
+                              className={`block font-semibold ${
+                                diff > 0 ? 'text-emerald-600' : 'text-amber-600'
+                              }`}
+                            >
+                              Divergência: {diff > 0 ? '+' : ''}R$ {diff.toFixed(2)} (Apenas
+                              informativo)
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Aviso se mestre inativo e loja publicada */}
+              {activeStoreStatus?.publication_state === 'unavailable' && (
+                <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-200">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block font-semibold">Produto mestre inativo no CRM</strong>
+                    <span>
+                      A publicação está recolhida da vitrine pública automaticamente para manter a
+                      integridade, mas continua visível no CRM para orçamentos e atendimentos via
+                      WhatsApp. Reative o produto mestre para retornar a exibição na loja.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <form onSubmit={handleSaveProduct} className="space-y-4 pt-2">
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
@@ -836,7 +1558,7 @@ export default function ProductsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Categoria *
+                      Categoria CRM *
                     </label>
                     <Input
                       value={form.category}
@@ -1197,7 +1919,283 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* SIMULATOR MODAL: REAL-TIME CALCULATION TESTER */}
+      {/* ========================================================
+          SUB-MODAL 1: ASSISTENTE DE CRIAÇÃO DE RASCUNHO NA LOJA
+      ======================================================== */}
+      <Dialog open={draftAssistantOpen} onOpenChange={setDraftAssistantOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Sparkles className="h-5 w-5 text-emerald-600" />
+              Criar Publicação na Loja Virtual
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Configure a publicação da vitrine para "<strong>{editingProduct?.name}</strong>". O
+              item será criado como <strong>Rascunho</strong> e não aparecerá para clientes até você
+              clicar em "Exibir na Loja".
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs">
+            {/* Seletor Multinível de Categoria da Loja */}
+            <div>
+              <label className="font-semibold text-slate-800 dark:text-slate-200 block mb-1">
+                Categoria / Subcategoria da Loja *
+              </label>
+              <Select value={draftCategoryId} onValueChange={setDraftCategoryId}>
+                <SelectTrigger className="text-xs">
+                  <SelectValue placeholder="Selecione a categoria da loja..." />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {hierarchicalStoreCategories.map((c) => (
+                    <SelectItem key={c.id} value={c.id} className="text-xs">
+                      {`${'— '.repeat(c.depth)}${c.name}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Árvore multinível completa da Laletra Store (em qualquer nível hierárquico).
+              </p>
+            </div>
+
+            {/* Preço de Venda Inicial na Loja */}
+            <div>
+              <label className="font-semibold text-slate-800 dark:text-slate-200 block mb-1">
+                Preço Base na Loja (R$) *
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={draftStorePrice || ''}
+                onChange={(e) => setDraftStorePrice(parseFloat(e.target.value) || 0)}
+                placeholder="0.00"
+                className="text-xs font-semibold text-emerald-700"
+              />
+              <span className="text-[10px] text-slate-500 mt-0.5 block">
+                Sugerido automaticamente a partir do cálculo do CRM: R${' '}
+                {editingProduct ? calculateCrmReferencePrice(editingProduct).toFixed(2) : '0.00'}
+              </span>
+            </div>
+
+            {/* Subtítulo / Resumo da Vitrine */}
+            <div>
+              <label className="font-semibold text-slate-800 dark:text-slate-200 block mb-1">
+                Subtítulo / Chamada Comercial
+              </label>
+              <Input
+                value={draftSubtitle}
+                onChange={(e) => setDraftSubtitle(e.target.value)}
+                placeholder="Ex: Ideal para eventos, feiras e promoções de alto impacto"
+                className="text-xs"
+              />
+            </div>
+
+            {/* Descrição Pública */}
+            <div>
+              <label className="font-semibold text-slate-800 dark:text-slate-200 block mb-1">
+                Descrição Pública da Vitrine
+              </label>
+              <Textarea
+                value={draftDescription}
+                onChange={(e) => setDraftDescription(e.target.value)}
+                rows={3}
+                placeholder="Texto explicativo para os compradores na loja..."
+                className="text-xs resize-none"
+              />
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-[11px] text-blue-800 dark:text-blue-200 flex items-start gap-2">
+              <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <span>
+                Fotos e acabamentos adicionais poderão ser refinados no Painel da Loja. O slug será
+                gerado automaticamente a partir do nome mestre.
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDraftAssistantOpen(false)}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmCreateDraft}
+              disabled={storeActionBusy || !draftCategoryId}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
+            >
+              {storeActionBusy ? 'Criando...' : 'Confirmar Rascunho'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================
+          SUB-MODAL 2: VINCULAR PRODUTO EXISTENTE DA LOJA
+      ======================================================== */}
+      <Dialog open={linkExistingOpen} onOpenChange={setLinkExistingOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Link2 className="h-5 w-5 text-emerald-600" />
+              Vincular Publicação Existente da Loja
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Associe uma publicação já cadastrada na vitrine ao mestre CRM "
+              <strong>{editingProduct?.name}</strong>". Apenas publicações que ainda não estão
+              vinculadas a outro produto são exibidas.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <Input
+                value={existingSearchQuery}
+                onChange={(e) => setExistingSearchQuery(e.target.value)}
+                placeholder="Buscar publicação da loja pelo nome ou slug..."
+                className="pl-8 text-xs h-8"
+              />
+            </div>
+
+            <div className="border border-slate-200 dark:border-slate-800 rounded-lg max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+              {filteredUnlinkedStoreProducts.length === 0 ? (
+                <div className="p-4 text-center text-xs text-slate-400">
+                  Nenhuma publicação desvinculada encontrada na loja.
+                </div>
+              ) : (
+                filteredUnlinkedStoreProducts.map((sp) => {
+                  const isSelected = selectedExistingStoreProdId === sp.id
+                  return (
+                    <div
+                      key={sp.id}
+                      onClick={() => setSelectedExistingStoreProdId(sp.id)}
+                      className={`p-2.5 text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-l-emerald-600'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-900'
+                      }`}
+                    >
+                      <div>
+                        <strong className="block text-slate-800 dark:text-slate-200">
+                          {sp.name}
+                        </strong>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          /{sp.seo_slug} • {sp.pricing_type}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <strong className="text-emerald-700 dark:text-emerald-400 text-xs block">
+                          R$ {(sp.sqm_base_price || sp.store_price || 0).toFixed(2)}
+                        </strong>
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] px-1 py-0 border-slate-200 text-slate-500"
+                        >
+                          {sp.published ? 'Publicado' : 'Rascunho'}
+                        </Badge>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-[11px] text-amber-800 dark:text-amber-200 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>
+                Conforme exigência de segurança, a vinculação é 1:1 e NUNCA mescla ou altera preços
+                ou imagens de publicações já ativas na loja.
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setLinkExistingOpen(false)}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmLinkExisting}
+              disabled={storeActionBusy || !selectedExistingStoreProdId}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
+            >
+              {storeActionBusy ? 'Vinculando...' : 'Confirmar Vínculo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================
+          SUB-MODAL 3: CONFIRMAÇÃO DE DESVINCULAÇÃO
+      ======================================================== */}
+      <Dialog open={unlinkConfirmOpen} onOpenChange={setUnlinkConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Unlink className="h-5 w-5 text-rose-600" />
+              Desvincular Produto da Loja Virtual?
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Tem certeza que deseja remover o vínculo entre o produto mestre "
+              <strong>{editingProduct?.name}</strong>" e a publicação "
+              <strong>{activeStoreStatus?.store_product?.name}</strong>"?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 space-y-2">
+            <p className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-100">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              A publicação na loja continuará existindo intacta.
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Todos os preços, slugs, fotos, histórico de pedidos e orçamentos anteriores são
+              rigorosamente preservados. O produto na loja passará a ser tratado como independente.
+            </p>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setUnlinkConfirmOpen(false)}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={handleConfirmUnlink}
+              disabled={storeActionBusy}
+              className="text-xs gap-1.5"
+            >
+              {storeActionBusy ? 'Desvinculando...' : 'Confirmar Desvinculação'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================
+          SIMULATOR MODAL: REAL-TIME CALCULATION TESTER
+      ======================================================== */}
       <Dialog open={calcModalOpen} onOpenChange={setCalcModalOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
@@ -1213,7 +2211,6 @@ export default function ProductsPage() {
 
           {simProduct && liveCalcResult && (
             <div className="space-y-4 pt-2">
-              {/* Rule description badge */}
               <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs">
                 <div>
                   <span className="font-bold text-emerald-900 dark:text-emerald-200">Regra: </span>
@@ -1228,7 +2225,6 @@ export default function ProductsPage() {
                 ) : null}
               </div>
 
-              {/* Input Dimensions and Quantities */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
                 {simProduct.calc_rule === 'm2' && (
                   <>
@@ -1292,7 +2288,6 @@ export default function ProductsPage() {
                 </div>
               </div>
 
-              {/* Additionals selection in simulation */}
               {simProduct.additionals && simProduct.additionals.length > 0 && (
                 <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
@@ -1338,7 +2333,6 @@ export default function ProductsPage() {
                 </div>
               )}
 
-              {/* Calculation Output Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                 {simProduct.calc_rule === 'm2' && (
                   <>
@@ -1378,32 +2372,6 @@ export default function ProductsPage() {
                   <strong className="text-sm text-emerald-700 dark:text-emerald-400 font-black">
                     R$ {liveCalcResult.item_total_sale.toFixed(2)}
                   </strong>
-                </div>
-              </div>
-
-              {/* Cost vs Sale Breakdown (Internal Only) */}
-              <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2">
-                <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Custo Total Interno:</span>
-                  <span className="font-semibold text-slate-200">
-                    R$ {liveCalcResult.item_total_cost.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Preço de Venda Final:</span>
-                  <span className="font-bold text-emerald-400">
-                    R$ {liveCalcResult.item_total_sale.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <span className="text-slate-300 font-semibold flex items-center gap-1">
-                    <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-                    Lucro Bruto:
-                  </span>
-                  <span className="font-bold text-emerald-400">
-                    R$ {liveCalcResult.item_gross_profit.toFixed(2)} (
-                    {liveCalcResult.item_margin_pct.toFixed(1)}%)
-                  </span>
                 </div>
               </div>
             </div>

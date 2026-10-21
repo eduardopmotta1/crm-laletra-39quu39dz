@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-21T20:30:29.128Z",
+  "generatedAt": "2026-10-21T21:28:25.247Z",
   "collections": [
     {
       "name": "users",
@@ -3406,11 +3406,11 @@
       "name": "store_products",
       "type": "base",
       "apiRules": {
-        "list": "published = true || @request.auth.id != ''",
-        "view": "published = true || @request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "published = true || @request.auth.collectionName = 'users'",
+        "view": "published = true || @request.auth.collectionName = 'users'",
+        "create": "@request.auth.id != '' && @request.auth.collectionName = 'users'",
+        "update": "@request.auth.id != '' && @request.auth.collectionName = 'users'",
+        "delete": "@request.auth.id != '' && @request.auth.collectionName = 'users'"
       },
       "fields": [
         {
@@ -3563,7 +3563,9 @@
           "collectionRef": "quote_products"
         }
       ],
-      "indexes": []
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_store_products_quote_product_id_uniq` ON `store_products` (`quote_product_id`) WHERE `quote_product_id` != ''"
+      ]
     },
     {
       "name": "store_banners",
