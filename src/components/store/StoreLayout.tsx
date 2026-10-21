@@ -160,6 +160,15 @@ export default function StoreLayout() {
               <FileText className="w-3.5 h-3.5" />
               Orçamento Sob Medida
             </Link>
+            <span className="text-slate-600">|</span>
+            <Link
+              to="/login"
+              className="text-slate-400 hover:text-emerald-400 flex items-center gap-1 font-medium transition-colors"
+              title="Acesso de operadores ao CRM"
+            >
+              <User className="w-3.5 h-3.5" />
+              Área da Equipe
+            </Link>
           </div>
         </div>
       </div>

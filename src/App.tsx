@@ -68,7 +68,18 @@ const App = () => (
           {/* Public Client Registration / Profile Route (No Auth Required) */}
           <Route path="/cadastro/:token" element={<PublicClientFormPage />} />
 
-          {/* Public Laletra Store Routes (Independent Public Layout) */}
+          {/* Public Laletra Store Routes: Raiz / (preparação domínio principal) */}
+          <Route
+            element={
+              <StoreProvider>
+                <StoreLayout />
+              </StoreProvider>
+            }
+          >
+            <Route path="/" element={<StoreHomePage />} />
+          </Route>
+
+          {/* Public Laletra Store Routes: /loja (mantém catálogo, categorias, carrinho e checkout) */}
           <Route
             path="/loja"
             element={
@@ -94,7 +105,6 @@ const App = () => (
               </ProtectedRoute>
             }
           >
-            <Route path="/" element={<PendingHubPage />} />
             <Route path="/pendencias" element={<PendingHubPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/kanban" element={<KanbanPage />} />
