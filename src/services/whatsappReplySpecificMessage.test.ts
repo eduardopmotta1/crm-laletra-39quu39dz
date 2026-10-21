@@ -90,6 +90,11 @@ describe('WhatsApp Reply to Specific Message — Unit & Integration Logic Tests'
     })
 
     const dummyImg = new File(['fake-png'], 'mockup.png', { type: 'image/png' })
+    // Mock do atendimento para isolar a consulta opcional
+    vi.spyOn(pb.collection('attendances'), 'getList').mockResolvedValueOnce({
+      items: [],
+    } as any)
+
     const res = await whatsappService.sendMessage({
       clientId: 'client_1',
       messageText: 'Segue a foto solicitada',
@@ -124,6 +129,11 @@ describe('WhatsApp Reply to Specific Message — Unit & Integration Logic Tests'
     })
 
     const dummyDoc = new File(['%PDF fake'], 'manual.pdf', { type: 'application/pdf' })
+    // Mock do atendimento para isolar a consulta opcional
+    vi.spyOn(pb.collection('attendances'), 'getList').mockResolvedValueOnce({
+      items: [],
+    } as any)
+
     const res = await whatsappService.sendMessage({
       clientId: 'client_1',
       messageText: 'Aqui está o manual solicitado',
