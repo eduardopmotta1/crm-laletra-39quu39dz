@@ -5,8 +5,10 @@ import type {
   StoreProduct,
   StorePriceCalculationParams,
   StorePriceCalculationResult,
+  StoreAllSettings,
 } from '@/types/store'
 import { calculateStoreProductPrice } from '@/lib/storeCalculator'
+import { DEFAULT_STORE_FOOTER_SETTINGS, mergeFooterSettings } from '@/lib/storeFooterDefaults'
 
 export const storeService = {
   /**
@@ -42,13 +44,17 @@ export const storeService = {
   /**
    * Busca as configurações consolidadas da loja pública
    */
-  async getSettings(): Promise<any> {
+  async getSettings(): Promise<StoreAllSettings> {
     try {
       const res = await pb.send<{ success: boolean; data: any }>('/backend/v1/store/settings', {
         method: 'GET',
       })
       if (res && res.data) {
-        return res.data
+        const data = res.data
+        return {
+          ...data,
+          footer: mergeFooterSettings(data.footer),
+        }
       }
     } catch (err) {
       // fallback
@@ -90,11 +96,14 @@ export const storeService = {
           custom_quote_subtitle:
             'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
         },
+        footer: { ...DEFAULT_STORE_FOOTER_SETTINGS },
       }
       for (const rec of records) {
         const val =
           typeof rec.setting_value === 'string' ? JSON.parse(rec.setting_value) : rec.setting_value
-        if (result[rec.setting_key]) {
+        if (rec.setting_key === 'footer') {
+          result.footer = mergeFooterSettings(val)
+        } else if (result[rec.setting_key]) {
           result[rec.setting_key] = { ...result[rec.setting_key], ...val }
         }
       }
@@ -134,6 +143,7 @@ export const storeService = {
           custom_quote_subtitle:
             'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
         },
+        footer: { ...DEFAULT_STORE_FOOTER_SETTINGS },
       }
     }
   },

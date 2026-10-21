@@ -21,6 +21,7 @@ import {
   HelpCircle,
   ArrowRight,
   Upload,
+  Layout,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,6 +47,8 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { storeService } from '@/services/storeService'
 import ImageUploader from '@/components/store/ImageUploader'
+import StoreFooterEditorTab from '@/components/store/StoreFooterEditorTab'
+import { DEFAULT_STORE_FOOTER_SETTINGS } from '@/lib/storeFooterDefaults'
 import type {
   StoreCategory,
   StoreProduct,
@@ -55,6 +58,7 @@ import type {
   StoreAppearanceSettings,
   StoreCommercialInfoSettings,
   StoreHomeLayoutSettings,
+  StoreFooterSettings,
 } from '@/types/store'
 
 const DEFAULT_SETTINGS: StoreAllSettings = {
@@ -91,6 +95,7 @@ const DEFAULT_SETTINGS: StoreAllSettings = {
     custom_quote_subtitle:
       'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
   },
+  footer: DEFAULT_STORE_FOOTER_SETTINGS,
 }
 
 export default function StoreAdminPage() {
@@ -141,6 +146,7 @@ export default function StoreAdminPage() {
             ...(sets.commercial_info || {}),
           },
           home_layout: { ...DEFAULT_SETTINGS.home_layout, ...(sets.home_layout || {}) },
+          footer: sets.footer || DEFAULT_STORE_FOOTER_SETTINGS,
         })
       }
     } catch (err: any) {
@@ -229,6 +235,26 @@ export default function StoreAdminPage() {
     } catch (err: any) {
       toast({
         title: 'Erro ao salvar seções da Home',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const handleSaveFooter = async () => {
+    try {
+      setSavingSettings(true)
+      const footerPayload = settings.footer || DEFAULT_STORE_FOOTER_SETTINGS
+      await storeService.adminSaveSetting('footer', footerPayload)
+      toast({
+        title: 'Rodapé atualizado com sucesso!',
+        description: 'Todas as colunas, dados e cores já refletem na loja pública (/loja).',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar rodapé',
         description: err.message,
         variant: 'destructive',
       })
@@ -582,6 +608,9 @@ export default function StoreAdminPage() {
           </TabsTrigger>
           <TabsTrigger value="commercial" className="text-xs font-semibold gap-1.5 py-2">
             <PhoneCall className="w-3.5 h-3.5 text-teal-600" /> Informações Comerciais
+          </TabsTrigger>
+          <TabsTrigger value="footer" className="text-xs font-semibold gap-1.5 py-2">
+            <Layout className="w-3.5 h-3.5 text-indigo-600" /> Rodapé (Fase 5C)
           </TabsTrigger>
         </TabsList>
 
@@ -1496,6 +1525,24 @@ export default function StoreAdminPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ========================================================
+            ABA G: RODAPÉ 100% EDITÁVEL (FASE 5C — ETAPA 1)
+        ======================================================== */}
+        <TabsContent value="footer" className="space-y-6">
+          <StoreFooterEditorTab
+            footer={settings.footer || DEFAULT_STORE_FOOTER_SETTINGS}
+            onChangeFooter={(newFooter: StoreFooterSettings) =>
+              setSettings((prev) => ({
+                ...prev,
+                footer: newFooter,
+              }))
+            }
+            onSave={handleSaveFooter}
+            saving={savingSettings}
+            categories={categories}
+          />
         </TabsContent>
       </Tabs>
 

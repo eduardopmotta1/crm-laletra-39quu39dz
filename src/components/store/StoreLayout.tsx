@@ -20,6 +20,8 @@ import { Badge } from '@/components/ui/badge'
 import { storeService } from '@/services/storeService'
 import type { StoreCategory, StoreAllSettings } from '@/types/store'
 import StoreSidebar from './StoreSidebar'
+import StoreFooter from './StoreFooter'
+import { DEFAULT_STORE_FOOTER_SETTINGS } from '@/lib/storeFooterDefaults'
 
 export default function StoreLayout() {
   const navigate = useNavigate()
@@ -62,6 +64,7 @@ export default function StoreLayout() {
       custom_quote_subtitle:
         'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
     },
+    footer: DEFAULT_STORE_FOOTER_SETTINGS,
   })
 
   useEffect(() => {
@@ -395,132 +398,11 @@ export default function StoreLayout() {
         </div>
       </main>
 
-      {/* Institutional Footer */}
-      <footer className="bg-slate-900 text-slate-400 text-sm border-t border-slate-800 mt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            {/* Col 1: Sobre */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center font-serif font-black text-2xl tracking-tighter border border-emerald-500/30">
-                  <span className="italic">L</span>
-                </div>
-                <div>
-                  <h3 className="text-white font-serif font-extrabold text-lg">Gráfica LaLetra</h3>
-                  <p className="text-xs text-slate-400">
-                    Excelência e precisão em impressão gráfica
-                  </p>
-                </div>
-              </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Parque gráfico completo, tecnologia digital e offset, acabamentos especiais e
-                atendimento humanizado para potencializar a marca da sua empresa.
-              </p>
-            </div>
-
-            {/* Col 2: Categorias */}
-            <div className="space-y-3">
-              <h4 className="text-white text-xs font-bold uppercase tracking-wider">
-                Categorias Populares
-              </h4>
-              <ul className="space-y-2 text-xs">
-                {categories.slice(0, 5).map((c) => (
-                  <li key={c.id}>
-                    <Link
-                      to={`/loja/categoria/${c.slug}`}
-                      className="hover:text-emerald-400 transition-colors"
-                    >
-                      {c.name}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Col 3: Serviços & Vantagens */}
-            <div className="space-y-3">
-              <h4 className="text-white text-xs font-bold uppercase tracking-wider">
-                Diferenciais
-              </h4>
-              <ul className="space-y-2 text-xs">
-                <li className="flex items-center gap-2">
-                  <Truck className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Entrega rápida ou retirada balcão</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Conferência técnica de arquivos gratuita</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Condições especiais para empresas</span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Col 4: Contato */}
-            <div className="space-y-3">
-              <h4 className="text-white text-xs font-bold uppercase tracking-wider">
-                Atendimento LaLetra
-              </h4>
-              <p className="text-xs text-slate-300 font-medium">WhatsApp Comercial:</p>
-              <a
-                href={`https://wa.me/${(settings?.commercial_info?.whatsapp || '552123919112').replace(/\D/g, '')}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1.5"
-              >
-                <Phone className="w-4 h-4" />
-                {settings?.commercial_info?.whatsapp || '+55 (21) 2391-9112'}
-              </a>
-              <p className="text-xs text-slate-400">
-                {settings?.commercial_info?.business_hours || 'Seg a Sex das 08h às 18h'}
-              </p>
-              <p className="text-xs text-slate-400">
-                {settings?.commercial_info?.email || 'contato@laletragrafica.com.br'}
-              </p>
-              {settings?.commercial_info?.address && (
-                <p className="text-[11px] text-slate-500 leading-snug">
-                  {settings.commercial_info.address}
-                </p>
-              )}
-              <div className="pt-2 flex flex-wrap gap-2">
-                <Link to="/loja-admin">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-[11px] h-8 border-slate-700 text-slate-300 hover:text-white"
-                  >
-                    Gerenciar Loja (Admin)
-                  </Button>
-                </Link>
-                <Link to="/loja/conta">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-[11px] h-8 text-slate-400 hover:text-slate-200"
-                  >
-                    Área do Comprador
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-12 pt-8 border-t border-slate-800 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p>
-              © {new Date().getFullYear()}{' '}
-              {settings?.commercial_info?.copyright_text ||
-                'Gráfica LaLetra. Todos os direitos reservados.'}
-            </p>
-            <div className="flex gap-4">
-              <span className="hover:text-slate-400 cursor-pointer">Termos de Uso</span>
-              <span>•</span>
-              <span className="hover:text-slate-400 cursor-pointer">Política de Privacidade</span>
-            </div>
-          </div>
-        </div>
-      </footer>
+      {/* Rodapé 100% Dinâmico e Customizável */}
+      <StoreFooter
+        footer={settings.footer || DEFAULT_STORE_FOOTER_SETTINGS}
+        categories={categories}
+      />
     </div>
   )
 }

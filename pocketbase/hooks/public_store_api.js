@@ -570,6 +570,123 @@ routerAdd('GET', '/backend/v1/store/settings', (c) => {
         custom_quote_subtitle:
           'Nossa equipe comercial elabora cotações exclusivas com descontos por volume, corte especial e visitas técnicas para comunicação visual corporativa.',
       },
+      footer: {
+        version: 1,
+        logo_url: '',
+        company_name: 'Gráfica LaLetra',
+        description:
+          'Parque gráfico completo, tecnologia digital e offset, acabamentos especiais e atendimento humanizado para potencializar a marca da sua empresa.',
+        phone: '+55 (21) 2391-9112',
+        whatsapp: '+55 (21) 2391-9112',
+        email: 'contato@laletragrafica.com.br',
+        address: 'Av. Marechal Floriano, 19, Sala 301 - Centro, Rio de Janeiro - RJ, 20080-003',
+        business_hours: 'Seg a Sex das 08h às 18h',
+        columns: [
+          {
+            id: 'col-about',
+            title: 'Sobre a Laletra',
+            type: 'text',
+            order_index: 10,
+            is_visible: true,
+            text_content:
+              'Parque gráfico completo, tecnologia digital e offset, acabamentos especiais e atendimento humanizado para potencializar a marca da sua empresa.',
+          },
+          {
+            id: 'col-categories',
+            title: 'Categorias Populares',
+            type: 'categories',
+            order_index: 20,
+            is_visible: true,
+            links: [],
+          },
+          {
+            id: 'col-differentials',
+            title: 'Diferenciais',
+            type: 'links',
+            order_index: 30,
+            is_visible: true,
+            links: [
+              {
+                id: 'link-truck',
+                label: 'Entrega rápida ou retirada balcão',
+                href: '/loja',
+                icon: 'truck',
+              },
+              {
+                id: 'link-shield',
+                label: 'Conferência técnica de arquivos gratuita',
+                href: '/loja',
+                icon: 'shield',
+              },
+              {
+                id: 'link-card',
+                label: 'Condições especiais para empresas',
+                href: '/orcamentos/novo',
+                icon: 'card',
+              },
+            ],
+          },
+          {
+            id: 'col-contact',
+            title: 'Atendimento Laletra',
+            type: 'contact',
+            order_index: 40,
+            is_visible: true,
+            links: [
+              {
+                id: 'link-admin',
+                label: 'Gerenciar Loja (Admin)',
+                href: '/loja-admin',
+                icon: 'shield',
+              },
+              {
+                id: 'link-account',
+                label: 'Área do Comprador',
+                href: '/loja/conta',
+                icon: 'user',
+              },
+            ],
+          },
+        ],
+        social_links: [
+          {
+            id: 'soc-instagram',
+            platform: 'instagram',
+            label: 'Instagram',
+            url: 'https://instagram.com/laletragrafica',
+            is_visible: true,
+          },
+          {
+            id: 'soc-whatsapp',
+            platform: 'whatsapp',
+            label: 'WhatsApp',
+            url: 'https://wa.me/552123919112',
+            is_visible: true,
+          },
+        ],
+        copyright: 'Gráfica LaLetra. Todos os direitos reservados.',
+        terms_label: 'Termos de Uso',
+        terms_url: '/loja',
+        privacy_label: 'Política de Privacidade',
+        privacy_url: '/loja',
+        colors: {
+          bg_color: '#0f172a',
+          text_color: '#94a3b8',
+          title_color: '#ffffff',
+          link_color: '#94a3b8',
+          link_hover_color: '#34d399',
+          border_color: '#1e293b',
+        },
+        visibility: {
+          show_logo: true,
+          show_company_name: true,
+          show_description: true,
+          show_columns: true,
+          show_social_links: true,
+          show_copyright: true,
+          show_legal_links: true,
+        },
+      },
     }
 
     for (const rec of records) {
@@ -581,6 +698,8 @@ routerAdd('GET', '/backend/v1/store/settings', (c) => {
         result.commercial_info = { ...result.commercial_info, ...val }
       } else if (k === 'home_layout') {
         result.home_layout = { ...result.home_layout, ...val }
+      } else if (k === 'footer') {
+        result.footer = { ...result.footer, ...val }
       }
     }
 
@@ -603,10 +722,59 @@ routerAdd('POST', '/backend/v1/store/admin/settings', (c) => {
 
     const body = c.requestInfo().body || {}
     const settingKey = body.setting_key
-    const settingValue = body.setting_value
+    let settingValue = body.setting_value
 
     if (!settingKey) {
       return c.json(400, { error: 'setting_key é obrigatório' })
+    }
+
+    // Validação estrita do servidor para configuração do rodapé
+    if (settingKey === 'footer') {
+      if (!settingValue || typeof settingValue !== 'object') {
+        return c.json(400, { error: 'Valor da configuração de rodapé inválido' })
+      }
+
+      // Higienizar URLs de links e redes sociais contra esquemas maliciosos (javascript:, vbscript:, data:)
+      const sanitizeUrl = function (u) {
+        if (!u || typeof u !== 'string') return '#'
+        const trimmed = u.trim()
+        const lower = trimmed.toLowerCase()
+        if (
+          lower.indexOf('javascript:') === 0 ||
+          lower.indexOf('data:') === 0 ||
+          lower.indexOf('vbscript:') === 0 ||
+          lower.indexOf('file:') === 0
+        ) {
+          return '#'
+        }
+        return trimmed
+      }
+
+      if (Array.isArray(settingValue.columns)) {
+        settingValue.columns = settingValue.columns.map((col) => {
+          if (Array.isArray(col.links)) {
+            col.links = col.links.map((lnk) => ({
+              ...lnk,
+              href: sanitizeUrl(lnk.href),
+            }))
+          }
+          return col
+        })
+      }
+
+      if (Array.isArray(settingValue.social_links)) {
+        settingValue.social_links = settingValue.social_links.map((soc) => ({
+          ...soc,
+          url: sanitizeUrl(soc.url),
+        }))
+      }
+
+      if (settingValue.terms_url) {
+        settingValue.terms_url = sanitizeUrl(settingValue.terms_url)
+      }
+      if (settingValue.privacy_url) {
+        settingValue.privacy_url = sanitizeUrl(settingValue.privacy_url)
+      }
     }
 
     let rec

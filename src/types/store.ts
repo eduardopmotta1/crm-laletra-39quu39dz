@@ -93,10 +93,79 @@ export interface StoreHomeLayoutSettings {
   custom_quote_subtitle?: string
 }
 
+export type StoreFooterColumnType = 'links' | 'categories' | 'text' | 'contact'
+
+export interface StoreFooterLinkItem {
+  id: string
+  label: string
+  href: string
+  icon?: string // 'truck' | 'shield' | 'card' | 'phone' | 'mail' | 'clock' | 'map' | 'link' | etc.
+  target_blank?: boolean
+}
+
+export interface StoreFooterColumn {
+  id: string
+  title: string
+  type: StoreFooterColumnType
+  order_index: number
+  is_visible: boolean
+  text_content?: string
+  links?: StoreFooterLinkItem[]
+}
+
+export interface StoreFooterSocialLink {
+  id: string
+  platform: 'instagram' | 'facebook' | 'whatsapp' | 'linkedin' | 'youtube' | 'x' | 'custom'
+  label: string
+  url: string
+  is_visible: boolean
+}
+
+export interface StoreFooterColors {
+  bg_color: string
+  text_color: string
+  title_color: string
+  link_color: string
+  link_hover_color: string
+  border_color: string
+}
+
+export interface StoreFooterVisibility {
+  show_logo: boolean
+  show_company_name: boolean
+  show_description: boolean
+  show_columns: boolean
+  show_social_links: boolean
+  show_copyright: boolean
+  show_legal_links: boolean
+}
+
+export interface StoreFooterSettings {
+  version: number
+  logo_url: string
+  company_name: string
+  description: string
+  phone: string
+  whatsapp: string
+  email: string
+  address: string
+  business_hours: string
+  columns: StoreFooterColumn[]
+  social_links: StoreFooterSocialLink[]
+  copyright: string
+  terms_label: string
+  terms_url: string
+  privacy_label: string
+  privacy_url: string
+  colors: StoreFooterColors
+  visibility: StoreFooterVisibility
+}
+
 export interface StoreAllSettings {
   appearance: StoreAppearanceSettings
   commercial_info: StoreCommercialInfoSettings
   home_layout: StoreHomeLayoutSettings
+  footer?: StoreFooterSettings
 }
 
 export interface StoreProduct {
