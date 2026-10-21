@@ -122,6 +122,7 @@ describe('PostSales WhatsApp Cloud API Integration', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
 
     // Configurar pb.authStore como usuário autenticado para evitar falhas de autenticação
     pb.authStore.save('mock_token_for_tests', {

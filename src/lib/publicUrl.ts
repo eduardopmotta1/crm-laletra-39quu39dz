@@ -4,26 +4,20 @@
  * sejam SEMPRE links absolutos e válidos.
  *
  * Prioridade:
- * 1. Variável de ambiente (APP_PUBLIC_URL / PUBLIC_BASE_URL / VITE_APP_PUBLIC_URL / VITE_PUBLIC_URL)
+ * 1. Variável de ambiente Vite (VITE_APP_PUBLIC_URL / VITE_PUBLIC_URL)
  * 2. window.location.origin (se em browser e não for localhost)
  * 3. Domínio oficial de produção: https://crm-grafica-whatsapp-7b1a5.goskip.app
  */
 export function getAppPublicUrl(): string {
-  const envUrl =
-    (typeof import.meta !== 'undefined' &&
-      import.meta.env &&
-      (import.meta.env.VITE_APP_PUBLIC_URL ||
-        import.meta.env.APP_PUBLIC_URL ||
-        import.meta.env.PUBLIC_BASE_URL ||
-        import.meta.env.VITE_PUBLIC_URL)) ||
-    (typeof process !== 'undefined' &&
-      process.env &&
-      (process.env.VITE_APP_PUBLIC_URL ||
-        process.env.APP_PUBLIC_URL ||
-        process.env.PUBLIC_BASE_URL ||
-        process.env.VITE_PUBLIC_URL))
+  const env =
+    typeof import.meta !== 'undefined' && import.meta.env
+      ? (import.meta.env as Record<string, unknown>)
+      : undefined
 
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+  const rawEnvUrl = env ? env.VITE_APP_PUBLIC_URL || env.VITE_PUBLIC_URL : undefined
+  const envUrl = typeof rawEnvUrl === 'string' ? rawEnvUrl : undefined
+
+  if (envUrl && envUrl.trim() !== '') {
     return envUrl.trim().replace(/\/+$/, '')
   }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { calculateClientProfileCompleteness, clientsService } from './clients'
 import type { Client } from '@/types/crm'
 import { isWithin24HourWindow } from '@/types/crm'
@@ -147,12 +147,25 @@ describe('calculateClientProfileCompleteness', () => {
 })
 
 describe('clientsService.getPublicClientUrl', () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('gera URL pública preferencialmente com public_token', () => {
     const url = clientsService.getPublicClientUrl({
       id: 'client123',
       public_token: 'tok_abc_789',
     })
     expect(url).toContain('/cadastro/tok_abc_789')
+  })
+
+  it('respeita VITE_APP_PUBLIC_URL quando stubada via vi.stubEnv', () => {
+    vi.stubEnv('VITE_APP_PUBLIC_URL', 'https://crm.meudominio.com.br/')
+    const url = clientsService.getPublicClientUrl({
+      id: 'client123',
+      public_token: 'tok_abc_789',
+    })
+    expect(url).toBe('https://crm.meudominio.com.br/cadastro/tok_abc_789')
   })
 
   /**
