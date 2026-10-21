@@ -21,21 +21,25 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
 
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   // Helper simulando o controlador de envio em handleSendLinkViaWhatsApp
+  // Suporta referenceTime para alinhamento temporal em testes com datas fixas
   const executeSendRegistrationLinkFlow = async ({
     targetClientId,
     attendanceId,
     attendanceLastCustomerMessageAt,
     linkUrl,
     messageDraft,
+    referenceTime,
   }: {
     targetClientId: string
     attendanceId?: string | null
     attendanceLastCustomerMessageAt?: string | null
     linkUrl: string
     messageDraft?: string
+    referenceTime?: string | number | Date
   }) => {
     if (!linkUrl) {
       return { allowed: false, error: 'Link de cadastro não gerado' }
@@ -46,7 +50,7 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
       attendanceLastCustomerMessageAt: attendanceLastCustomerMessageAt || null,
     })
 
-    const within24h = isTimestampWithin24h(resolvedInboundIso)
+    const within24h = isTimestampWithin24h(resolvedInboundIso, referenceTime)
     if (!within24h) {
       return {
         allowed: false,
@@ -75,6 +79,8 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
   // CENÁRIO A: inbound há 20 minutos em atendimento ativo → FREEFORM permitido
   it('CENÁRIO A: inbound há 20 minutos em atendimento ativo → FREEFORM permitido', async () => {
     const now = new Date('2026-06-01T14:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
     const twentyMinutesAgo = new Date(now.getTime() - 20 * 60 * 1000).toISOString()
 
     // Mock do atendimento ativo com last_customer_message_at de 20 min atrás
@@ -106,6 +112,7 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
       attendanceId: activeAttendanceId,
       attendanceLastCustomerMessageAt: twentyMinutesAgo,
       linkUrl: 'https://grafica.crm/cadastro/cli_test_123?token=tok_abc',
+      referenceTime: now,
     })
 
     expect(result.allowed).toBe(true)
@@ -124,6 +131,8 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
   // CENÁRIO B: inbound há 20 minutos em atendimento ARQUIVADO → FREEFORM permitido
   it('CENÁRIO B: inbound há 20 minutos em atendimento ARQUIVADO → FREEFORM permitido', async () => {
     const now = new Date('2026-06-01T14:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
     const twentyMinutesAgo = new Date(now.getTime() - 20 * 60 * 1000).toISOString()
 
     // O atendimento atual/ativo está nulo ou vazio (pois o atendimento foi arquivado)
@@ -156,6 +165,7 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
       attendanceId: null,
       attendanceLastCustomerMessageAt: null,
       linkUrl: 'https://grafica.crm/cadastro/cli_test_123?token=tok_abc',
+      referenceTime: now,
     })
 
     expect(result.allowed).toBe(true)
@@ -173,6 +183,8 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
   // CENÁRIO C: inbound há 20 minutos + outbound da gráfica há 5 minutos → FREEFORM permitido
   it('CENÁRIO C: inbound há 20 minutos + outbound da gráfica há 5 minutos → FREEFORM permitido', async () => {
     const now = new Date('2026-06-01T14:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
     const twentyMinutesAgo = new Date(now.getTime() - 20 * 60 * 1000).toISOString()
 
     // Mensagem inbound existe há 20 min
@@ -198,6 +210,7 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
       attendanceLastCustomerMessageAt: twentyMinutesAgo,
       linkUrl: 'https://grafica.crm/cadastro/cli_test_123?token=tok_abc',
       messageDraft: 'Texto customizado de cadastro',
+      referenceTime: now,
     })
 
     expect(result.allowed).toBe(true)
@@ -208,6 +221,8 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
   // CENÁRIO D: última inbound há mais de 24h → FREEFORM bloqueado + aviso de template
   it('CENÁRIO D: última inbound há mais de 24h → FREEFORM bloqueado + aviso de template', async () => {
     const now = new Date('2026-06-01T14:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
     const twentyFiveHoursAgo = new Date(now.getTime() - 25 * 60 * 60 * 1000).toISOString()
 
     vi.spyOn(pb.collection('attendances'), 'getOne').mockResolvedValue({
@@ -233,6 +248,7 @@ describe('Fluxo Solicitar Cadastro — Janela de 24h WhatsApp Meta (Cenários A 
       attendanceId: activeAttendanceId,
       attendanceLastCustomerMessageAt: twentyFiveHoursAgo,
       linkUrl: 'https://grafica.crm/cadastro/cli_test_123?token=tok_abc',
+      referenceTime: now,
     })
 
     expect(result.allowed).toBe(false)
