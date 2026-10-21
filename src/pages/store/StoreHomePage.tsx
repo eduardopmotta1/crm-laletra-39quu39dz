@@ -317,9 +317,12 @@ export default function StoreHomePage() {
                   <CardContent className="p-5 flex-1 flex flex-col justify-between space-y-4">
                     <div className="space-y-1.5">
                       {p.category_name && (
-                        <span className="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide block">
+                        <Link
+                          to={`/loja/categoria/${p.category_slug || p.category_id}`}
+                          className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline uppercase tracking-wide block"
+                        >
                           {p.category_name}
-                        </span>
+                        </Link>
                       )}
                       <Link to={`/loja/produto/${p.seo_slug}`}>
                         <h3 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-2 hover:text-emerald-600 transition-colors">

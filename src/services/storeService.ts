@@ -268,6 +268,47 @@ export const storeService = {
       if (params?.search)
         filter += ` && (name ~ '${params.search}' || subtitle ~ '${params.search}')`
 
+      if (params?.category) {
+        try {
+          // Tenta resolver por slug ou por id
+          let cat = null
+          try {
+            cat = await pb
+              .collection('store_categories')
+              .getFirstListItem(`slug = "${params.category}"`)
+          } catch (_) {
+            try {
+              cat = await pb.collection('store_categories').getOne(params.category)
+            } catch {
+              /* intentionally ignored */
+            }
+          }
+
+          if (cat) {
+            let catIds = [cat.id]
+            try {
+              const subCats = await pb.collection('store_categories').getFullList({
+                filter: `parent_id = "${cat.id}" && is_active = true`,
+              })
+              for (const sc of subCats) {
+                catIds.push(sc.id)
+              }
+            } catch {
+              /* intentionally ignored */
+            }
+
+            if (catIds.length === 1) {
+              filter += ` && category_id = "${cat.id}"`
+            } else {
+              const orCond = catIds.map((id) => `category_id = "${id}"`).join(' || ')
+              filter += ` && (${orCond})`
+            }
+          }
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
       const records = await pb.collection('store_products').getFullList<StoreProduct>({
         filter,
         sort: 'order_index,name',

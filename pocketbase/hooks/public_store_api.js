@@ -162,9 +162,41 @@ routerAdd('GET', '/backend/v1/store/products', (c) => {
 
     if (qCategory) {
       try {
-        const cat = $app.findFirstRecordByData('store_categories', 'slug', qCategory.trim())
+        const rawCat = qCategory.trim()
+        let cat = null
+        try {
+          cat = $app.findFirstRecordByData('store_categories', 'slug', rawCat)
+        } catch (_) {}
+
+        // Fallback por ID caso a chamada envie o ID antigo da categoria
+        if (!cat) {
+          try {
+            cat = $app.findRecordById('store_categories', rawCat)
+          } catch (_) {}
+        }
+
         if (cat) {
-          filter += ` && category_id = '${cat.id}'`
+          // Busca também produtos de subcategorias vinculadas à categoria pai
+          let catIds = [cat.id]
+          try {
+            const subCats = $app.findRecordsByFilter(
+              'store_categories',
+              `parent_id = '${cat.id}' && is_active = true`,
+              'order_index',
+              100,
+              0,
+            )
+            for (let sc = 0; sc < subCats.length; sc++) {
+              catIds.push(subCats[sc].id)
+            }
+          } catch (_) {}
+
+          if (catIds.length === 1) {
+            filter += ` && category_id = '${cat.id}'`
+          } else {
+            const orConditions = catIds.map((id) => `category_id = '${id}'`).join(' || ')
+            filter += ` && (${orConditions})`
+          }
         } else {
           return c.json(200, { success: true, data: [] })
         }

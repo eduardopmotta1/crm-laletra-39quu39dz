@@ -22,7 +22,9 @@ import {
   ArrowRight,
   Upload,
   Layout,
+  RefreshCw,
 } from 'lucide-react'
+import { slugifyCategory } from '@/lib/slugUtils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -427,20 +429,27 @@ export default function StoreAdminPage() {
   }
 
   const handleSaveCategory = async () => {
-    if (!editingCategory || !editingCategory.name || !editingCategory.slug) {
-      toast({ title: 'Preencha o Nome e o Slug da Categoria', variant: 'destructive' })
+    if (!editingCategory || !editingCategory.name) {
+      toast({ title: 'Preencha o Nome da Categoria', variant: 'destructive' })
+      return
+    }
+
+    const effectiveSlug = slugifyCategory(editingCategory.slug || editingCategory.name)
+    if (!effectiveSlug) {
+      toast({ title: 'O Slug (URL) da categoria é obrigatório', variant: 'destructive' })
       return
     }
 
     try {
       const payload: any = {
-        name: editingCategory.name,
-        slug: editingCategory.slug,
+        name: editingCategory.name.trim(),
+        slug: effectiveSlug,
         description: editingCategory.description || '',
         order_index: Number(editingCategory.order_index) || 0,
         is_active: editingCategory.is_active === true,
         parent_id: editingCategory.parent_id || null,
         icon: editingCategory.icon || '',
+        image_url: editingCategory.image_url || '',
       }
 
       if (editingCategory.id) {
@@ -1602,15 +1611,19 @@ export default function StoreAdminPage() {
               <div>
                 <Label className="text-xs font-semibold">Categoria / Subcategoria</Label>
                 <Select
-                  value={editingProduct?.category_id || ''}
+                  value={editingProduct?.category_id || 'none'}
                   onValueChange={(val) =>
-                    setEditingProduct((prev) => ({ ...prev, category_id: val }))
+                    setEditingProduct((prev) => ({
+                      ...prev,
+                      category_id: val === 'none' ? null : val,
+                    }))
                   }
                 >
                   <SelectTrigger className="mt-1 text-xs">
                     <SelectValue placeholder="Selecione uma categoria" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="none">Nenhuma (Sem categoria vinculada)</SelectItem>
                     {categories.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.parent_id ? `↳ ${c.name}` : c.name}
@@ -1866,27 +1879,60 @@ export default function StoreAdminPage() {
               <Input
                 className="mt-1 text-xs"
                 value={editingCategory?.name || ''}
-                onChange={(e) =>
-                  setEditingCategory((prev) => ({
-                    ...prev,
-                    name: e.target.value,
-                    slug:
-                      prev?.slug ||
-                      e.target.value
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]+/g, '-')
-                        .replace(/(^-|-$)/g, ''),
-                  }))
-                }
+                onChange={(e) => {
+                  const newName = e.target.value
+                  setEditingCategory((prev) => {
+                    const isNewCategory = !prev?.id
+                    return {
+                      ...prev,
+                      name: newName,
+                      // Ao criar nova categoria: gera automaticamente
+                      // Ao editar categoria existente: PRESERVA o slug atual, conforme exigência de segurança
+                      slug: isNewCategory ? slugifyCategory(newName) : prev?.slug || '',
+                    }
+                  })
+                }}
               />
             </div>
             <div>
-              <Label className="text-xs font-semibold">Slug (URL) *</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">Slug (URL) *</Label>
+                {editingCategory?.name && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[11px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 px-1.5 gap-1"
+                    onClick={() =>
+                      setEditingCategory((prev) => ({
+                        ...prev,
+                        slug: slugifyCategory(prev?.name || ''),
+                      }))
+                    }
+                    title="Regenerar slug a partir do nome da categoria"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Regenerar pelo nome
+                  </Button>
+                )}
+              </div>
               <Input
                 className="mt-1 text-xs font-mono"
                 value={editingCategory?.slug || ''}
-                onChange={(e) => setEditingCategory((prev) => ({ ...prev, slug: e.target.value }))}
+                placeholder="ex: adesivos-personalizados"
+                onChange={(e) =>
+                  setEditingCategory((prev) => ({
+                    ...prev,
+                    slug: slugifyCategory(e.target.value),
+                  }))
+                }
               />
+              <p className="text-[10px] text-slate-400 mt-1">
+                URL amigável na loja:{' '}
+                <span className="font-mono text-emerald-600">
+                  /loja/categoria/{editingCategory?.slug || '...'}
+                </span>
+              </p>
             </div>
             <div>
               <Label className="text-xs font-semibold">Descrição</Label>
