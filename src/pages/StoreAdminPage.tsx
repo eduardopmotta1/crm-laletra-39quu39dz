@@ -15,12 +15,6 @@ import {
   Save,
   RotateCcw,
   ExternalLink,
-  Layers,
-  Sparkles,
-  CheckCircle,
-  HelpCircle,
-  ArrowRight,
-  Upload,
   Layout,
   RefreshCw,
   ChevronRight,
@@ -59,9 +53,6 @@ import type {
   StoreBanner,
   PricingType,
   StoreAllSettings,
-  StoreAppearanceSettings,
-  StoreCommercialInfoSettings,
-  StoreHomeLayoutSettings,
   StoreFooterSettings,
 } from '@/types/store'
 
