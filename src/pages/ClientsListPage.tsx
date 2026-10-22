@@ -637,7 +637,7 @@ export default function ClientsListPage() {
               <p>
                 Tem certeza de que deseja excluir o cliente{' '}
                 <strong className="text-slate-900 dark:text-white font-semibold">
-                  "{clientToDelete?.name}"
+                  &quot;{clientToDelete?.name}&quot;
                 </strong>
                 ?
               </p>

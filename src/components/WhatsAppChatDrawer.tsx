@@ -4255,7 +4255,7 @@ export default function WhatsAppChatDrawer({
                     Solicitação de alteração do cliente:
                   </span>
                   <p className="text-slate-700 dark:text-slate-300 italic whitespace-pre-wrap">
-                    "{selectedQuoteToView.customer_notes}"
+                    &quot;{selectedQuoteToView.customer_notes}&quot;
                   </p>
                 </div>
               )}

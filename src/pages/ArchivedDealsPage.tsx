@@ -639,9 +639,10 @@ export default function ArchivedDealsPage() {
               Reabrir Atendimento?
             </DialogTitle>
             <DialogDescription>
-              O atendimento de <strong>"{dealToReopen?.client_name}"</strong> será reaberto e
-              retornado ao funil Kanban principal na coluna <strong>"Precisa responder"</strong>,
-              mantendo todo o histórico de mensagens e negociações anteriores.
+              O atendimento de <strong>&quot;{dealToReopen?.client_name}&quot;</strong> será
+              reaberto e retornado ao funil Kanban principal na coluna{' '}
+              <strong>&quot;Precisa responder&quot;</strong>, mantendo todo o histórico de mensagens
+              e negociações anteriores.
             </DialogDescription>
           </DialogHeader>
 
