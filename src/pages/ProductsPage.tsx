@@ -1103,7 +1103,7 @@ export default function ProductsPage() {
                         <a
                           href={`/loja/produto/${linkedStoreProd.seo_slug}`}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                           className="text-[10px] text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5"
                           title="Ver na loja pública"
                         >
