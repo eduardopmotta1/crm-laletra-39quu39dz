@@ -11,7 +11,9 @@
  *
  * Todas as operações administrativas gravam registros em audit_logs.
  * Proteção adicional: Interceptadores onRecord*Request garantem que apenas equipe CRM altere store_products.
- * Nota de arquitetura JSVM PocketBase: Toda função/lógica deve ser inline em cada callback.
+ * Regras de autorização centralizadas: Negação por padrão (deny-by-default).
+ * Papéis autorizados: admin, gerente, vendedor, atendente, comercial.
+ * Papéis negados: producao, papéis vazios/nulos/undefined, compradores (store_customers), usuários inativos.
  */
 
 // =========================================================================
@@ -19,27 +21,37 @@
 // =========================================================================
 routerAdd('POST', '/backend/v1/crm/products/{id}/store-link', (c) => {
   try {
+    const validateStoreStaffAuth = function (auth) {
+      if (!auth) {
+        return { ok: false, status: 401, error: 'Autenticação necessária.' }
+      }
+      const colName = (auth.collection && auth.collection().name) || ''
+      if (colName && colName !== 'users') {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+        }
+      }
+      if (auth.get('is_active') === false) {
+        return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+      }
+      const roleSlug = String(auth.get('role_slug') || '').trim()
+      const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+      if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+        }
+      }
+      return { ok: true, status: 200, roleSlug: roleSlug }
+    }
+
     const auth = c.auth || (c.httpContext ? c.httpContext.get('auth') : null)
-    if (!auth) {
-      return c.json(401, { success: false, error: 'Autenticação necessária.' })
-    }
-    const colName = (auth.collection && auth.collection().name) || ''
-    if (colName && colName !== 'users') {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
-      })
-    }
-    if (auth.get('is_active') === false) {
-      return c.json(403, { success: false, error: 'Usuário CRM inativo.' })
-    }
-    const roleSlug = auth.get('role_slug') || ''
-    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-    if (roleSlug && !allowedRoles.includes(roleSlug)) {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
-      })
+    const authCheck = validateStoreStaffAuth(auth)
+    if (!authCheck.ok) {
+      return c.json(authCheck.status, { success: false, error: authCheck.error })
     }
 
     const quoteProductId = c.request.pathValue('id')
@@ -156,27 +168,37 @@ routerAdd('POST', '/backend/v1/crm/products/{id}/store-link', (c) => {
 // =========================================================================
 routerAdd('POST', '/backend/v1/crm/products/{id}/store-unlink', (c) => {
   try {
+    const validateStoreStaffAuth = function (auth) {
+      if (!auth) {
+        return { ok: false, status: 401, error: 'Autenticação necessária.' }
+      }
+      const colName = (auth.collection && auth.collection().name) || ''
+      if (colName && colName !== 'users') {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+        }
+      }
+      if (auth.get('is_active') === false) {
+        return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+      }
+      const roleSlug = String(auth.get('role_slug') || '').trim()
+      const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+      if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+        }
+      }
+      return { ok: true, status: 200, roleSlug: roleSlug }
+    }
+
     const auth = c.auth || (c.httpContext ? c.httpContext.get('auth') : null)
-    if (!auth) {
-      return c.json(401, { success: false, error: 'Autenticação necessária.' })
-    }
-    const colName = (auth.collection && auth.collection().name) || ''
-    if (colName && colName !== 'users') {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
-      })
-    }
-    if (auth.get('is_active') === false) {
-      return c.json(403, { success: false, error: 'Usuário CRM inativo.' })
-    }
-    const roleSlug = auth.get('role_slug') || ''
-    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-    if (roleSlug && !allowedRoles.includes(roleSlug)) {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
-      })
+    const authCheck = validateStoreStaffAuth(auth)
+    if (!authCheck.ok) {
+      return c.json(authCheck.status, { success: false, error: authCheck.error })
     }
 
     const quoteProductId = c.request.pathValue('id')
@@ -288,27 +310,37 @@ routerAdd('POST', '/backend/v1/crm/products/{id}/store-unlink', (c) => {
 // =========================================================================
 routerAdd('POST', '/backend/v1/crm/products/{id}/store-draft', (c) => {
   try {
+    const validateStoreStaffAuth = function (auth) {
+      if (!auth) {
+        return { ok: false, status: 401, error: 'Autenticação necessária.' }
+      }
+      const colName = (auth.collection && auth.collection().name) || ''
+      if (colName && colName !== 'users') {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+        }
+      }
+      if (auth.get('is_active') === false) {
+        return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+      }
+      const roleSlug = String(auth.get('role_slug') || '').trim()
+      const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+      if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+        }
+      }
+      return { ok: true, status: 200, roleSlug: roleSlug }
+    }
+
     const auth = c.auth || (c.httpContext ? c.httpContext.get('auth') : null)
-    if (!auth) {
-      return c.json(401, { success: false, error: 'Autenticação necessária.' })
-    }
-    const colName = (auth.collection && auth.collection().name) || ''
-    if (colName && colName !== 'users') {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
-      })
-    }
-    if (auth.get('is_active') === false) {
-      return c.json(403, { success: false, error: 'Usuário CRM inativo.' })
-    }
-    const roleSlug = auth.get('role_slug') || ''
-    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-    if (roleSlug && !allowedRoles.includes(roleSlug)) {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
-      })
+    const authCheck = validateStoreStaffAuth(auth)
+    if (!authCheck.ok) {
+      return c.json(authCheck.status, { success: false, error: authCheck.error })
     }
 
     const quoteProductId = c.request.pathValue('id')
@@ -487,27 +519,37 @@ routerAdd('POST', '/backend/v1/crm/products/{id}/store-draft', (c) => {
 // =========================================================================
 routerAdd('POST', '/backend/v1/crm/products/{id}/store-publish', (c) => {
   try {
+    const validateStoreStaffAuth = function (auth) {
+      if (!auth) {
+        return { ok: false, status: 401, error: 'Autenticação necessária.' }
+      }
+      const colName = (auth.collection && auth.collection().name) || ''
+      if (colName && colName !== 'users') {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+        }
+      }
+      if (auth.get('is_active') === false) {
+        return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+      }
+      const roleSlug = String(auth.get('role_slug') || '').trim()
+      const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+      if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+        }
+      }
+      return { ok: true, status: 200, roleSlug: roleSlug }
+    }
+
     const auth = c.auth || (c.httpContext ? c.httpContext.get('auth') : null)
-    if (!auth) {
-      return c.json(401, { success: false, error: 'Autenticação necessária.' })
-    }
-    const colName = (auth.collection && auth.collection().name) || ''
-    if (colName && colName !== 'users') {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
-      })
-    }
-    if (auth.get('is_active') === false) {
-      return c.json(403, { success: false, error: 'Usuário CRM inativo.' })
-    }
-    const roleSlug = auth.get('role_slug') || ''
-    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-    if (roleSlug && !allowedRoles.includes(roleSlug)) {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
-      })
+    const authCheck = validateStoreStaffAuth(auth)
+    if (!authCheck.ok) {
+      return c.json(authCheck.status, { success: false, error: authCheck.error })
     }
 
     const quoteProductId = c.request.pathValue('id')
@@ -686,27 +728,37 @@ routerAdd('POST', '/backend/v1/crm/products/{id}/store-publish', (c) => {
 // =========================================================================
 routerAdd('POST', '/backend/v1/crm/products/{id}/store-unpublish', (c) => {
   try {
+    const validateStoreStaffAuth = function (auth) {
+      if (!auth) {
+        return { ok: false, status: 401, error: 'Autenticação necessária.' }
+      }
+      const colName = (auth.collection && auth.collection().name) || ''
+      if (colName && colName !== 'users') {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+        }
+      }
+      if (auth.get('is_active') === false) {
+        return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+      }
+      const roleSlug = String(auth.get('role_slug') || '').trim()
+      const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+      if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+        }
+      }
+      return { ok: true, status: 200, roleSlug: roleSlug }
+    }
+
     const auth = c.auth || (c.httpContext ? c.httpContext.get('auth') : null)
-    if (!auth) {
-      return c.json(401, { success: false, error: 'Autenticação necessária.' })
-    }
-    const colName = (auth.collection && auth.collection().name) || ''
-    if (colName && colName !== 'users') {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
-      })
-    }
-    if (auth.get('is_active') === false) {
-      return c.json(403, { success: false, error: 'Usuário CRM inativo.' })
-    }
-    const roleSlug = auth.get('role_slug') || ''
-    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-    if (roleSlug && !allowedRoles.includes(roleSlug)) {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
-      })
+    const authCheck = validateStoreStaffAuth(auth)
+    if (!authCheck.ok) {
+      return c.json(authCheck.status, { success: false, error: authCheck.error })
     }
 
     const quoteProductId = c.request.pathValue('id')
@@ -808,27 +860,37 @@ routerAdd('POST', '/backend/v1/crm/products/{id}/store-unpublish', (c) => {
 // =========================================================================
 routerAdd('GET', '/backend/v1/crm/products/{id}/store-status', (c) => {
   try {
+    const validateStoreStaffAuth = function (auth) {
+      if (!auth) {
+        return { ok: false, status: 401, error: 'Autenticação necessária.' }
+      }
+      const colName = (auth.collection && auth.collection().name) || ''
+      if (colName && colName !== 'users') {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+        }
+      }
+      if (auth.get('is_active') === false) {
+        return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+      }
+      const roleSlug = String(auth.get('role_slug') || '').trim()
+      const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+      if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+        }
+      }
+      return { ok: true, status: 200, roleSlug: roleSlug }
+    }
+
     const auth = c.auth || (c.httpContext ? c.httpContext.get('auth') : null)
-    if (!auth) {
-      return c.json(401, { success: false, error: 'Autenticação necessária.' })
-    }
-    const colName = (auth.collection && auth.collection().name) || ''
-    if (colName && colName !== 'users') {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
-      })
-    }
-    if (auth.get('is_active') === false) {
-      return c.json(403, { success: false, error: 'Usuário CRM inativo.' })
-    }
-    const roleSlug = auth.get('role_slug') || ''
-    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-    if (roleSlug && !allowedRoles.includes(roleSlug)) {
-      return c.json(403, {
-        success: false,
-        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
-      })
+    const authCheck = validateStoreStaffAuth(auth)
+    if (!authCheck.ok) {
+      return c.json(authCheck.status, { success: false, error: authCheck.error })
     }
 
     const quoteProductId = c.request.pathValue('id')
@@ -890,61 +952,109 @@ routerAdd('GET', '/backend/v1/crm/products/{id}/store-status', (c) => {
 // estritamente de membros autenticados da equipe CRM (coleção 'users').
 // =========================================================================
 onRecordCreateRequest((e) => {
+  const validateStoreStaffAuth = function (auth) {
+    if (!auth) {
+      return { ok: false, status: 401, error: 'Autenticação necessária.' }
+    }
+    const colName = (auth.collection && auth.collection().name) || ''
+    if (colName && colName !== 'users') {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+      }
+    }
+    if (auth.get('is_active') === false) {
+      return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+    }
+    const roleSlug = String(auth.get('role_slug') || '').trim()
+    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+    if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      }
+    }
+    return { ok: true, status: 200, roleSlug: roleSlug }
+  }
+
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
-  if (!auth) {
-    throw new ForbiddenError('Operação administrativa em store_products exige login CRM.')
-  }
-  const colName = (auth.collection && auth.collection().name) || ''
-  if (colName !== 'users') {
-    throw new ForbiddenError('Apenas membros da equipe CRM podem cadastrar produtos na loja.')
-  }
-  if (auth.get('is_active') === false) {
-    throw new ForbiddenError('Usuário CRM inativo.')
-  }
-  const roleSlug = auth.get('role_slug') || ''
-  const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-  if (roleSlug && !allowedRoles.includes(roleSlug)) {
-    throw new ForbiddenError('Perfil de usuário sem permissão para gerenciar produtos na loja.')
+  const authCheck = validateStoreStaffAuth(auth)
+  if (!authCheck.ok) {
+    throw new ForbiddenError(authCheck.error)
   }
   return e.next()
 }, 'store_products')
 
 onRecordUpdateRequest((e) => {
+  const validateStoreStaffAuth = function (auth) {
+    if (!auth) {
+      return { ok: false, status: 401, error: 'Autenticação necessária.' }
+    }
+    const colName = (auth.collection && auth.collection().name) || ''
+    if (colName && colName !== 'users') {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+      }
+    }
+    if (auth.get('is_active') === false) {
+      return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+    }
+    const roleSlug = String(auth.get('role_slug') || '').trim()
+    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+    if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      }
+    }
+    return { ok: true, status: 200, roleSlug: roleSlug }
+  }
+
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
-  if (!auth) {
-    throw new ForbiddenError('Operação administrativa em store_products exige login CRM.')
-  }
-  const colName = (auth.collection && auth.collection().name) || ''
-  if (colName !== 'users') {
-    throw new ForbiddenError('Apenas membros da equipe CRM podem editar produtos na loja.')
-  }
-  if (auth.get('is_active') === false) {
-    throw new ForbiddenError('Usuário CRM inativo.')
-  }
-  const roleSlug = auth.get('role_slug') || ''
-  const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-  if (roleSlug && !allowedRoles.includes(roleSlug)) {
-    throw new ForbiddenError('Perfil de usuário sem permissão para gerenciar produtos na loja.')
+  const authCheck = validateStoreStaffAuth(auth)
+  if (!authCheck.ok) {
+    throw new ForbiddenError(authCheck.error)
   }
   return e.next()
 }, 'store_products')
 
 onRecordDeleteRequest((e) => {
+  const validateStoreStaffAuth = function (auth) {
+    if (!auth) {
+      return { ok: false, status: 401, error: 'Autenticação necessária.' }
+    }
+    const colName = (auth.collection && auth.collection().name) || ''
+    if (colName && colName !== 'users') {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+      }
+    }
+    if (auth.get('is_active') === false) {
+      return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+    }
+    const roleSlug = String(auth.get('role_slug') || '').trim()
+    const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+    if (!roleSlug || !allowedRoles.includes(roleSlug)) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      }
+    }
+    return { ok: true, status: 200, roleSlug: roleSlug }
+  }
+
   const auth = e.auth || (e.httpContext ? e.httpContext.get('auth') : null)
-  if (!auth) {
-    throw new ForbiddenError('Operação administrativa em store_products exige login CRM.')
-  }
-  const colName = (auth.collection && auth.collection().name) || ''
-  if (colName !== 'users') {
-    throw new ForbiddenError('Apenas membros da equipe CRM podem excluir produtos da loja.')
-  }
-  if (auth.get('is_active') === false) {
-    throw new ForbiddenError('Usuário CRM inativo.')
-  }
-  const roleSlug = auth.get('role_slug') || ''
-  const allowedRoles = ['admin', 'gerente', 'vendedor', 'atendente']
-  if (roleSlug && !allowedRoles.includes(roleSlug)) {
-    throw new ForbiddenError('Perfil de usuário sem permissão para gerenciar produtos na loja.')
+  const authCheck = validateStoreStaffAuth(auth)
+  if (!authCheck.ok) {
+    throw new ForbiddenError(authCheck.error)
   }
   return e.next()
 }, 'store_products')

@@ -213,44 +213,192 @@ describe('Fase 1 — Integração de Produtos CRM ↔ Laletra Store', () => {
     })
   })
 
-  // 6. Teste: Comprador (store_customer) não consegue criar ou editar produtos
-  describe('Endurecimento de Permissões da Equipe CRM', () => {
-    const checkStaffPermission = (
-      auth: { collectionName: string; is_active?: boolean; role_slug?: string } | null,
-    ) => {
-      if (!auth) {
-        throw new Error('Autenticação necessária.')
-      }
-      if (auth.collectionName !== 'users') {
-        throw new Error('Acesso negado: compradores da loja não possuem permissão administrativa.')
-      }
-      if (auth.is_active === false) {
-        throw new Error('Usuário CRM inativo.')
-      }
-      return true
+  // 6. Teste: Autorização Estrita da Equipe CRM (deny-by-default, papéis autorizados e inatividade)
+  describe('Endurecimento e Autorização da Equipe CRM (store_crm_integration)', () => {
+    // Espelho fiel da função validateStoreStaffAuth implementada no backend PocketBase
+    const ALLOWED_STORE_ROLES = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+
+    interface MockAuthRecord {
+      collectionName: string
+      is_active?: boolean
+      role_slug?: string | null
     }
 
-    it('deve rejeitar requisição de usuário anônimo', () => {
-      expect(() => checkStaffPermission(null)).toThrow('Autenticação necessária.')
+    const validateStoreStaffAuth = (auth: MockAuthRecord | null) => {
+      if (!auth) {
+        return { ok: false, status: 401, error: 'Autenticação necessária.' }
+      }
+      if (auth.collectionName && auth.collectionName !== 'users') {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: compradores da loja não possuem permissão administrativa.',
+        }
+      }
+      if (auth.is_active === false) {
+        return { ok: false, status: 403, error: 'Usuário CRM inativo.' }
+      }
+      const roleSlug = String(auth.role_slug || '').trim()
+      if (!roleSlug || !ALLOWED_STORE_ROLES.includes(roleSlug)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+        }
+      }
+      return { ok: true, status: 200, roleSlug }
+    }
+
+    it('deve rejeitar requisição de usuário anônimo com 401', () => {
+      const result = validateStoreStaffAuth(null)
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(401)
+      expect(result.error).toBe('Autenticação necessária.')
     })
 
-    it('deve rejeitar requisição de comprador autenticado na loja (store_customers)', () => {
-      const customerAuth = {
+    it('deve rejeitar compradores da loja (store_customers) com 403', () => {
+      const customerAuth: MockAuthRecord = {
         collectionName: 'store_customers',
         is_active: true,
+        role_slug: 'customer',
       }
-      expect(() => checkStaffPermission(customerAuth)).toThrow(
+      const result = validateStoreStaffAuth(customerAuth)
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(403)
+      expect(result.error).toBe(
         'Acesso negado: compradores da loja não possuem permissão administrativa.',
       )
     })
 
-    it('deve autorizar membro ativo da equipe CRM (users)', () => {
-      const staffAuth = {
+    it('deve rejeitar usuário inativo (is_active = false) mesmo com papel admin ou comercial (403)', () => {
+      const inactiveAdmin: MockAuthRecord = {
         collectionName: 'users',
-        is_active: true,
+        is_active: false,
         role_slug: 'admin',
       }
-      expect(checkStaffPermission(staffAuth)).toBe(true)
+      const resultAdmin = validateStoreStaffAuth(inactiveAdmin)
+      expect(resultAdmin.ok).toBe(false)
+      expect(resultAdmin.status).toBe(403)
+      expect(resultAdmin.error).toBe('Usuário CRM inativo.')
+
+      const inactiveComercial: MockAuthRecord = {
+        collectionName: 'users',
+        is_active: false,
+        role_slug: 'comercial',
+      }
+      const resultComercial = validateStoreStaffAuth(inactiveComercial)
+      expect(resultComercial.ok).toBe(false)
+      expect(resultComercial.status).toBe(403)
+      expect(resultComercial.error).toBe('Usuário CRM inativo.')
+    })
+
+    it('deve rejeitar role_slug vazio, nulo, indefinido ou espaços em branco (negação por padrão / 403)', () => {
+      const emptyRole: MockAuthRecord = {
+        collectionName: 'users',
+        is_active: true,
+        role_slug: '',
+      }
+      const resultEmpty = validateStoreStaffAuth(emptyRole)
+      expect(resultEmpty.ok).toBe(false)
+      expect(resultEmpty.status).toBe(403)
+      expect(resultEmpty.error).toBe(
+        'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      )
+
+      const nullRole: MockAuthRecord = {
+        collectionName: 'users',
+        is_active: true,
+        role_slug: null,
+      }
+      const resultNull = validateStoreStaffAuth(nullRole)
+      expect(resultNull.ok).toBe(false)
+      expect(resultNull.status).toBe(403)
+      expect(resultNull.error).toBe(
+        'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      )
+
+      const undefinedRole: MockAuthRecord = {
+        collectionName: 'users',
+        is_active: true,
+      }
+      const resultUndefined = validateStoreStaffAuth(undefinedRole)
+      expect(resultUndefined.ok).toBe(false)
+      expect(resultUndefined.status).toBe(403)
+      expect(resultUndefined.error).toBe(
+        'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      )
+
+      const whitespaceRole: MockAuthRecord = {
+        collectionName: 'users',
+        is_active: true,
+        role_slug: '   ',
+      }
+      const resultWhitespace = validateStoreStaffAuth(whitespaceRole)
+      expect(resultWhitespace.ok).toBe(false)
+      expect(resultWhitespace.status).toBe(403)
+      expect(resultWhitespace.error).toBe(
+        'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      )
+    })
+
+    it('deve rejeitar o papel "producao" sem permissão administrativa para a loja (403)', () => {
+      const producaoAuth: MockAuthRecord = {
+        collectionName: 'users',
+        is_active: true,
+        role_slug: 'producao',
+      }
+      const result = validateStoreStaffAuth(producaoAuth)
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(403)
+      expect(result.error).toBe(
+        'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+      )
+    })
+
+    it('deve autorizar com sucesso o papel "comercial" ativo da equipe CRM (200)', () => {
+      const comercialAuth: MockAuthRecord = {
+        collectionName: 'users',
+        is_active: true,
+        role_slug: 'comercial',
+      }
+      const result = validateStoreStaffAuth(comercialAuth)
+      expect(result.ok).toBe(true)
+      expect(result.status).toBe(200)
+      expect(result.roleSlug).toBe('comercial')
+    })
+
+    it('deve manter autorizados os demais papéis da equipe: admin, gerente, vendedor, atendente (200)', () => {
+      const authorizedRoles = ['admin', 'gerente', 'vendedor', 'atendente', 'comercial']
+
+      for (const role of authorizedRoles) {
+        const auth: MockAuthRecord = {
+          collectionName: 'users',
+          is_active: true,
+          role_slug: role,
+        }
+        const res = validateStoreStaffAuth(auth)
+        expect(res.ok).toBe(true)
+        expect(res.status).toBe(200)
+        expect(res.roleSlug).toBe(role)
+      }
+    })
+
+    it('deve rejeitar papéis não autorizados como financeiro, terceirizado, visitante (403)', () => {
+      const unauthorizedRoles = ['financeiro', 'terceirizado', 'visitante', 'qualquer_outro']
+
+      for (const role of unauthorizedRoles) {
+        const auth: MockAuthRecord = {
+          collectionName: 'users',
+          is_active: true,
+          role_slug: role,
+        }
+        const res = validateStoreStaffAuth(auth)
+        expect(res.ok).toBe(false)
+        expect(res.status).toBe(403)
+        expect(res.error).toBe(
+          'Acesso negado: perfil de usuário sem permissão para gerenciar produtos na loja.',
+        )
+      }
     })
   })
 
