@@ -111,6 +111,7 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/execute', (e) => {
         'restauração real não testada em ambiente isolado; não disponível neste projeto (instância PocketBase única, compartilhada)',
     }
 
+    // Um arquivo ZIP válido (mesmo vazio com zero entradas) contém no mínimo o registro EOCD de 22 bytes.
     if (!size || size < 22) {
       res.error = 'Arquivo menor que o tamanho mínimo de um zip válido (22 bytes).'
       return res
@@ -125,8 +126,7 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/execute', (e) => {
       }
 
       if (!reader) {
-        res.valid = size > 0
-        res.header_magic_ok = true
+        res.error = 'Não foi possível obter reader do arquivo de backup no filesystem.'
         return res
       }
 
@@ -139,7 +139,7 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/execute', (e) => {
         } catch (_) {}
       }
 
-      if (readBytes && readBytes.length >= 4) {
+      if (readBytes && readBytes.length >= 22) {
         const b0 = readBytes[0]
         const b1 = readBytes[1]
         const b2 = readBytes[2]
@@ -148,9 +148,10 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/execute', (e) => {
           res.header_magic_ok = true
         }
 
-        const lookback = Math.min(readBytes.length, 1024)
+        // Busca o delimitador EOCD (PK\x05\x06 = 0x50 0x4b 0x05 0x06) nos últimos bytes do arquivo (comentário de até 65535 bytes + 22 bytes)
+        const lookback = Math.min(readBytes.length, 65557)
         const startIdx = readBytes.length - lookback
-        for (let i = startIdx; i <= readBytes.length - 4; i++) {
+        for (let i = readBytes.length - 22; i >= startIdx; i--) {
           if (
             readBytes[i] === 0x50 &&
             readBytes[i + 1] === 0x4b &&
@@ -171,12 +172,14 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/execute', (e) => {
             res.eocd_found
         }
       } else {
-        res.valid = size > 0
-        res.header_magic_ok = true
+        res.error = 'Leitura de bytes insuficiente para validação estrutural do ZIP.'
       }
     } catch (readErr) {
-      console.warn('[ETAPA1 PRICE TABLES HOOK] Aviso na validação de bytes do zip:', readErr)
-      res.valid = size > 0
+      console.warn(
+        '[ETAPA1 PRICE TABLES HOOK] Falha na validação estrutural de bytes do zip:',
+        readErr,
+      )
+      res.error = 'Erro na validação do arquivo zip: ' + String(readErr)
     } finally {
       if (reader && typeof reader.close === 'function') {
         try {
@@ -907,6 +910,7 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/rollback', (e) => {
         'restauração real não testada em ambiente isolado; não disponível neste projeto (instância PocketBase única, compartilhada)',
     }
 
+    // Um arquivo ZIP válido (mesmo vazio com zero entradas) contém no mínimo o registro EOCD de 22 bytes.
     if (!size || size < 22) {
       res.error = 'Arquivo menor que o tamanho mínimo de um zip válido (22 bytes).'
       return res
@@ -921,8 +925,7 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/rollback', (e) => {
       }
 
       if (!reader) {
-        res.valid = size > 0
-        res.header_magic_ok = true
+        res.error = 'Não foi possível obter reader do arquivo de backup no filesystem.'
         return res
       }
 
@@ -935,7 +938,7 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/rollback', (e) => {
         } catch (_) {}
       }
 
-      if (readBytes && readBytes.length >= 4) {
+      if (readBytes && readBytes.length >= 22) {
         const b0 = readBytes[0]
         const b1 = readBytes[1]
         const b2 = readBytes[2]
@@ -944,9 +947,10 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/rollback', (e) => {
           res.header_magic_ok = true
         }
 
-        const lookback = Math.min(readBytes.length, 1024)
+        // Busca o delimitador EOCD (PK\x05\x06 = 0x50 0x4b 0x05 0x06) nos últimos bytes do arquivo (comentário de até 65535 bytes + 22 bytes)
+        const lookback = Math.min(readBytes.length, 65557)
         const startIdx = readBytes.length - lookback
-        for (let i = startIdx; i <= readBytes.length - 4; i++) {
+        for (let i = readBytes.length - 22; i >= startIdx; i--) {
           if (
             readBytes[i] === 0x50 &&
             readBytes[i + 1] === 0x4b &&
@@ -967,12 +971,14 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/rollback', (e) => {
             res.eocd_found
         }
       } else {
-        res.valid = size > 0
-        res.header_magic_ok = true
+        res.error = 'Leitura de bytes insuficiente para validação estrutural do ZIP.'
       }
     } catch (readErr) {
-      console.warn('[ETAPA1 PRICE TABLES HOOK] Aviso na validação de bytes do zip:', readErr)
-      res.valid = size > 0
+      console.warn(
+        '[ETAPA1 PRICE TABLES HOOK] Falha na validação estrutural de bytes do zip:',
+        readErr,
+      )
+      res.error = 'Erro na validação do arquivo zip: ' + String(readErr)
     } finally {
       if (reader && typeof reader.close === 'function') {
         try {

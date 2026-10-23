@@ -74,7 +74,7 @@ function evaluateEndpointAuth(auth: AuthMock | null, superuserHeader?: string) {
   return { ok: false, caller: 'unauthorized', status: 403, error: 'Acesso negado: requer admin.' }
 }
 
-// Simulação lógica da validação estrutural do ZIP
+// Simulação lógica da validação estrutural do ZIP (alinhada 1:1 com o hook de produção)
 function verifyZipIntegrityLogic(size: number, bytes?: number[]) {
   const result = {
     valid: false,
@@ -86,14 +86,14 @@ function verifyZipIntegrityLogic(size: number, bytes?: number[]) {
       'restauração real não testada em ambiente isolado; não disponível neste projeto (instância PocketBase única, compartilhada)',
   }
 
+  // Um arquivo ZIP válido (mesmo vazio com zero entradas) contém no mínimo o registro EOCD de 22 bytes.
   if (!size || size < 22) {
     result.error = 'Arquivo menor que o tamanho mínimo de um zip válido (22 bytes).'
     return result
   }
 
-  if (!bytes || bytes.length < 4) {
-    result.valid = size > 0
-    result.header_magic_ok = true
+  if (!bytes || bytes.length < 22) {
+    result.error = 'Leitura de bytes insuficiente para validação estrutural do ZIP.'
     return result
   }
 
@@ -102,10 +102,10 @@ function verifyZipIntegrityLogic(size: number, bytes?: number[]) {
     result.header_magic_ok = true
   }
 
-  // EOCD PK\x05\x06
-  const lookback = Math.min(bytes.length, 1024)
+  // Busca o delimitador EOCD (PK\x05\x06 = 0x50 0x4b 0x05 0x06) nos últimos bytes do arquivo
+  const lookback = Math.min(bytes.length, 65557)
   const startIdx = bytes.length - lookback
-  for (let i = startIdx; i <= bytes.length - 4; i++) {
+  for (let i = bytes.length - 22; i >= startIdx; i--) {
     if (
       bytes[i] === 0x50 &&
       bytes[i + 1] === 0x4b &&
@@ -118,6 +118,13 @@ function verifyZipIntegrityLogic(size: number, bytes?: number[]) {
   }
 
   result.valid = result.header_magic_ok && result.eocd_found
+  if (!result.valid) {
+    result.error =
+      'Validação estrutural falhou: header PK=' +
+      result.header_magic_ok +
+      ', EOCD=' +
+      result.eocd_found
+  }
   return result
 }
 
@@ -512,7 +519,7 @@ describe('Etapa 1 — Mecanismos de Segurança e Execução Controlada (Etapas A
 
   // 3. Falha de Backup e Integridade do ZIP
   describe('3. Falha de Backup e Verificação Estrutural de Integridade', () => {
-    it('deve abortar imediatamente sem tocar no schema se o backup falhar (status STOPPED_AT_BACKUP_FAILURE)', () => {
+    it('deve abortar imediatamente sem tocar no schema se o backup falhar na criação (status STOPPED_AT_BACKUP_FAILURE)', () => {
       const res = evaluateExecuteFlow({
         auth: { id: 'usr_admin', collectionName: 'users', role_slug: 'admin', is_active: true },
         previousReport: null,
@@ -523,23 +530,215 @@ describe('Etapa 1 — Mecanismos de Segurança e Execução Controlada (Etapas A
           quote_products_sku_unique_index: false,
           clients_price_tier: false,
         },
-        backupCreationSuccess: false, // Backup falhou
+        backupCreationSuccess: false, // Falha na chamada POST /api/backups
         backupZipValid: false,
       })
 
       expect(res.status).toBe(500)
       expect(res.error).toContain('Falha ao criar ou confirmar backup obrigatório')
       expect(res.report?.status).toBe('STOPPED_AT_BACKUP_FAILURE')
+      expect(res.report?.items || []).toHaveLength(0) // NENHUM item do schema executado
+      expect(res.auditLogs.some((l) => l.action === 'etapa1_execute_backup_failed')).toBe(true)
+    })
+
+    it('deve abortar imediatamente se o backup for criado mas falhar na validação estrutural do ZIP (status STOPPED_AT_BACKUP_FAILURE)', () => {
+      const res = evaluateExecuteFlow({
+        auth: { id: 'usr_admin', collectionName: 'users', role_slug: 'admin', is_active: true },
+        previousReport: null,
+        currentSchema: {
+          quote_products_sku: false,
+          quote_products_category_id: false,
+          quote_products_price_tables: false,
+          quote_products_sku_unique_index: false,
+          clients_price_tier: false,
+        },
+        backupCreationSuccess: true, // Arquivo gerado
+        backupZipValid: false, // Mas integridade do ZIP corrompida/truncada
+      })
+
+      expect(res.status).toBe(500)
+      expect(res.error).toContain('Falha ao criar ou confirmar backup obrigatório')
+      expect(res.report?.status).toBe('STOPPED_AT_BACKUP_FAILURE')
+      expect(res.report?.items || []).toHaveLength(0) // NENHUM item do schema foi tocado
       expect(res.auditLogs.some((l) => l.action === 'etapa1_execute_backup_failed')).toBe(true)
     })
 
     it('validador estrutural de ZIP deve aceitar arquivo com cabeçalho PK e delimitador EOCD válidos', () => {
-      // Mock de bytes de um zip válido mínimo (PK\x03\x04 no início e PK\x05\x06 no final)
+      // Fixture de bytes de um zip válido mínimo (PK\x03\x04 no início e PK\x05\x06 nos últimos 22 bytes)
       const validZipBytes = [
         0x50,
         0x4b,
         0x03,
-        0x04, // Header
+        0x04, // Local file header signature (PK\x03\x04)
+        0x14,
+        0x00, // Version needed to extract (2.0)
+        0x00,
+        0x00, // General purpose bit flag
+        0x00,
+        0x00, // Compression method (stored)
+        0x00,
+        0x00, // Last mod file time
+        0x00,
+        0x00, // Last mod file date
+        0x00,
+        0x00,
+        0x00,
+        0x00, // CRC-32
+        0x00,
+        0x00,
+        0x00,
+        0x00, // Compressed size
+        0x00,
+        0x00,
+        0x00,
+        0x00, // Uncompressed size
+        0x00,
+        0x00, // File name length
+        0x00,
+        0x00, // Extra field length
+        // End of central directory record (EOCD: exatamente 22 bytes)
+        0x50,
+        0x4b,
+        0x05,
+        0x06, // End of central directory signature (PK\x05\x06)
+        0x00,
+        0x00, // Number of this disk
+        0x00,
+        0x00, // Disk where central directory starts
+        0x00,
+        0x00, // Number of central directory records on this disk
+        0x00,
+        0x00, // Total number of central directory records
+        0x00,
+        0x00,
+        0x00,
+        0x00, // Size of central directory
+        0x00,
+        0x00,
+        0x00,
+        0x00, // Offset of start of central directory
+        0x00,
+        0x00, // Comment length
+      ]
+
+      expect(validZipBytes.length).toBeGreaterThanOrEqual(22)
+      const check = verifyZipIntegrityLogic(validZipBytes.length, validZipBytes)
+      expect(check.valid).toBe(true)
+      expect(check.header_magic_ok).toBe(true)
+      expect(check.eocd_found).toBe(true)
+    })
+
+    it('validador estrutural de ZIP deve rejeitar arquivo corrompido ou truncado sem EOCD', () => {
+      // Fixture de arquivo truncado com cabeçalho PK\x03\x04 legítimo porém corrompido/cortado sem os 22 bytes mínimos de EOCD
+      const truncatedBytes = [
+        0x50,
+        0x4b,
+        0x03,
+        0x04, // Header PK\x03\x04
+        0x14,
+        0x00,
+        0x00,
+        0x00, // Bytes de cabeçalho local
+        0x08,
+        0x00,
+        0x00,
+        0x00,
+        0x55,
+        0xaa,
+        0xbb,
+        0xcc,
+        0xde,
+        0xad,
+        0xbe,
+        0xef, // Dados truncados antes do EOCD
+        0x11,
+        0x22,
+        0x33,
+        0x44,
+        0x55,
+        0x66,
+        0x77,
+        0x88,
+        0x99,
+        0xaa,
+        0xbb,
+        0xcc, // Total: 28 bytes (> 22), mas SEM assinatura PK\x05\x06
+      ]
+      expect(truncatedBytes.length).toBe(28)
+      const check = verifyZipIntegrityLogic(truncatedBytes.length, truncatedBytes)
+      expect(check.valid).toBe(false)
+      expect(check.header_magic_ok).toBe(true)
+      expect(check.eocd_found).toBe(false)
+      expect(check.error).toContain('EOCD=false')
+    })
+
+    it('validador estrutural de ZIP deve rejeitar arquivo menor que 22 bytes (< tamanho mínimo EOCD)', () => {
+      const tinyBytes = [0x50, 0x4b, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04] // Apenas 8 bytes
+      const check = verifyZipIntegrityLogic(tinyBytes.length, tinyBytes)
+      expect(check.valid).toBe(false)
+      expect(check.error).toContain(
+        'Arquivo menor que o tamanho mínimo de um zip válido (22 bytes).',
+      )
+    })
+
+    it('validador estrutural de ZIP deve rejeitar arquivo sem assinatura de cabeçalho PK\\x03\\x04', () => {
+      // Arquivo com tamanho >= 22 bytes, com EOCD no final mas cabeçalho corrompido (não PK\x03\x04)
+      const invalidHeaderBytes = [
+        0x7f,
+        0x45,
+        0x4c,
+        0x46, // Cabeçalho ELF em vez de PK\x03\x04
+        0x01,
+        0x01,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        // EOCD no final
+        0x50,
+        0x4b,
+        0x05,
+        0x06,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+      ]
+      expect(invalidHeaderBytes.length).toBeGreaterThanOrEqual(22)
+      const check = verifyZipIntegrityLogic(invalidHeaderBytes.length, invalidHeaderBytes)
+      expect(check.valid).toBe(false)
+      expect(check.header_magic_ok).toBe(false)
+      expect(check.eocd_found).toBe(true)
+      expect(check.error).toContain('header PK=false')
+    })
+
+    it('validador estrutural de ZIP deve rejeitar arquivo com diretório central/EOCD corrompido (bytes alterados)', () => {
+      // Arquivo com PK\x03\x04 válido no início mas assinatura EOCD alterada (ex: PK\x05\x07 em vez de PK\x05\x06)
+      const corruptedEocdBytes = [
+        0x50,
+        0x4b,
+        0x03,
+        0x04, // Header válido
         0x14,
         0x00,
         0x00,
@@ -556,28 +755,40 @@ describe('Etapa 1 — Mecanismos de Segurança e Execução Controlada (Etapas A
         0x00,
         0x00,
         0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        // Assinatura EOCD corrompida (0x07 no 4º byte)
         0x50,
         0x4b,
         0x05,
-        0x06, // EOCD signature
+        0x07,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         0x00,
         0x00,
         0x00,
         0x00,
       ]
-
-      const check = verifyZipIntegrityLogic(validZipBytes.length, validZipBytes)
-      expect(check.valid).toBe(true)
-      expect(check.header_magic_ok).toBe(true)
-      expect(check.eocd_found).toBe(true)
-    })
-
-    it('validador estrutural de ZIP deve rejeitar arquivo corrompido ou truncado sem EOCD', () => {
-      const corruptedBytes = [0x50, 0x4b, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04]
-      const check = verifyZipIntegrityLogic(corruptedBytes.length, corruptedBytes)
+      expect(corruptedEocdBytes.length).toBeGreaterThanOrEqual(22)
+      const check = verifyZipIntegrityLogic(corruptedEocdBytes.length, corruptedEocdBytes)
       expect(check.valid).toBe(false)
       expect(check.header_magic_ok).toBe(true)
       expect(check.eocd_found).toBe(false)
+      expect(check.error).toContain('EOCD=false')
     })
   })
 
