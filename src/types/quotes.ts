@@ -12,6 +12,23 @@ export type AdditionalCalcUnit = 'unidade' | 'metro_linear' | 'm2' | 'valor_fixo
 
 export type ProductCalcRule = 'm2' | 'metro_linear' | 'unidade' | 'preco_fixo'
 
+// 3 Tabelas Comerciais Independentes: Preço 1 (Cliente Final), Preço 2 (Terceirizado), Preço 3 (Especial)
+export type PriceTierKey = 'preco_1' | 'preco_2' | 'preco_3'
+
+export interface PriceTableConfig {
+  fixed_price?: number
+  min_price?: number
+  // Percentuais multiplicadores opcionais para preenchimento automático inicial (ex: 1.15 = +15%, 0.85 = -15%)
+  material_factor?: number
+  acrescimos_factor?: number
+}
+
+export type ProductPriceTables = {
+  preco_1?: PriceTableConfig
+  preco_2?: PriceTableConfig
+  preco_3?: PriceTableConfig
+}
+
 export type QuoteStatus =
   | 'rascunho'
   | 'enviado'
@@ -67,6 +84,9 @@ export interface QuoteProduct {
   fixed_price?: number
   fixed_cost?: number
   requires_art_approval?: boolean
+  sku?: string
+  category_id?: string
+  price_tables?: ProductPriceTables
   internal_notes?: string
   is_active: boolean
   created: string
@@ -122,6 +142,7 @@ export interface QuoteCalculationItem {
   calculated_unit_price: number
   applied_unit_price: number // after checking min_price
   is_min_price_applied: boolean
+  applied_price_tier?: PriceTierKey
 
   item_total_cost: number
   item_total_sale: number

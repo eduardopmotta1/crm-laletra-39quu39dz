@@ -5,7 +5,9 @@ import type {
   QuoteCalculationItem,
   QuoteCalculationSummary,
   AdditionalCalcUnit,
+  PriceTierKey,
 } from '@/types/quotes'
+import { getProductTierConfig } from './priceTableResolver'
 
 export interface ItemCalculationParams {
   product?: QuoteProduct | null
@@ -13,6 +15,7 @@ export interface ItemCalculationParams {
   width?: number // em metros
   height?: number // em metros
   quantity?: number // quantidade de peças
+  priceTier?: PriceTierKey // Preço 1 (padrão) | Preço 2 | Preço 3
   additionalsSelection?: Array<{
     additional: QuoteAdditional
     quantity: number
@@ -28,8 +31,11 @@ export function calculateQuoteItem(params: ItemCalculationParams): QuoteCalculat
   const width = Math.max(0, params.width || 0)
   const height = Math.max(0, params.height || 0)
 
+  const priceTier: PriceTierKey = params.priceTier || 'preco_1'
+  const tierConfig = getProductTierConfig(product, priceTier)
+
   const calcRule = product?.calc_rule || (material?.calc_unit as any) || 'm2'
-  const minPrice = Number(product?.min_price || material?.min_price || 0)
+  const minPrice = Number(tierConfig.min_price ?? product?.min_price ?? material?.min_price ?? 0)
 
   let individualArea = 0
   let totalArea = 0
@@ -38,27 +44,34 @@ export function calculateQuoteItem(params: ItemCalculationParams): QuoteCalculat
   let baseUnitSale = 0
 
   const materialCost = Number(material?.cost_price || 0)
-  const materialSale = Number(material?.sale_price || 0)
+  const baseMaterialSale = Number(material?.sale_price || 0)
+  // Multiplicador de material da tabela (opcional, default 1)
+  const materialFactor =
+    typeof tierConfig.material_factor === 'number' && tierConfig.material_factor > 0
+      ? tierConfig.material_factor
+      : 1
+  const effectiveMaterialSale = baseMaterialSale * materialFactor
 
-  // 1. Calculate Base Product by Rule
+  // 1. Calculate Base Product by Rule (Preserva motor existente sem criar fórmulas paralelas)
   switch (calcRule) {
     case 'm2': {
       individualArea = width * height
       totalArea = individualArea * quantity
       baseUnitCost = individualArea * materialCost
 
-      const productFixedPrice =
-        typeof product?.fixed_price === 'number'
+      const effectiveFixed =
+        tierConfig.fixed_price ??
+        (typeof product?.fixed_price === 'number'
           ? product.fixed_price
           : typeof product?.fixed_price === 'string' &&
               (product.fixed_price as string).trim() !== ''
             ? Number(product.fixed_price)
-            : NaN
+            : NaN)
 
       const salePricePerM2 =
-        Number.isFinite(productFixedPrice) && productFixedPrice > 0
-          ? productFixedPrice
-          : materialSale
+        Number.isFinite(effectiveFixed) && (effectiveFixed as number) > 0
+          ? (effectiveFixed as number)
+          : effectiveMaterialSale
 
       baseUnitSale = individualArea * salePricePerM2
       break
@@ -67,32 +80,51 @@ export function calculateQuoteItem(params: ItemCalculationParams): QuoteCalculat
       // Linear meters calculation: largura ou comprimento
       linearMeters = width > 0 ? width : height
       baseUnitCost = linearMeters * materialCost
-      baseUnitSale = linearMeters * materialSale
+
+      const effectiveFixed =
+        tierConfig.fixed_price ??
+        (typeof product?.fixed_price === 'number' ? product.fixed_price : NaN)
+
+      const salePerMeter =
+        Number.isFinite(effectiveFixed) && (effectiveFixed as number) > 0
+          ? (effectiveFixed as number)
+          : effectiveMaterialSale
+
+      baseUnitSale = linearMeters * salePerMeter
       break
     }
     case 'unidade': {
       baseUnitCost = Number(product?.fixed_cost || materialCost || 0)
-      baseUnitSale = Number(product?.fixed_price || materialSale || 0)
+      const effectiveFixed =
+        tierConfig.fixed_price ?? Number(product?.fixed_price || effectiveMaterialSale || 0)
+      baseUnitSale = effectiveFixed
       break
     }
     case 'preco_fixo': {
       baseUnitCost = Number(product?.fixed_cost || materialCost || 0)
-      baseUnitSale = Number(product?.fixed_price || materialSale || 0)
+      const effectiveFixed =
+        tierConfig.fixed_price ?? Number(product?.fixed_price || effectiveMaterialSale || 0)
+      baseUnitSale = effectiveFixed
       break
     }
     default: {
       baseUnitCost = materialCost
-      baseUnitSale = materialSale
+      baseUnitSale = effectiveMaterialSale
       break
     }
   }
 
   // 2. Calculate Additionals / Acabamentos
+  const acrescimosFactor =
+    typeof tierConfig.acrescimos_factor === 'number' && tierConfig.acrescimos_factor > 0
+      ? tierConfig.acrescimos_factor
+      : 1
+
   const calculatedAdditionals = (params.additionalsSelection || []).map((item) => {
     const add = item.additional
     const addQty = Math.max(0, item.quantity)
     const cost = Number(add.cost_price || 0)
-    const sale = Number(add.sale_price || 0)
+    const sale = Number(add.sale_price || 0) * acrescimosFactor
 
     let totalAddCost = 0
     let totalAddSale = 0
@@ -189,6 +221,7 @@ export function calculateQuoteItem(params: ItemCalculationParams): QuoteCalculat
     calculated_unit_price: Number(rawCalculatedUnitPrice.toFixed(2)),
     applied_unit_price: Number(appliedUnitPrice.toFixed(2)),
     is_min_price_applied: isMinPriceApplied,
+    applied_price_tier: priceTier,
 
     item_total_cost: Number(finalTotalCost.toFixed(2)),
     item_total_sale: Number(finalTotalSale.toFixed(2)),

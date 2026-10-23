@@ -175,6 +175,8 @@ export interface Client {
   address_city?: string
   address_state?: string
   public_token?: string
+  // Tabela de Preços Comercial (Etapa 1: preco_1 padrão | preco_2 | preco_3)
+  price_tier?: 'preco_1' | 'preco_2' | 'preco_3'
   // Campos do módulo de Prospecção
   origin?: string
   prospecting_status?:
