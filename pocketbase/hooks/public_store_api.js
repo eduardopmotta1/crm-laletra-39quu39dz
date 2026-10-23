@@ -814,6 +814,10 @@ routerAdd('GET', '/backend/v1/store/settings', (c) => {
 
     return c.json(200, { success: true, data: result })
   } catch (err) {
+    console.error(
+      '[PUBLIC STORE API] Erro na rota GET /backend/v1/store/settings:',
+      err && err.message ? err.message : err,
+    )
     return c.json(500, { error: 'Erro ao carregar configurações da loja: ' + err.message })
   }
 })
