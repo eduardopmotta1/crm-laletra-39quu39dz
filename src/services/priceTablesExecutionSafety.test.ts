@@ -634,37 +634,37 @@ describe('Etapa 1 — Mecanismos de Segurança e Execução Controlada (Etapas A
         0x50,
         0x4b,
         0x03,
-        0x04, // Header PK\x03\x04
+        0x04, // Header PK\x03\x04 (4 bytes)
         0x14,
         0x00,
         0x00,
-        0x00, // Bytes de cabeçalho local
+        0x00, // Bytes de cabeçalho local (4 bytes -> total 8)
         0x08,
         0x00,
         0x00,
-        0x00,
+        0x00, // (4 bytes -> total 12)
         0x55,
         0xaa,
         0xbb,
-        0xcc,
+        0xcc, // (4 bytes -> total 16)
         0xde,
         0xad,
         0xbe,
-        0xef, // Dados truncados antes do EOCD
+        0xef, // Dados truncados antes do EOCD (4 bytes -> total 20)
         0x11,
         0x22,
         0x33,
-        0x44,
+        0x44, // (4 bytes -> total 24)
         0x55,
         0x66,
         0x77,
-        0x88,
+        0x88, // (4 bytes -> total 28)
         0x99,
         0xaa,
         0xbb,
-        0xcc, // Total: 28 bytes (> 22), mas SEM assinatura PK\x05\x06
+        0xcc, // Total real: 32 bytes (> 22), mas SEM assinatura PK\x05\x06
       ]
-      expect(truncatedBytes.length).toBe(28)
+      expect(truncatedBytes.length).toBe(32)
       const check = verifyZipIntegrityLogic(truncatedBytes.length, truncatedBytes)
       expect(check.valid).toBe(false)
       expect(check.header_magic_ok).toBe(true)
