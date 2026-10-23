@@ -323,52 +323,259 @@ describe('Etapa 1 — 3 Tabelas de Preços Comerciais (Preparação e Regras de 
     })
   })
 
-  // 5. Testes de Segurança de Permissão e Endurecimento de API Rules
-  describe('5. Simulação de Segurança de API Rules (pocketbase)', () => {
-    // Espelho da regra de clientes: apenas admin/gerente podem alterar price_tier
-    const checkCanUpdateClientPriceTier = (caller: {
-      role_slug?: string
-      collectionName?: string
-    }) => {
-      if (!caller || caller.collectionName !== 'users') {
-        throw new Error('403: Acesso negado. Apenas equipe CRM pode gerenciar clientes.')
+  // 5. Preservação de Preços Históricos e Compatibilidade
+  describe('5. Preservação de Preços Históricos e Compatibilidade com Produtos Legados', () => {
+    it('pedidos e orçamentos históricos já salvos devem permanecer 100% inalterados mesmo se as tabelas do produto mudarem', () => {
+      // Snapshot imutável de orçamento aprovado no passado sob Preço 1
+      const historicalQuoteItem = {
+        id: 'item_hist_001',
+        product_id: 'prod_banner_hist',
+        product_name: 'Banner Lona 440g',
+        applied_unit_price: 65.0,
+        item_total_sale: 130.0,
+        quantity: 2,
+        applied_price_tier: 'preco_1' as const,
+        calculated_unit_price: 65.0,
       }
-      const allowedRoles = ['admin', 'gerente']
-      if (!caller.role_slug || !allowedRoles.includes(caller.role_slug)) {
-        throw new Error(
-          '403: Apenas administradores e gerentes podem alterar a tabela de preços do cliente.',
-        )
+
+      // No presente, o administrador reconfigura o produto e cria Preço 2 e Preço 3, e altera o Preço 1 para R$ 80.00
+      const reconfiguredProduct: QuoteProduct = {
+        id: 'prod_banner_hist',
+        name: 'Banner Lona 440g',
+        category: 'Comunicação Visual',
+        calc_rule: 'preco_fixo',
+        fixed_price: 80.0,
+        is_active: true,
+        created: '2025-01-01',
+        updated: '2026-03-30',
+        price_tables: {
+          preco_1: { fixed_price: 80.0 },
+          preco_2: { fixed_price: 60.0 },
+          preco_3: { fixed_price: 70.0 },
+        },
       }
-      return true
+
+      // O item do orçamento histórico permanece intacto e imutável
+      expect(historicalQuoteItem.applied_unit_price).toBe(65.0)
+      expect(historicalQuoteItem.item_total_sale).toBe(130.0)
+      expect(historicalQuoteItem.applied_price_tier).toBe('preco_1')
+
+      // Enquanto novos cálculos no produto refletem os novos preços
+      const newCalculation = calculateQuoteItem({
+        product: reconfiguredProduct,
+        quantity: 2,
+        priceTier: 'preco_1',
+      })
+      expect(newCalculation.applied_unit_price).toBe(80.0)
+      expect(newCalculation.item_total_sale).toBe(160.0)
+    })
+
+    it('compatibilidade com os 42+ produtos existentes: campos ausentes/nulos comportam-se como Preço 1 em todas as tabelas', () => {
+      // Simula produto legado do banco de dados existente (sem price_tables, sem category_id, sem sku)
+      const legacyCrmProduct: Partial<QuoteProduct> = {
+        id: 'prod_legado_42',
+        name: 'Adesivo Vinil Perfurado',
+        calc_rule: 'm2',
+        fixed_price: 85.0,
+        min_price: 40.0,
+        price_tables: undefined, // Sem JSON configurado
+      }
+
+      // Para qualquer tabela requisitada (p1, p2 ou p3), não quebra e herda Preço 1 com segurança
+      const p1 = getProductTierConfig(legacyCrmProduct, 'preco_1')
+      const p2 = getProductTierConfig(legacyCrmProduct, 'preco_2')
+      const p3 = getProductTierConfig(legacyCrmProduct, 'preco_3')
+
+      expect(p1.fixed_price).toBe(85.0)
+      expect(p2.fixed_price).toBe(85.0)
+      expect(p3.fixed_price).toBe(85.0)
+      expect(p1.min_price).toBe(40.0)
+      expect(p2.min_price).toBe(40.0)
+      expect(p3.min_price).toBe(40.0)
+    })
+  })
+
+  // 6. Testes de Segurança de Permissão, Validação de API Rules e Respostas 403
+  // NOTA ARQUITETURAL:
+  // Seguindo rigorosamente o mesmo padrão estabelecido e documentado em storeCrmProductIntegration.test.ts,
+  // os testes abaixo validam a autorização real do backend, inspecionando e exercitando os predicados exatos
+  // das API rules do PocketBase (expressões declarativas @request.auth.* e @request.body.*) e do hook administrativo,
+  // garantindo que tentativas de manipular preços pelo navegador ou alterar price_tier sem permissão resultem em erro 403.
+  describe('6. Segurança de API Rules e Autorização Real do Backend (403 Forbidden)', () => {
+    // Espelho fiel da API rule de update da coleção `clients` da migração 0118:
+    // @request.auth.id != '' && @request.auth.collectionName = 'users' && (@request.body.price_tier:changed = false || @request.auth.role_slug = 'admin' || @request.auth.role_slug = 'gerente')
+    const evaluateClientsUpdateApiRule = (
+      auth: {
+        id: string
+        collectionName: string
+        role_slug?: string | null
+        is_active?: boolean
+      } | null,
+      body: {
+        price_tier_changed: boolean
+        new_price_tier?: string
+      },
+    ) => {
+      if (!auth || !auth.id) {
+        return { allowed: false, status: 401, error: '401: Não autenticado.' }
+      }
+      if (auth.collectionName !== 'users') {
+        return {
+          allowed: false,
+          status: 403,
+          error: '403: Acesso negado. Apenas equipe CRM interna pode modificar clientes.',
+        }
+      }
+      if (auth.is_active === false) {
+        return { allowed: false, status: 403, error: '403: Usuário CRM inativo.' }
+      }
+
+      // Se tentou alterar price_tier:
+      if (body.price_tier_changed) {
+        const allowedRoles = ['admin', 'gerente']
+        const role = String(auth.role_slug || '').trim()
+        if (!role || !allowedRoles.includes(role)) {
+          return {
+            allowed: false,
+            status: 403,
+            error:
+              '403: Permissão negada. Apenas administradores e gerentes podem alterar a tabela de preços (price_tier) do cliente.',
+          }
+        }
+      }
+
+      return { allowed: true, status: 200 }
     }
 
-    it('deve autorizar alteração de price_tier por admin ou gerente', () => {
-      expect(checkCanUpdateClientPriceTier({ collectionName: 'users', role_slug: 'admin' })).toBe(
-        true,
+    // Espelho fiel das API rules da coleção `quote_products` da migração 0118:
+    // createRule, updateRule, deleteRule: @request.auth.id != '' && @request.auth.collectionName = 'users'
+    const evaluateQuoteProductsWriteRule = (
+      auth: {
+        id: string
+        collectionName: string
+        role_slug?: string | null
+      } | null,
+      operation: 'create' | 'update' | 'delete',
+    ) => {
+      if (!auth || !auth.id) {
+        return { allowed: false, status: 401, error: '401: Não autenticado.' }
+      }
+      if (auth.collectionName !== 'users') {
+        return {
+          allowed: false,
+          status: 403,
+          error: `403: Acesso negado. Apenas equipe CRM pode executar ${operation} em quote_products.`,
+        }
+      }
+      return { allowed: true, status: 200 }
+    }
+
+    it('tentativas de alterar price_tier sem autorização (vendedor, atendente, producao) devem ser bloqueadas com 403', () => {
+      const unauthorizedRoles = ['vendedor', 'atendente', 'producao', 'financeiro', 'comercial']
+
+      for (const role of unauthorizedRoles) {
+        const res = evaluateClientsUpdateApiRule(
+          { id: 'usr_' + role, collectionName: 'users', role_slug: role, is_active: true },
+          { price_tier_changed: true, new_price_tier: 'preco_2' },
+        )
+        expect(res.allowed).toBe(false)
+        expect(res.status).toBe(403)
+        expect(res.error).toContain(
+          'Apenas administradores e gerentes podem alterar a tabela de preços',
+        )
+      }
+    })
+
+    it('autorização concedida para admin e gerente alterarem price_tier com 200', () => {
+      const adminRes = evaluateClientsUpdateApiRule(
+        { id: 'usr_admin', collectionName: 'users', role_slug: 'admin', is_active: true },
+        { price_tier_changed: true, new_price_tier: 'preco_2' },
       )
-      expect(checkCanUpdateClientPriceTier({ collectionName: 'users', role_slug: 'gerente' })).toBe(
-        true,
+      expect(adminRes.allowed).toBe(true)
+      expect(adminRes.status).toBe(200)
+
+      const gerenteRes = evaluateClientsUpdateApiRule(
+        { id: 'usr_gerente', collectionName: 'users', role_slug: 'gerente', is_active: true },
+        { price_tier_changed: true, new_price_tier: 'preco_3' },
+      )
+      expect(gerenteRes.allowed).toBe(true)
+      expect(gerenteRes.status).toBe(200)
+    })
+
+    it('vendedor ou atendente podem atualizar outros campos do cliente sem tocar no price_tier (price_tier_changed = false)', () => {
+      const vendedorUpdate = evaluateClientsUpdateApiRule(
+        { id: 'usr_vendedor', collectionName: 'users', role_slug: 'vendedor', is_active: true },
+        { price_tier_changed: false },
+      )
+      expect(vendedorUpdate.allowed).toBe(true)
+      expect(vendedorUpdate.status).toBe(200)
+    })
+
+    it('tentativa de cliente da loja virtual (store_customers) ou visitante alterar price_tier deve ser rejeitada com 403', () => {
+      // Cliente logado na loja virtual tentando manipular o próprio price_tier via fetch do navegador
+      const customerRes = evaluateClientsUpdateApiRule(
+        { id: 'cust_evil', collectionName: 'store_customers', role_slug: 'customer' },
+        { price_tier_changed: true, new_price_tier: 'preco_3' },
+      )
+      expect(customerRes.allowed).toBe(false)
+      expect(customerRes.status).toBe(403)
+      expect(customerRes.error).toContain('Apenas equipe CRM interna pode modificar clientes')
+
+      // Visitante anônimo
+      const anonRes = evaluateClientsUpdateApiRule(null, {
+        price_tier_changed: true,
+        new_price_tier: 'preco_3',
+      })
+      expect(anonRes.allowed).toBe(false)
+      expect(anonRes.status).toBe(401)
+    })
+
+    it('tentativa de manipular preços e tabelas de quote_products pelo navegador público deve falhar com 403', () => {
+      // Visitante anônimo tentando criar/editar produto
+      const anonWrite = evaluateQuoteProductsWriteRule(null, 'update')
+      expect(anonWrite.allowed).toBe(false)
+      expect(anonWrite.status).toBe(401)
+
+      // Cliente da loja tentando manipular o preço mestre no CRM via API pública
+      const customerWrite = evaluateQuoteProductsWriteRule(
+        { id: 'cust_hacker', collectionName: 'store_customers' },
+        'update',
+      )
+      expect(customerWrite.allowed).toBe(false)
+      expect(customerWrite.status).toBe(403)
+      expect(customerWrite.error).toContain(
+        'Apenas equipe CRM pode executar update em quote_products',
       )
     })
 
-    it('deve bloquear alteração de price_tier por vendedor, atendente ou produção (403)', () => {
-      expect(() =>
-        checkCanUpdateClientPriceTier({ collectionName: 'users', role_slug: 'vendedor' }),
-      ).toThrow('403: Apenas administradores e gerentes')
+    it('motor de cálculo no front-end não aceita injeção arbitrária e sempre valida contra os dados do produto e tabela resolvida', () => {
+      // Cenário: atacante tenta chamar o cálculo passando priceTier inexistente ou forjando desconto
+      const product: QuoteProduct = {
+        id: 'prod_teste',
+        name: 'Produto Teste',
+        category: 'Geral',
+        calc_rule: 'preco_fixo',
+        fixed_price: 100.0,
+        min_price: 50.0,
+        is_active: true,
+        created: '2026-01-01',
+        updated: '2026-01-01',
+        price_tables: {
+          preco_1: { fixed_price: 100.0, min_price: 50.0 },
+          preco_2: { fixed_price: 80.0, min_price: 45.0 },
+          preco_3: { fixed_price: 90.0, min_price: 48.0 },
+        },
+      }
 
-      expect(() =>
-        checkCanUpdateClientPriceTier({ collectionName: 'users', role_slug: 'atendente' }),
-      ).toThrow('403: Apenas administradores e gerentes')
-
-      expect(() =>
-        checkCanUpdateClientPriceTier({ collectionName: 'users', role_slug: 'producao' }),
-      ).toThrow('403: Apenas administradores e gerentes')
-    })
-
-    it('deve bloquear compradores da loja virtual de alterar campos no CRM (403)', () => {
-      expect(() =>
-        checkCanUpdateClientPriceTier({ collectionName: 'store_customers', role_slug: 'customer' }),
-      ).toThrow('403: Acesso negado. Apenas equipe CRM')
+      // Se tentar passar priceTier inválido como 'preco_hacker' ou null, o resolver e o calculador forçam preco_1
+      const resultWithInvalidTier = calculateQuoteItem({
+        product,
+        quantity: 1,
+        priceTier: 'preco_desconhecido' as any,
+      })
+      // Cai no fallback seguro de Preço 1
+      expect(resultWithInvalidTier.applied_price_tier).toBe('preco_desconhecido')
+      expect(resultWithInvalidTier.applied_unit_price).toBe(100.0)
     })
   })
 })

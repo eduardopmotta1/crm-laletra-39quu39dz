@@ -211,7 +211,7 @@ export function calculateQuoteItem(params: ItemCalculationParams): QuoteCalculat
     linear_meters: Number(linearMeters.toFixed(2)),
 
     material_cost_unit: materialCost,
-    material_sale_unit: materialSale,
+    material_sale_unit: effectiveMaterialSale,
 
     base_item_cost: Number(baseTotalCost.toFixed(2)),
     base_item_sale: Number(baseTotalSale.toFixed(2)),
