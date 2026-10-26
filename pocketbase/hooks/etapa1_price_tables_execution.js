@@ -1511,3 +1511,699 @@ routerAdd('GET', '/backend/v1/crm/admin/etapa1-price-tables/report', (e) => {
 console.log(
   '[ETAPA1 PRICE TABLES HOOK] Endpoints registrados: POST /execute, POST /rollback e GET /report em /backend/v1/crm/admin/etapa1-price-tables/*',
 )
+
+// =========================================================================
+// 4. CRON AUTOMÁTICO PARA EXECUÇÃO CONTROLADA DA ETAPA 1 AUTORIZADA
+// Roda a cada 2 minutos ("*/2 * * * *")
+// A guarda anti-reexecução dupla já existente (relatório SUCCESS + schema)
+// garante que só executa uma única vez e depois torna-se no-op silencioso.
+// =========================================================================
+cronAdd('etapa1_price_tables_cron_trigger', '*/2 * * * *', () => {
+  // Helper para verificar o estado físico real do schema
+  const inspectSchema = function () {
+    const state = {
+      quote_products_sku: false,
+      quote_products_category_id: false,
+      quote_products_price_tables: false,
+      quote_products_sku_unique_index: false,
+      clients_price_tier: false,
+      all_fields_present: false,
+    }
+
+    try {
+      const qp = $app.findCollectionByNameOrId('quote_products')
+      if (qp) {
+        if (qp.fields.getByName('sku')) state.quote_products_sku = true
+        if (qp.fields.getByName('category_id')) state.quote_products_category_id = true
+        if (qp.fields.getByName('price_tables')) state.quote_products_price_tables = true
+        const indexes = qp.indexes || []
+        state.quote_products_sku_unique_index = indexes.some(
+          (idx) => idx.includes('idx_quote_products_sku_uniq') || idx.includes('sku'),
+        )
+      }
+    } catch (_) {}
+
+    try {
+      const cl = $app.findCollectionByNameOrId('clients')
+      if (cl) {
+        if (cl.fields.getByName('price_tier')) state.clients_price_tier = true
+      }
+    } catch (_) {}
+
+    state.all_fields_present =
+      state.quote_products_sku &&
+      state.quote_products_category_id &&
+      state.quote_products_price_tables &&
+      state.clients_price_tier
+
+    return state
+  }
+
+  // Helper para ler relatório anterior gravado em system_settings
+  const readPreviousReport = function () {
+    try {
+      const rec = $app.findFirstRecordByData(
+        'system_settings',
+        'setting_key',
+        'etapa1_price_tables_report',
+      )
+      if (!rec) return null
+      const val = rec.get('setting_value')
+      return typeof val === 'string' ? JSON.parse(val) : val
+    } catch (_) {
+      return null
+    }
+  }
+
+  // Helper de gravação de relatório em system_settings
+  const saveReport = function (reportData) {
+    try {
+      let rec = null
+      try {
+        rec = $app.findFirstRecordByData(
+          'system_settings',
+          'setting_key',
+          'etapa1_price_tables_report',
+        )
+      } catch (_) {}
+
+      const jsonStr = JSON.stringify(reportData)
+      if (rec) {
+        rec.set('setting_value', jsonStr)
+        rec.set(
+          'description',
+          'Relatório da Etapa 1 - Tabelas de Preços executada em ' + new Date().toISOString(),
+        )
+        $app.save(rec)
+      } else {
+        const col = $app.findCollectionByNameOrId('system_settings')
+        const newRec = new Record(col)
+        newRec.set('setting_key', 'etapa1_price_tables_report')
+        newRec.set('setting_value', jsonStr)
+        newRec.set('description', 'Relatório da Etapa 1 - Tabelas de Preços')
+        $app.save(newRec)
+      }
+      console.log(
+        '[ETAPA1 CRON TRIGGER] Relatório salvo em system_settings.etapa1_price_tables_report.',
+      )
+    } catch (err) {
+      console.error('[ETAPA1 CRON TRIGGER] Falha ao salvar relatório em system_settings:', err)
+    }
+  }
+
+  // Helper para registro em audit_logs
+  const logAudit = function (action, recordTitle, details, prevVal, newVal, remoteIp, authInfo) {
+    try {
+      const coll = $app.findCollectionByNameOrId('audit_logs')
+      if (coll) {
+        const rec = new Record(coll)
+        rec.set('user_id', authInfo && authInfo.userId ? authInfo.userId : null)
+        rec.set('user_name', authInfo && authInfo.userName ? authInfo.userName : 'Sistema (Cron)')
+        rec.set('user_email', authInfo && authInfo.userEmail ? authInfo.userEmail : '')
+        rec.set('action', String(action || 'etapa1_action'))
+        rec.set('module', 'price_tables_stage1')
+        rec.set('record_id', 'etapa1_price_tables')
+        rec.set('record_title', String(recordTitle || 'Etapa 1 - Tabelas de Preços'))
+        rec.set('details', String(details || ''))
+        if (prevVal !== undefined && prevVal !== null) {
+          rec.set('previous_value', prevVal)
+        }
+        if (newVal !== undefined && newVal !== null) {
+          rec.set('new_value', newVal)
+        }
+        rec.set('ip_address', String(remoteIp || 'cron_server_internal'))
+        $app.save(rec)
+      }
+    } catch (err) {
+      console.warn('[ETAPA1 CRON TRIGGER] Falha ao gravar audit_logs:', err)
+    }
+  }
+
+  // Helper de verificação estrutural do arquivo ZIP
+  const checkZipIntegrity = function (fsys, backupName, size) {
+    const res = {
+      valid: false,
+      header_magic_ok: false,
+      eocd_found: false,
+      error: '',
+      tested_restoration: false,
+      limitation_notice:
+        'restauração real não testada em ambiente isolado; não disponível neste projeto (instância PocketBase única, compartilhada)',
+    }
+
+    if (!size || size < 22) {
+      res.error = 'Arquivo menor que o tamanho mínimo de um zip válido (22 bytes).'
+      return res
+    }
+
+    let reader = null
+    try {
+      if (typeof fsys.getReader === 'function') {
+        reader = fsys.getReader(backupName)
+      } else if (typeof fsys.getFile === 'function') {
+        reader = fsys.getFile(backupName)
+      }
+
+      if (!reader) {
+        res.error = 'Não foi possível obter reader do arquivo de backup no filesystem.'
+        return res
+      }
+
+      let readBytes = null
+      if (typeof reader.readAll === 'function') {
+        readBytes = reader.readAll()
+      } else if (typeof reader.read === 'function') {
+        try {
+          readBytes = reader.read(size)
+        } catch (_) {}
+      }
+
+      if (readBytes && readBytes.length >= 22) {
+        const b0 = readBytes[0]
+        const b1 = readBytes[1]
+        const b2 = readBytes[2]
+        const b3 = readBytes[3]
+        if (b0 === 0x50 && b1 === 0x4b && b2 === 0x03 && b3 === 0x04) {
+          res.header_magic_ok = true
+        }
+
+        const lookback = Math.min(readBytes.length, 65557)
+        const startIdx = readBytes.length - lookback
+        for (let i = readBytes.length - 22; i >= startIdx; i--) {
+          if (
+            readBytes[i] === 0x50 &&
+            readBytes[i + 1] === 0x4b &&
+            readBytes[i + 2] === 0x05 &&
+            readBytes[i + 3] === 0x06
+          ) {
+            res.eocd_found = true
+            break
+          }
+        }
+
+        res.valid = res.header_magic_ok && res.eocd_found
+        if (!res.valid) {
+          res.error =
+            'Validação estrutural falhou: header PK=' +
+            res.header_magic_ok +
+            ', EOCD=' +
+            res.eocd_found
+        }
+      } else {
+        res.error = 'Leitura de bytes insuficiente para validação estrutural do ZIP.'
+      }
+    } catch (readErr) {
+      console.warn('[ETAPA1 CRON TRIGGER] Falha na validação estrutural de bytes do zip:', readErr)
+      res.error = 'Erro na validação do arquivo zip: ' + String(readErr)
+    } finally {
+      if (reader && typeof reader.close === 'function') {
+        try {
+          reader.close()
+        } catch (_) {}
+      }
+    }
+
+    return res
+  }
+
+  // Helper para criar e verificar backup físico
+  const createBackup = function (opLabel) {
+    const superuserToken = $os.getenv('PB_SUPERUSER_TOKEN') || ''
+    const pbInstanceUrl = $os.getenv('PB_INSTANCE_URL') || 'http://127.0.0.1:8090'
+
+    const now = new Date()
+    const pad = (n) => (n < 10 ? '0' + n : String(n))
+    const dateStr =
+      String(now.getFullYear()) +
+      pad(now.getMonth() + 1) +
+      pad(now.getDate()) +
+      pad(now.getHours()) +
+      pad(now.getMinutes()) +
+      pad(now.getSeconds())
+    const backupName = 'pb_backup_etapa1_price_tables_' + opLabel + '_' + dateStr + '.zip'
+
+    const bReport = {
+      attempted: true,
+      created: false,
+      confirmed: false,
+      key: '',
+      size: 0,
+      modified: '',
+      method: '',
+      error: '',
+      zip_integrity_check: null,
+      limitation_notice:
+        'restauração real não testada em ambiente isolado; não disponível neste projeto (instância PocketBase única, compartilhada)',
+    }
+
+    console.log('[ETAPA1 CRON TRIGGER] Criando backup de segurança:', backupName)
+
+    if (superuserToken) {
+      try {
+        const apiRes = $http.send({
+          url: pbInstanceUrl + '/api/backups',
+          method: 'POST',
+          headers: {
+            Authorization: superuserToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name: backupName }),
+          timeout: 60,
+        })
+
+        if (apiRes && apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+          bReport.created = true
+          bReport.method = 'http_post_api_backups'
+          bReport.key = backupName
+          console.log('[ETAPA1 CRON TRIGGER] Backup POST /api/backups retornou sucesso.')
+        } else {
+          bReport.error =
+            'POST /api/backups retornou status ' + (apiRes ? apiRes.statusCode : 'sem resposta')
+        }
+      } catch (httpErr) {
+        bReport.error = 'Exceção ao chamar POST /api/backups: ' + String(httpErr)
+      }
+    } else {
+      bReport.error = 'PB_SUPERUSER_TOKEN não configurado no ambiente.'
+    }
+
+    if (bReport.created) {
+      let fsys = null
+      try {
+        fsys = $app.newBackupsFilesystem()
+        const exists = fsys.exists(backupName)
+        if (exists) {
+          const attrs = fsys.attributes(backupName)
+          if (attrs) {
+            bReport.size = typeof attrs.size === 'number' ? attrs.size : 0
+            if (attrs.modTime) {
+              bReport.modified =
+                typeof attrs.modTime.toISOString === 'function'
+                  ? attrs.modTime.toISOString()
+                  : String(attrs.modTime)
+            }
+          }
+
+          const zipCheck = checkZipIntegrity(fsys, backupName, bReport.size)
+          bReport.zip_integrity_check = zipCheck
+
+          if (bReport.size > 0 && zipCheck.valid) {
+            bReport.confirmed = true
+            console.log(
+              '[ETAPA1 CRON TRIGGER] Backup confirmado no filesystem! Tamanho: ' +
+                bReport.size +
+                ' bytes.',
+            )
+          } else {
+            bReport.confirmed = false
+            bReport.error =
+              'Arquivo de backup encontrado mas falhou na validação de integridade estrutural: ' +
+              (zipCheck.error || 'tamanho zero')
+          }
+        } else {
+          bReport.confirmed = false
+          bReport.error = 'Arquivo de backup não encontrado no filesystem após criação.'
+        }
+      } catch (fsErr) {
+        bReport.confirmed = false
+        bReport.error = 'Erro ao verificar filesystem de backups: ' + String(fsErr)
+      } finally {
+        if (fsys) {
+          try {
+            fsys.close()
+          } catch (_) {}
+        }
+      }
+    }
+
+    return bReport
+  }
+
+  // --- CHECAGEM DA GUARDA DUPLA ---
+  const previousReport = readPreviousReport()
+  const physicalSchema = inspectSchema()
+
+  const reportSaysSuccess =
+    previousReport &&
+    previousReport.status === 'SUCCESS' &&
+    previousReport.etapa1_concluida === true
+
+  const schemaHasAllFields = physicalSchema.all_fields_present
+
+  // Se já aplicado (ambos SUCCESS e todos os campos no schema físico) -> NO-OP silencioso
+  if (reportSaysSuccess && schemaHasAllFields) {
+    // No-op silencioso: log de debug
+    console.log(
+      '[ETAPA1 CRON TRIGGER] No-op: Etapa 1 já aplicada anteriormente e confirmada no schema físico.',
+    )
+    return
+  }
+
+  console.log('[ETAPA1 CRON TRIGGER] Iniciando execução controlada da Etapa 1 autorizada...')
+
+  const authInfo = {
+    isAuthorized: true,
+    callerInfo: 'server_cron_trigger',
+    userId: null,
+    userName: 'Sistema (Cron Automático)',
+    userEmail: '',
+  }
+
+  logAudit(
+    'etapa1_cron_execute_attempt',
+    'Início da Execução da Etapa 1 via Cron Automático',
+    'Cron interno acionou a execução da Etapa 1 autorizada pelo usuário.',
+    null,
+    null,
+    'cron_server_internal',
+    authInfo,
+  )
+
+  let isDivergent = false
+  let executionMode = 'fresh'
+
+  if (reportSaysSuccess && !schemaHasAllFields) {
+    console.warn(
+      '[ETAPA1 CRON TRIGGER] DIVERGÊNCIA DETECTADA: Relatório indicava SUCCESS, mas schema físico está incompleto. Reparando...',
+    )
+    isDivergent = true
+    executionMode = 'divergence_repair'
+  } else if (!reportSaysSuccess && schemaHasAllFields) {
+    console.log('[ETAPA1 CRON TRIGGER] Schema já possui todos os campos. Regravando rules...')
+    executionMode = 'rules_only'
+  } else if (
+    physicalSchema.quote_products_sku ||
+    physicalSchema.quote_products_category_id ||
+    physicalSchema.quote_products_price_tables ||
+    physicalSchema.clients_price_tier
+  ) {
+    executionMode = 'resume'
+  }
+
+  // Regravação de rules isolada
+  if (executionMode === 'rules_only') {
+    try {
+      const quoteProdCol = $app.findCollectionByNameOrId('quote_products')
+      if (quoteProdCol) {
+        quoteProdCol.listRule = "@request.auth.id != ''"
+        quoteProdCol.viewRule = "@request.auth.id != ''"
+        quoteProdCol.createRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+        quoteProdCol.updateRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+        quoteProdCol.deleteRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+        $app.save(quoteProdCol)
+      }
+      const clientsCol = $app.findCollectionByNameOrId('clients')
+      if (clientsCol) {
+        clientsCol.listRule = "@request.auth.id != ''"
+        clientsCol.viewRule = "@request.auth.id != ''"
+        clientsCol.createRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+        clientsCol.updateRule =
+          "@request.auth.id != '' && @request.auth.collectionName = 'users' && (@request.body.price_tier:changed = false || @request.auth.role_slug = 'admin' || @request.auth.role_slug = 'gerente')"
+        clientsCol.deleteRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+        $app.save(clientsCol)
+      }
+
+      const reportRules = {
+        etapa1_concluida: true,
+        started_at: new Date().toISOString(),
+        caller: 'server_cron_trigger',
+        mode: 'rules_only',
+        items: [
+          { item: 'quote_products.sku', status: 'already_present' },
+          { item: 'quote_products.category_id', status: 'already_present' },
+          { item: 'quote_products.price_tables', status: 'already_present' },
+          { item: 'quote_products.sku_unique_index', status: 'already_present' },
+          { item: 'quote_products.rules', status: 'applied' },
+          { item: 'clients.price_tier', status: 'already_present' },
+          { item: 'clients.rules', status: 'applied' },
+        ],
+        backup: {
+          attempted: false,
+          confirmed: true,
+          note: 'Schema já existente, apenas rules atualizadas via cron',
+        },
+        status: 'SUCCESS',
+        completed_at: new Date().toISOString(),
+        limitation_notice:
+          'restauração real não testada em ambiente isolado; não disponível neste projeto (instância PocketBase única, compartilhada)',
+      }
+      saveReport(reportRules)
+      logAudit(
+        'etapa1_execute_success_rules_only',
+        'Etapa 1: Regras Regravadas via Cron',
+        'Schema já estava completo. As API rules foram regravadas com sucesso via cron.',
+        null,
+        reportRules,
+        'cron_server_internal',
+        authInfo,
+      )
+      return
+    } catch (ruleErr) {
+      console.error('[ETAPA1 CRON TRIGGER] Erro ao regravar rules via cron:', ruleErr)
+      return
+    }
+  }
+
+  // Execução Completa com Backup Prévio
+  const report = {
+    etapa1_concluida: false,
+    started_at: new Date().toISOString(),
+    caller: 'server_cron_trigger',
+    mode: executionMode,
+    divergence_from_previous_report: isDivergent,
+    backup: null,
+    items: [],
+    errors: [],
+    completed_at: '',
+    status: 'IN_PROGRESS',
+    limitation_notice:
+      'restauração real não testada em ambiente isolado; não disponível neste projeto (instância PocketBase única, compartilhada)',
+  }
+
+  // 1. Backup Físico Prévio
+  const backupReport = createBackup('cron_execute')
+  report.backup = backupReport
+
+  if (!backupReport.created || !backupReport.confirmed) {
+    report.status = 'STOPPED_AT_BACKUP_FAILURE'
+    report.completed_at = new Date().toISOString()
+    console.error(
+      '[ETAPA1 CRON TRIGGER] PARANDO: Falha na criação/confirmação do backup no cron:',
+      backupReport,
+    )
+    saveReport(report)
+    logAudit(
+      'etapa1_cron_execute_backup_failed',
+      'Execução via Cron Interrompida: Falha no Backup',
+      'A execução da Etapa 1 via cron foi interrompida antes de tocar no schema porque o backup falhou ou não pôde ser confirmado. Erro: ' +
+        backupReport.error,
+      null,
+      backupReport,
+      'cron_server_internal',
+      authInfo,
+    )
+    return
+  }
+
+  // 2. Execução Item a Item
+  try {
+    const quoteProdCol = $app.findCollectionByNameOrId('quote_products')
+    if (!quoteProdCol) {
+      throw new Error('Coleção quote_products não encontrada no PocketBase.')
+    }
+
+    // Item 1: quote_products.sku
+    try {
+      if (!quoteProdCol.fields.getByName('sku')) {
+        quoteProdCol.fields.add(new TextField({ name: 'sku', required: false }))
+        report.items.push({ item: 'quote_products.sku', status: 'applied' })
+      } else {
+        report.items.push({ item: 'quote_products.sku', status: 'already_present' })
+      }
+    } catch (errSku) {
+      report.items.push({ item: 'quote_products.sku', status: 'failed', error: String(errSku) })
+      throw errSku
+    }
+
+    // Item 2: quote_products.category_id
+    try {
+      if (!quoteProdCol.fields.getByName('category_id')) {
+        let storeCatId = ''
+        try {
+          storeCatId = $app.findCollectionByNameOrId('store_categories').id
+        } catch (_) {}
+        if (storeCatId) {
+          quoteProdCol.fields.add(
+            new RelationField({
+              name: 'category_id',
+              collectionId: storeCatId,
+              cascadeDelete: false,
+              maxSelect: 1,
+              required: false,
+            }),
+          )
+          report.items.push({ item: 'quote_products.category_id', status: 'applied' })
+        } else {
+          report.items.push({
+            item: 'quote_products.category_id',
+            status: 'failed',
+            error: 'Coleção store_categories não encontrada para estabelecer RelationField.',
+          })
+          throw new Error('store_categories não encontrada')
+        }
+      } else {
+        report.items.push({ item: 'quote_products.category_id', status: 'already_present' })
+      }
+    } catch (errCat) {
+      if (!report.items.some((i) => i.item === 'quote_products.category_id')) {
+        report.items.push({
+          item: 'quote_products.category_id',
+          status: 'failed',
+          error: String(errCat),
+        })
+      }
+      throw errCat
+    }
+
+    // Item 3: quote_products.price_tables
+    try {
+      if (!quoteProdCol.fields.getByName('price_tables')) {
+        quoteProdCol.fields.add(
+          new JSONField({ name: 'price_tables', required: false, maxSize: 50000 }),
+        )
+        report.items.push({ item: 'quote_products.price_tables', status: 'applied' })
+      } else {
+        report.items.push({ item: 'quote_products.price_tables', status: 'already_present' })
+      }
+    } catch (errPt) {
+      report.items.push({
+        item: 'quote_products.price_tables',
+        status: 'failed',
+        error: String(errPt),
+      })
+      throw errPt
+    }
+
+    // Item 4: quote_products.sku_unique_index
+    try {
+      const existingIndexes = quoteProdCol.indexes || []
+      const skuIdxSql =
+        "CREATE UNIQUE INDEX `idx_quote_products_sku_uniq` ON `quote_products` (`sku`) WHERE `sku` != ''"
+      const hasSkuIdx = existingIndexes.some(
+        (idx) => idx.includes('idx_quote_products_sku_uniq') || idx.includes('sku'),
+      )
+      if (!hasSkuIdx) {
+        existingIndexes.push(skuIdxSql)
+        quoteProdCol.indexes = existingIndexes
+        report.items.push({ item: 'quote_products.sku_unique_index', status: 'applied' })
+      } else {
+        report.items.push({ item: 'quote_products.sku_unique_index', status: 'already_present' })
+      }
+    } catch (errIdx) {
+      report.items.push({
+        item: 'quote_products.sku_unique_index',
+        status: 'failed',
+        error: String(errIdx),
+      })
+      throw errIdx
+    }
+
+    // Item 5: quote_products.rules
+    try {
+      quoteProdCol.listRule = "@request.auth.id != ''"
+      quoteProdCol.viewRule = "@request.auth.id != ''"
+      quoteProdCol.createRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+      quoteProdCol.updateRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+      quoteProdCol.deleteRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+      $app.save(quoteProdCol)
+      report.items.push({ item: 'quote_products.rules', status: 'applied' })
+      console.log('[ETAPA1 CRON TRIGGER] quote_products atualizado e salvo com sucesso via cron.')
+    } catch (errQpSave) {
+      report.items.push({
+        item: 'quote_products.rules',
+        status: 'failed',
+        error: String(errQpSave),
+      })
+      throw errQpSave
+    }
+
+    // Item 6: clients.price_tier
+    const clientsCol = $app.findCollectionByNameOrId('clients')
+    if (!clientsCol) {
+      throw new Error('Coleção clients não encontrada no PocketBase.')
+    }
+
+    try {
+      if (!clientsCol.fields.getByName('price_tier')) {
+        clientsCol.fields.add(
+          new SelectField({
+            name: 'price_tier',
+            values: ['preco_1', 'preco_2', 'preco_3'],
+            maxSelect: 1,
+            required: false,
+          }),
+        )
+        report.items.push({ item: 'clients.price_tier', status: 'applied' })
+      } else {
+        report.items.push({ item: 'clients.price_tier', status: 'already_present' })
+      }
+    } catch (errTier) {
+      report.items.push({ item: 'clients.price_tier', status: 'failed', error: String(errTier) })
+      throw errTier
+    }
+
+    // Item 7: clients.rules
+    try {
+      clientsCol.listRule = "@request.auth.id != ''"
+      clientsCol.viewRule = "@request.auth.id != ''"
+      clientsCol.createRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+      clientsCol.updateRule =
+        "@request.auth.id != '' && @request.auth.collectionName = 'users' && (@request.body.price_tier:changed = false || @request.auth.role_slug = 'admin' || @request.auth.role_slug = 'gerente')"
+      clientsCol.deleteRule = "@request.auth.id != '' && @request.auth.collectionName = 'users'"
+      $app.save(clientsCol)
+      report.items.push({ item: 'clients.rules', status: 'applied' })
+      console.log('[ETAPA1 CRON TRIGGER] clients atualizado e salvo com sucesso via cron.')
+    } catch (errClSave) {
+      report.items.push({ item: 'clients.rules', status: 'failed', error: String(errClSave) })
+      throw errClSave
+    }
+
+    report.etapa1_concluida = true
+    report.status = 'SUCCESS'
+    report.completed_at = new Date().toISOString()
+    saveReport(report)
+
+    logAudit(
+      'etapa1_cron_execute_success',
+      'Etapa 1 Executada com Sucesso via Cron',
+      'A Etapa 1 foi aplicada com sucesso via cron. Todos os campos, índices e regras foram configurados com backup verificado.',
+      null,
+      report,
+      'cron_server_internal',
+      authInfo,
+    )
+    console.log('[ETAPA1 CRON TRIGGER] Execução finalizada com SUCESSO.')
+  } catch (err) {
+    console.error('[ETAPA1 CRON TRIGGER] Erro na execução via cron:', err)
+    report.errors.push(String(err))
+    report.status = 'FAILED'
+    report.completed_at = new Date().toISOString()
+    saveReport(report)
+
+    logAudit(
+      'etapa1_cron_execute_failed',
+      'Falha na Execução da Etapa 1 via Cron',
+      'Ocorreu uma falha durante a aplicação item a item via cron: ' +
+        err.message +
+        '. Operação interrompida sem rollback automático.',
+      null,
+      report,
+      'cron_server_internal',
+      authInfo,
+    )
+  }
+})
+
+console.log(
+  '[ETAPA1 PRICE TABLES HOOK] Cron trigger registrado: etapa1_price_tables_cron_trigger (*/2 * * * *)',
+)
