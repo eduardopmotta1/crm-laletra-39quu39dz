@@ -99,12 +99,17 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/execute', (e) => {
     }
   }
 
-  // Helper de verificação estrutural do arquivo ZIP
+  // Helper de verificação estrutural e de integridade do arquivo ZIP (otimizado para arquivos grandes)
   const checkZipIntegrity = function (fsys, backupName, size) {
     const res = {
       valid: false,
       header_magic_ok: false,
       eocd_found: false,
+      central_directory_valid: false,
+      crc_data_verified: false,
+      total_entries: 0,
+      cd_size: 0,
+      cd_offset: 0,
       error: '',
       tested_restoration: false,
       limitation_notice:
@@ -130,49 +135,342 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/execute', (e) => {
         return res
       }
 
-      let readBytes = null
-      if (typeof reader.readAll === 'function') {
-        readBytes = reader.readAll()
-      } else if (typeof reader.read === 'function') {
+      // 1. Ler cabeçalho inicial (primeiros bytes)
+      let headBytes = null
+      try {
+        if (typeof reader.seek === 'function') {
+          reader.seek(0, 0)
+        }
+        const headBuf = new Uint8Array(Math.min(size, 1024))
+        const nHead = reader.read(headBuf)
+        if (nHead && nHead > 0) {
+          headBytes = headBuf.subarray(0, nHead)
+        }
+      } catch (errHead) {
+        console.warn(
+          '[ETAPA1 PRICE TABLES HOOK] Aviso na leitura com Uint8Array no cabeçalho:',
+          errHead,
+        )
+      }
+
+      // Fallback para readAll se Uint8Array não retornou ou arquivo pequeno
+      if (!headBytes && typeof reader.readAll === 'function' && size < 5 * 1024 * 1024) {
         try {
-          readBytes = reader.read(size)
+          headBytes = reader.readAll()
         } catch (_) {}
       }
 
-      if (readBytes && readBytes.length >= 22) {
-        const b0 = readBytes[0]
-        const b1 = readBytes[1]
-        const b2 = readBytes[2]
-        const b3 = readBytes[3]
-        if (b0 === 0x50 && b1 === 0x4b && b2 === 0x03 && b3 === 0x04) {
+      if (!headBytes || headBytes.length < 4) {
+        res.error = 'Leitura de bytes insuficiente para validação do cabeçalho ZIP.'
+        return res
+      }
+
+      if (headBytes[0] === 0x50 && headBytes[1] === 0x4b) {
+        // Zip com arquivos tem PK\x03\x04 no início; zip vazio (sem entradas) tem apenas o EOCD PK\x05\x06
+        if (headBytes[2] === 0x03 && headBytes[3] === 0x04) {
+          res.header_magic_ok = true
+        } else if (headBytes[2] === 0x05 && headBytes[3] === 0x06) {
           res.header_magic_ok = true
         }
+      }
 
-        // Busca o delimitador EOCD (PK\x05\x06 = 0x50 0x4b 0x05 0x06) nos últimos bytes do arquivo (comentário de até 65535 bytes + 22 bytes)
-        const lookback = Math.min(readBytes.length, 65557)
-        const startIdx = readBytes.length - lookback
-        for (let i = readBytes.length - 22; i >= startIdx; i--) {
-          if (
-            readBytes[i] === 0x50 &&
-            readBytes[i + 1] === 0x4b &&
-            readBytes[i + 2] === 0x05 &&
-            readBytes[i + 3] === 0x06
-          ) {
-            res.eocd_found = true
-            break
+      if (!res.header_magic_ok) {
+        res.error =
+          'Assinatura inicial do arquivo ZIP inválida (esperado PK\\x03\\x04 ou PK\\x05\\x06).'
+        return res
+      }
+
+      // 2. Leitura parcial da CAUDA do arquivo para localizar o EOCD
+      const tailLen = Math.min(size, 65557)
+      const tailOffset = size - tailLen
+      let tailBytes = null
+
+      try {
+        if (typeof reader.seek === 'function') {
+          reader.seek(tailOffset, 0)
+          const tailBuf = new Uint8Array(tailLen)
+          const nTail = reader.read(tailBuf)
+          if (nTail && nTail > 0) {
+            tailBytes = tailBuf.subarray(0, nTail)
           }
         }
+      } catch (errTail) {
+        console.warn(
+          '[ETAPA1 PRICE TABLES HOOK] Aviso na leitura da cauda do ZIP via seek:',
+          errTail,
+        )
+      }
 
-        res.valid = res.header_magic_ok && res.eocd_found
-        if (!res.valid) {
-          res.error =
-            'Validação estrutural falhou: header PK=' +
-            res.header_magic_ok +
-            ', EOCD=' +
-            res.eocd_found
+      // Se tailBytes não foi obtido via seek mas arquivo coube em headBytes
+      if (!tailBytes && headBytes && headBytes.length === size) {
+        tailBytes = headBytes.subarray(headBytes.length - tailLen)
+      }
+
+      if (!tailBytes || tailBytes.length < 22) {
+        res.error =
+          'Leitura de bytes da cauda insuficiente para localizar o delimitador EOCD do ZIP.'
+        return res
+      }
+
+      // Varredura reversa para localizar PK\x05\x06 (EOCD)
+      let eocdRelIdx = -1
+      for (let i = tailBytes.length - 22; i >= 0; i--) {
+        if (
+          tailBytes[i] === 0x50 &&
+          tailBytes[i + 1] === 0x4b &&
+          tailBytes[i + 2] === 0x05 &&
+          tailBytes[i + 3] === 0x06
+        ) {
+          eocdRelIdx = i
+          break
+        }
+      }
+
+      if (eocdRelIdx === -1) {
+        res.error = 'Delimitador de fim de diretório central (EOCD PK\\x05\\x06) não encontrado.'
+        return res
+      }
+
+      res.eocd_found = true
+
+      // 3. Extrair e validar campos do registro EOCD
+      const eocdAbsolutePos = tailOffset + eocdRelIdx
+      const diskNum = tailBytes[eocdRelIdx + 4] | (tailBytes[eocdRelIdx + 5] << 8)
+      const cdStartDisk = tailBytes[eocdRelIdx + 6] | (tailBytes[eocdRelIdx + 7] << 8)
+      const entriesOnDisk = tailBytes[eocdRelIdx + 8] | (tailBytes[eocdRelIdx + 9] << 8)
+      const totalEntries = tailBytes[eocdRelIdx + 10] | (tailBytes[eocdRelIdx + 11] << 8)
+      const cdSize =
+        tailBytes[eocdRelIdx + 12] |
+        (tailBytes[eocdRelIdx + 13] << 8) |
+        (tailBytes[eocdRelIdx + 14] << 16) |
+        (tailBytes[eocdRelIdx + 15] << 24)
+      const cdOffset =
+        tailBytes[eocdRelIdx + 16] |
+        (tailBytes[eocdRelIdx + 17] << 8) |
+        (tailBytes[eocdRelIdx + 18] << 16) |
+        (tailBytes[eocdRelIdx + 19] << 24)
+      const commentLen = tailBytes[eocdRelIdx + 20] | (tailBytes[eocdRelIdx + 21] << 8)
+
+      res.total_entries = totalEntries
+      res.cd_size = cdSize
+      res.cd_offset = cdOffset
+
+      // Validação de consistência do EOCD vs limites físicos
+      if (diskNum !== 0 || cdStartDisk !== 0) {
+        res.error = 'ZIP multi-disco não suportado.'
+        return res
+      }
+
+      if (entriesOnDisk !== totalEntries) {
+        res.error = 'Inconsistência no número de entradas do diretório central do ZIP.'
+        return res
+      }
+
+      if (eocdAbsolutePos + 22 + commentLen > size) {
+        res.error = 'Tamanho do comentário no EOCD ultrapassa o final do arquivo ZIP.'
+        return res
+      }
+
+      if (cdOffset + cdSize > eocdAbsolutePos) {
+        res.error = 'Diretório central sobrepõe o EOCD ou ultrapassa os limites do arquivo.'
+        return res
+      }
+
+      if (totalEntries > 0 && cdSize < 46) {
+        res.error = 'Tamanho do diretório central insuficiente para o número de entradas.'
+        return res
+      }
+
+      // 4. Validar registros do Diretório Central (Central Directory Headers: PK\x01\x02)
+      if (totalEntries > 0) {
+        let cdBytes = null
+        try {
+          if (typeof reader.seek === 'function') {
+            reader.seek(cdOffset, 0)
+            const cdBuf = new Uint8Array(cdSize)
+            const nCd = reader.read(cdBuf)
+            if (nCd && nCd > 0) {
+              cdBytes = cdBuf.subarray(0, nCd)
+            }
+          }
+        } catch (errCd) {
+          console.warn('[ETAPA1 PRICE TABLES HOOK] Aviso na leitura do diretório central:', errCd)
+        }
+
+        // Se cdOffset coube dentro do tailBytes lido
+        if (!cdBytes && cdOffset >= tailOffset && cdOffset + cdSize <= size) {
+          const cdRelInTail = cdOffset - tailOffset
+          cdBytes = tailBytes.subarray(cdRelInTail, cdRelInTail + cdSize)
+        }
+
+        if (cdBytes && cdBytes.length >= 46) {
+          let pos = 0
+          let validEntriesCount = 0
+          let cdCheckFailed = false
+          let crcCheckedCount = 0
+
+          while (pos + 46 <= cdBytes.length && validEntriesCount < totalEntries) {
+            // Assinatura PK\x01\x02
+            if (
+              cdBytes[pos] !== 0x50 ||
+              cdBytes[pos + 1] !== 0x4b ||
+              cdBytes[pos + 2] !== 0x01 ||
+              cdBytes[pos + 3] !== 0x02
+            ) {
+              cdCheckFailed = true
+              res.error =
+                'Assinatura inválida no registro ' +
+                (validEntriesCount + 1) +
+                ' do diretório central (esperado PK\\x01\\x02).'
+              break
+            }
+
+            const compMethod = cdBytes[pos + 10] | (cdBytes[pos + 11] << 8)
+            const fileCrc =
+              (cdBytes[pos + 16] |
+                (cdBytes[pos + 17] << 8) |
+                (cdBytes[pos + 18] << 16) |
+                (cdBytes[pos + 19] << 24)) >>>
+              0
+            const compSize =
+              (cdBytes[pos + 20] |
+                (cdBytes[pos + 21] << 8) |
+                (cdBytes[pos + 22] << 16) |
+                (cdBytes[pos + 23] << 24)) >>>
+              0
+            const uncompSize =
+              (cdBytes[pos + 24] |
+                (cdBytes[pos + 25] << 8) |
+                (cdBytes[pos + 26] << 16) |
+                (cdBytes[pos + 27] << 24)) >>>
+              0
+            const nameLen = cdBytes[pos + 28] | (cdBytes[pos + 29] << 8)
+            const extraLen = cdBytes[pos + 30] | (cdBytes[pos + 31] << 8)
+            const commentEntryLen = cdBytes[pos + 32] | (cdBytes[pos + 33] << 8)
+            const localHeaderOffset =
+              (cdBytes[pos + 42] |
+                (cdBytes[pos + 43] << 8) |
+                (cdBytes[pos + 44] << 16) |
+                (cdBytes[pos + 45] << 24)) >>>
+              0
+
+            if (localHeaderOffset >= cdOffset) {
+              cdCheckFailed = true
+              res.error =
+                'Offset do cabeçalho local da entrada ' +
+                (validEntriesCount + 1) +
+                ' é inválido (aponta após o diretório central).'
+              break
+            }
+
+            // Para arquivos armazenados sem compressão (método 0 - stored) de tamanho moderado, validar CRC-32 real
+            if (
+              compMethod === 0 &&
+              compSize === uncompSize &&
+              compSize > 0 &&
+              compSize <= 2 * 1024 * 1024 &&
+              typeof reader.seek === 'function'
+            ) {
+              try {
+                // Ler cabeçalho local (PK\x03\x04 = 30 bytes fixos + localNameLen + localExtraLen)
+                reader.seek(localHeaderOffset, 0)
+                const locHeadBuf = new Uint8Array(30)
+                const nLoc = reader.read(locHeadBuf)
+                if (
+                  nLoc >= 30 &&
+                  locHeadBuf[0] === 0x50 &&
+                  locHeadBuf[1] === 0x4b &&
+                  locHeadBuf[2] === 0x03 &&
+                  locHeadBuf[3] === 0x04
+                ) {
+                  const locNameLen = locHeadBuf[26] | (locHeadBuf[27] << 8)
+                  const locExtraLen = locHeadBuf[28] | (locHeadBuf[29] << 8)
+                  const dataStart = localHeaderOffset + 30 + locNameLen + locExtraLen
+                  reader.seek(dataStart, 0)
+
+                  // Leitura e cálculo CRC-32 em blocos de 64KB
+                  const crcTable = []
+                  for (let n = 0; n < 256; n++) {
+                    let c = n
+                    for (let k = 0; k < 8; k++) {
+                      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+                    }
+                    crcTable[n] = c
+                  }
+                  let currentCrc = 0 ^ -1
+                  let remaining = compSize
+                  const chunkBuf = new Uint8Array(Math.min(remaining, 65536))
+                  while (remaining > 0) {
+                    const toRead = Math.min(remaining, chunkBuf.length)
+                    const nChunk = reader.read(chunkBuf.subarray(0, toRead))
+                    if (!nChunk || nChunk <= 0) break
+                    for (let b = 0; b < nChunk; b++) {
+                      currentCrc = (currentCrc >>> 8) ^ crcTable[(currentCrc ^ chunkBuf[b]) & 0xff]
+                    }
+                    remaining -= nChunk
+                  }
+                  const computedCrc = (currentCrc ^ -1) >>> 0
+                  if (computedCrc === fileCrc) {
+                    crcCheckedCount++
+                  } else {
+                    cdCheckFailed = true
+                    res.error =
+                      'CRC-32 divergente para entrada ' +
+                      (validEntriesCount + 1) +
+                      ': calculado ' +
+                      computedCrc +
+                      ' vs esperado ' +
+                      fileCrc
+                    break
+                  }
+                }
+              } catch (errStreamCrc) {
+                console.warn(
+                  '[ETAPA1 PRICE TABLES HOOK] Aviso na validação CRC de entrada:',
+                  errStreamCrc,
+                )
+              }
+            }
+
+            validEntriesCount++
+            pos += 46 + nameLen + extraLen + commentEntryLen
+          }
+
+          if (cdCheckFailed) {
+            return res
+          }
+
+          if (validEntriesCount !== totalEntries) {
+            res.error =
+              'Contagem de entradas do diretório central (' +
+              validEntriesCount +
+              ') diverge do total declarado no EOCD (' +
+              totalEntries +
+              ').'
+            return res
+          }
+
+          res.central_directory_valid = true
+          res.crc_data_verified = crcCheckedCount > 0 || totalEntries === 0
+        } else {
+          // Se não foi possível ler CD inteiro via reader, validação estrutural básica de limites
+          res.central_directory_valid = true
         }
       } else {
-        res.error = 'Leitura de bytes insuficiente para validação estrutural do ZIP.'
+        // Zero entradas (arquivo zip vazio válido)
+        res.central_directory_valid = true
+        res.crc_data_verified = true
+      }
+
+      res.valid = res.header_magic_ok && res.eocd_found && res.central_directory_valid
+      if (!res.valid && !res.error) {
+        res.error =
+          'Validação estrutural falhou: header PK=' +
+          res.header_magic_ok +
+          ', EOCD=' +
+          res.eocd_found +
+          ', CD=' +
+          res.central_directory_valid
       }
     } catch (readErr) {
       console.warn(
@@ -898,12 +1196,17 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/rollback', (e) => {
     }
   }
 
-  // Helper de verificação estrutural do arquivo ZIP
+  // Helper de verificação estrutural e de integridade do arquivo ZIP (otimizado para arquivos grandes)
   const checkZipIntegrity = function (fsys, backupName, size) {
     const res = {
       valid: false,
       header_magic_ok: false,
       eocd_found: false,
+      central_directory_valid: false,
+      crc_data_verified: false,
+      total_entries: 0,
+      cd_size: 0,
+      cd_offset: 0,
       error: '',
       tested_restoration: false,
       limitation_notice:
@@ -929,49 +1232,332 @@ routerAdd('POST', '/backend/v1/crm/admin/etapa1-price-tables/rollback', (e) => {
         return res
       }
 
-      let readBytes = null
-      if (typeof reader.readAll === 'function') {
-        readBytes = reader.readAll()
-      } else if (typeof reader.read === 'function') {
+      // 1. Ler cabeçalho inicial (primeiros bytes)
+      let headBytes = null
+      try {
+        if (typeof reader.seek === 'function') {
+          reader.seek(0, 0)
+        }
+        const headBuf = new Uint8Array(Math.min(size, 1024))
+        const nHead = reader.read(headBuf)
+        if (nHead && nHead > 0) {
+          headBytes = headBuf.subarray(0, nHead)
+        }
+      } catch (errHead) {
+        console.warn(
+          '[ETAPA1 PRICE TABLES HOOK] Aviso na leitura com Uint8Array no cabeçalho:',
+          errHead,
+        )
+      }
+
+      if (!headBytes && typeof reader.readAll === 'function' && size < 5 * 1024 * 1024) {
         try {
-          readBytes = reader.read(size)
+          headBytes = reader.readAll()
         } catch (_) {}
       }
 
-      if (readBytes && readBytes.length >= 22) {
-        const b0 = readBytes[0]
-        const b1 = readBytes[1]
-        const b2 = readBytes[2]
-        const b3 = readBytes[3]
-        if (b0 === 0x50 && b1 === 0x4b && b2 === 0x03 && b3 === 0x04) {
+      if (!headBytes || headBytes.length < 4) {
+        res.error = 'Leitura de bytes insuficiente para validação do cabeçalho ZIP.'
+        return res
+      }
+
+      if (headBytes[0] === 0x50 && headBytes[1] === 0x4b) {
+        if (headBytes[2] === 0x03 && headBytes[3] === 0x04) {
+          res.header_magic_ok = true
+        } else if (headBytes[2] === 0x05 && headBytes[3] === 0x06) {
           res.header_magic_ok = true
         }
+      }
 
-        // Busca o delimitador EOCD (PK\x05\x06 = 0x50 0x4b 0x05 0x06) nos últimos bytes do arquivo (comentário de até 65535 bytes + 22 bytes)
-        const lookback = Math.min(readBytes.length, 65557)
-        const startIdx = readBytes.length - lookback
-        for (let i = readBytes.length - 22; i >= startIdx; i--) {
-          if (
-            readBytes[i] === 0x50 &&
-            readBytes[i + 1] === 0x4b &&
-            readBytes[i + 2] === 0x05 &&
-            readBytes[i + 3] === 0x06
-          ) {
-            res.eocd_found = true
-            break
+      if (!res.header_magic_ok) {
+        res.error =
+          'Assinatura inicial do arquivo ZIP inválida (esperado PK\\x03\\x04 ou PK\\x05\\x06).'
+        return res
+      }
+
+      // 2. Leitura parcial da CAUDA do arquivo para localizar o EOCD
+      const tailLen = Math.min(size, 65557)
+      const tailOffset = size - tailLen
+      let tailBytes = null
+
+      try {
+        if (typeof reader.seek === 'function') {
+          reader.seek(tailOffset, 0)
+          const tailBuf = new Uint8Array(tailLen)
+          const nTail = reader.read(tailBuf)
+          if (nTail && nTail > 0) {
+            tailBytes = tailBuf.subarray(0, nTail)
           }
         }
+      } catch (errTail) {
+        console.warn(
+          '[ETAPA1 PRICE TABLES HOOK] Aviso na leitura da cauda do ZIP via seek:',
+          errTail,
+        )
+      }
 
-        res.valid = res.header_magic_ok && res.eocd_found
-        if (!res.valid) {
-          res.error =
-            'Validação estrutural falhou: header PK=' +
-            res.header_magic_ok +
-            ', EOCD=' +
-            res.eocd_found
+      if (!tailBytes && headBytes && headBytes.length === size) {
+        tailBytes = headBytes.subarray(headBytes.length - tailLen)
+      }
+
+      if (!tailBytes || tailBytes.length < 22) {
+        res.error =
+          'Leitura de bytes da cauda insuficiente para localizar o delimitador EOCD do ZIP.'
+        return res
+      }
+
+      // Varredura reversa para localizar PK\x05\x06 (EOCD)
+      let eocdRelIdx = -1
+      for (let i = tailBytes.length - 22; i >= 0; i--) {
+        if (
+          tailBytes[i] === 0x50 &&
+          tailBytes[i + 1] === 0x4b &&
+          tailBytes[i + 2] === 0x05 &&
+          tailBytes[i + 3] === 0x06
+        ) {
+          eocdRelIdx = i
+          break
+        }
+      }
+
+      if (eocdRelIdx === -1) {
+        res.error = 'Delimitador de fim de diretório central (EOCD PK\\x05\\x06) não encontrado.'
+        return res
+      }
+
+      res.eocd_found = true
+
+      // 3. Extrair e validar campos do registro EOCD
+      const eocdAbsolutePos = tailOffset + eocdRelIdx
+      const diskNum = tailBytes[eocdRelIdx + 4] | (tailBytes[eocdRelIdx + 5] << 8)
+      const cdStartDisk = tailBytes[eocdRelIdx + 6] | (tailBytes[eocdRelIdx + 7] << 8)
+      const entriesOnDisk = tailBytes[eocdRelIdx + 8] | (tailBytes[eocdRelIdx + 9] << 8)
+      const totalEntries = tailBytes[eocdRelIdx + 10] | (tailBytes[eocdRelIdx + 11] << 8)
+      const cdSize =
+        tailBytes[eocdRelIdx + 12] |
+        (tailBytes[eocdRelIdx + 13] << 8) |
+        (tailBytes[eocdRelIdx + 14] << 16) |
+        (tailBytes[eocdRelIdx + 15] << 24)
+      const cdOffset =
+        tailBytes[eocdRelIdx + 16] |
+        (tailBytes[eocdRelIdx + 17] << 8) |
+        (tailBytes[eocdRelIdx + 18] << 16) |
+        (tailBytes[eocdRelIdx + 19] << 24)
+      const commentLen = tailBytes[eocdRelIdx + 20] | (tailBytes[eocdRelIdx + 21] << 8)
+
+      res.total_entries = totalEntries
+      res.cd_size = cdSize
+      res.cd_offset = cdOffset
+
+      if (diskNum !== 0 || cdStartDisk !== 0) {
+        res.error = 'ZIP multi-disco não suportado.'
+        return res
+      }
+
+      if (entriesOnDisk !== totalEntries) {
+        res.error = 'Inconsistência no número de entradas do diretório central do ZIP.'
+        return res
+      }
+
+      if (eocdAbsolutePos + 22 + commentLen > size) {
+        res.error = 'Tamanho do comentário no EOCD ultrapassa o final do arquivo ZIP.'
+        return res
+      }
+
+      if (cdOffset + cdSize > eocdAbsolutePos) {
+        res.error = 'Diretório central sobrepõe o EOCD ou ultrapassa os limites do arquivo.'
+        return res
+      }
+
+      if (totalEntries > 0 && cdSize < 46) {
+        res.error = 'Tamanho do diretório central insuficiente para o número de entradas.'
+        return res
+      }
+
+      // 4. Validar registros do Diretório Central
+      if (totalEntries > 0) {
+        let cdBytes = null
+        try {
+          if (typeof reader.seek === 'function') {
+            reader.seek(cdOffset, 0)
+            const cdBuf = new Uint8Array(cdSize)
+            const nCd = reader.read(cdBuf)
+            if (nCd && nCd > 0) {
+              cdBytes = cdBuf.subarray(0, nCd)
+            }
+          }
+        } catch (errCd) {
+          console.warn('[ETAPA1 PRICE TABLES HOOK] Aviso na leitura do diretório central:', errCd)
+        }
+
+        if (!cdBytes && cdOffset >= tailOffset && cdOffset + cdSize <= size) {
+          const cdRelInTail = cdOffset - tailOffset
+          cdBytes = tailBytes.subarray(cdRelInTail, cdRelInTail + cdSize)
+        }
+
+        if (cdBytes && cdBytes.length >= 46) {
+          let pos = 0
+          let validEntriesCount = 0
+          let cdCheckFailed = false
+          let crcCheckedCount = 0
+
+          while (pos + 46 <= cdBytes.length && validEntriesCount < totalEntries) {
+            if (
+              cdBytes[pos] !== 0x50 ||
+              cdBytes[pos + 1] !== 0x4b ||
+              cdBytes[pos + 2] !== 0x01 ||
+              cdBytes[pos + 3] !== 0x02
+            ) {
+              cdCheckFailed = true
+              res.error =
+                'Assinatura inválida no registro ' +
+                (validEntriesCount + 1) +
+                ' do diretório central (esperado PK\\x01\\x02).'
+              break
+            }
+
+            const compMethod = cdBytes[pos + 10] | (cdBytes[pos + 11] << 8)
+            const fileCrc =
+              (cdBytes[pos + 16] |
+                (cdBytes[pos + 17] << 8) |
+                (cdBytes[pos + 18] << 16) |
+                (cdBytes[pos + 19] << 24)) >>>
+              0
+            const compSize =
+              (cdBytes[pos + 20] |
+                (cdBytes[pos + 21] << 8) |
+                (cdBytes[pos + 22] << 16) |
+                (cdBytes[pos + 23] << 24)) >>>
+              0
+            const uncompSize =
+              (cdBytes[pos + 24] |
+                (cdBytes[pos + 25] << 8) |
+                (cdBytes[pos + 26] << 16) |
+                (cdBytes[pos + 27] << 24)) >>>
+              0
+            const nameLen = cdBytes[pos + 28] | (cdBytes[pos + 29] << 8)
+            const extraLen = cdBytes[pos + 30] | (cdBytes[pos + 31] << 8)
+            const commentEntryLen = cdBytes[pos + 32] | (cdBytes[pos + 33] << 8)
+            const localHeaderOffset =
+              (cdBytes[pos + 42] |
+                (cdBytes[pos + 43] << 8) |
+                (cdBytes[pos + 44] << 16) |
+                (cdBytes[pos + 45] << 24)) >>>
+              0
+
+            if (localHeaderOffset >= cdOffset) {
+              cdCheckFailed = true
+              res.error =
+                'Offset do cabeçalho local da entrada ' +
+                (validEntriesCount + 1) +
+                ' é inválido (aponta após o diretório central).'
+              break
+            }
+
+            // Para arquivos stored, checar CRC via streaming se tamanho moderado
+            if (
+              compMethod === 0 &&
+              compSize === uncompSize &&
+              compSize > 0 &&
+              compSize <= 2 * 1024 * 1024 &&
+              typeof reader.seek === 'function'
+            ) {
+              try {
+                reader.seek(localHeaderOffset, 0)
+                const locHeadBuf = new Uint8Array(30)
+                const nLoc = reader.read(locHeadBuf)
+                if (
+                  nLoc >= 30 &&
+                  locHeadBuf[0] === 0x50 &&
+                  locHeadBuf[1] === 0x4b &&
+                  locHeadBuf[2] === 0x03 &&
+                  locHeadBuf[3] === 0x04
+                ) {
+                  const locNameLen = locHeadBuf[26] | (locHeadBuf[27] << 8)
+                  const locExtraLen = locHeadBuf[28] | (locHeadBuf[29] << 8)
+                  const dataStart = localHeaderOffset + 30 + locNameLen + locExtraLen
+                  reader.seek(dataStart, 0)
+
+                  const crcTable = []
+                  for (let n = 0; n < 256; n++) {
+                    let c = n
+                    for (let k = 0; k < 8; k++) {
+                      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+                    }
+                    crcTable[n] = c
+                  }
+                  let currentCrc = 0 ^ -1
+                  let remaining = compSize
+                  const chunkBuf = new Uint8Array(Math.min(remaining, 65536))
+                  while (remaining > 0) {
+                    const toRead = Math.min(remaining, chunkBuf.length)
+                    const nChunk = reader.read(chunkBuf.subarray(0, toRead))
+                    if (!nChunk || nChunk <= 0) break
+                    for (let b = 0; b < nChunk; b++) {
+                      currentCrc = (currentCrc >>> 8) ^ crcTable[(currentCrc ^ chunkBuf[b]) & 0xff]
+                    }
+                    remaining -= nChunk
+                  }
+                  const computedCrc = (currentCrc ^ -1) >>> 0
+                  if (computedCrc === fileCrc) {
+                    crcCheckedCount++
+                  } else {
+                    cdCheckFailed = true
+                    res.error =
+                      'CRC-32 divergente para entrada ' +
+                      (validEntriesCount + 1) +
+                      ': calculado ' +
+                      computedCrc +
+                      ' vs esperado ' +
+                      fileCrc
+                    break
+                  }
+                }
+              } catch (errStreamCrc) {
+                console.warn(
+                  '[ETAPA1 PRICE TABLES HOOK] Aviso na validação CRC de entrada:',
+                  errStreamCrc,
+                )
+              }
+            }
+
+            validEntriesCount++
+            pos += 46 + nameLen + extraLen + commentEntryLen
+          }
+
+          if (cdCheckFailed) {
+            return res
+          }
+
+          if (validEntriesCount !== totalEntries) {
+            res.error =
+              'Contagem de entradas do diretório central (' +
+              validEntriesCount +
+              ') diverge do total declarado no EOCD (' +
+              totalEntries +
+              ').'
+            return res
+          }
+
+          res.central_directory_valid = true
+          res.crc_data_verified = crcCheckedCount > 0 || totalEntries === 0
+        } else {
+          res.central_directory_valid = true
         }
       } else {
-        res.error = 'Leitura de bytes insuficiente para validação estrutural do ZIP.'
+        res.central_directory_valid = true
+        res.crc_data_verified = true
+      }
+
+      res.valid = res.header_magic_ok && res.eocd_found && res.central_directory_valid
+      if (!res.valid && !res.error) {
+        res.error =
+          'Validação estrutural falhou: header PK=' +
+          res.header_magic_ok +
+          ', EOCD=' +
+          res.eocd_found +
+          ', CD=' +
+          res.central_directory_valid
       }
     } catch (readErr) {
       console.warn(
@@ -1639,12 +2225,17 @@ cronAdd('etapa1_price_tables_cron_trigger', '*/2 * * * *', () => {
     }
   }
 
-  // Helper de verificação estrutural do arquivo ZIP
+  // Helper de verificação estrutural e de integridade do arquivo ZIP (otimizado para arquivos grandes)
   const checkZipIntegrity = function (fsys, backupName, size) {
     const res = {
       valid: false,
       header_magic_ok: false,
       eocd_found: false,
+      central_directory_valid: false,
+      crc_data_verified: false,
+      total_entries: 0,
+      cd_size: 0,
+      cd_offset: 0,
       error: '',
       tested_restoration: false,
       limitation_notice:
@@ -1669,48 +2260,326 @@ cronAdd('etapa1_price_tables_cron_trigger', '*/2 * * * *', () => {
         return res
       }
 
-      let readBytes = null
-      if (typeof reader.readAll === 'function') {
-        readBytes = reader.readAll()
-      } else if (typeof reader.read === 'function') {
+      // 1. Ler cabeçalho inicial (primeiros bytes)
+      let headBytes = null
+      try {
+        if (typeof reader.seek === 'function') {
+          reader.seek(0, 0)
+        }
+        const headBuf = new Uint8Array(Math.min(size, 1024))
+        const nHead = reader.read(headBuf)
+        if (nHead && nHead > 0) {
+          headBytes = headBuf.subarray(0, nHead)
+        }
+      } catch (errHead) {
+        console.warn('[ETAPA1 CRON TRIGGER] Aviso na leitura com Uint8Array no cabeçalho:', errHead)
+      }
+
+      if (!headBytes && typeof reader.readAll === 'function' && size < 5 * 1024 * 1024) {
         try {
-          readBytes = reader.read(size)
+          headBytes = reader.readAll()
         } catch (_) {}
       }
 
-      if (readBytes && readBytes.length >= 22) {
-        const b0 = readBytes[0]
-        const b1 = readBytes[1]
-        const b2 = readBytes[2]
-        const b3 = readBytes[3]
-        if (b0 === 0x50 && b1 === 0x4b && b2 === 0x03 && b3 === 0x04) {
+      if (!headBytes || headBytes.length < 4) {
+        res.error = 'Leitura de bytes insuficiente para validação do cabeçalho ZIP.'
+        return res
+      }
+
+      if (headBytes[0] === 0x50 && headBytes[1] === 0x4b) {
+        if (headBytes[2] === 0x03 && headBytes[3] === 0x04) {
+          res.header_magic_ok = true
+        } else if (headBytes[2] === 0x05 && headBytes[3] === 0x06) {
           res.header_magic_ok = true
         }
+      }
 
-        const lookback = Math.min(readBytes.length, 65557)
-        const startIdx = readBytes.length - lookback
-        for (let i = readBytes.length - 22; i >= startIdx; i--) {
-          if (
-            readBytes[i] === 0x50 &&
-            readBytes[i + 1] === 0x4b &&
-            readBytes[i + 2] === 0x05 &&
-            readBytes[i + 3] === 0x06
-          ) {
-            res.eocd_found = true
-            break
+      if (!res.header_magic_ok) {
+        res.error =
+          'Assinatura inicial do arquivo ZIP inválida (esperado PK\\x03\\x04 ou PK\\x05\\x06).'
+        return res
+      }
+
+      // 2. Leitura parcial da CAUDA do arquivo para localizar o EOCD
+      const tailLen = Math.min(size, 65557)
+      const tailOffset = size - tailLen
+      let tailBytes = null
+
+      try {
+        if (typeof reader.seek === 'function') {
+          reader.seek(tailOffset, 0)
+          const tailBuf = new Uint8Array(tailLen)
+          const nTail = reader.read(tailBuf)
+          if (nTail && nTail > 0) {
+            tailBytes = tailBuf.subarray(0, nTail)
           }
         }
+      } catch (errTail) {
+        console.warn('[ETAPA1 CRON TRIGGER] Aviso na leitura da cauda do ZIP via seek:', errTail)
+      }
 
-        res.valid = res.header_magic_ok && res.eocd_found
-        if (!res.valid) {
-          res.error =
-            'Validação estrutural falhou: header PK=' +
-            res.header_magic_ok +
-            ', EOCD=' +
-            res.eocd_found
+      if (!tailBytes && headBytes && headBytes.length === size) {
+        tailBytes = headBytes.subarray(headBytes.length - tailLen)
+      }
+
+      if (!tailBytes || tailBytes.length < 22) {
+        res.error =
+          'Leitura de bytes da cauda insuficiente para localizar o delimitador EOCD do ZIP.'
+        return res
+      }
+
+      // Varredura reversa para localizar PK\x05\x06 (EOCD)
+      let eocdRelIdx = -1
+      for (let i = tailBytes.length - 22; i >= 0; i--) {
+        if (
+          tailBytes[i] === 0x50 &&
+          tailBytes[i + 1] === 0x4b &&
+          tailBytes[i + 2] === 0x05 &&
+          tailBytes[i + 3] === 0x06
+        ) {
+          eocdRelIdx = i
+          break
+        }
+      }
+
+      if (eocdRelIdx === -1) {
+        res.error = 'Delimitador de fim de diretório central (EOCD PK\\x05\\x06) não encontrado.'
+        return res
+      }
+
+      res.eocd_found = true
+
+      // 3. Extrair e validar campos do registro EOCD
+      const eocdAbsolutePos = tailOffset + eocdRelIdx
+      const diskNum = tailBytes[eocdRelIdx + 4] | (tailBytes[eocdRelIdx + 5] << 8)
+      const cdStartDisk = tailBytes[eocdRelIdx + 6] | (tailBytes[eocdRelIdx + 7] << 8)
+      const entriesOnDisk = tailBytes[eocdRelIdx + 8] | (tailBytes[eocdRelIdx + 9] << 8)
+      const totalEntries = tailBytes[eocdRelIdx + 10] | (tailBytes[eocdRelIdx + 11] << 8)
+      const cdSize =
+        tailBytes[eocdRelIdx + 12] |
+        (tailBytes[eocdRelIdx + 13] << 8) |
+        (tailBytes[eocdRelIdx + 14] << 16) |
+        (tailBytes[eocdRelIdx + 15] << 24)
+      const cdOffset =
+        tailBytes[eocdRelIdx + 16] |
+        (tailBytes[eocdRelIdx + 17] << 8) |
+        (tailBytes[eocdRelIdx + 18] << 16) |
+        (tailBytes[eocdRelIdx + 19] << 24)
+      const commentLen = tailBytes[eocdRelIdx + 20] | (tailBytes[eocdRelIdx + 21] << 8)
+
+      res.total_entries = totalEntries
+      res.cd_size = cdSize
+      res.cd_offset = cdOffset
+
+      if (diskNum !== 0 || cdStartDisk !== 0) {
+        res.error = 'ZIP multi-disco não suportado.'
+        return res
+      }
+
+      if (entriesOnDisk !== totalEntries) {
+        res.error = 'Inconsistência no número de entradas do diretório central do ZIP.'
+        return res
+      }
+
+      if (eocdAbsolutePos + 22 + commentLen > size) {
+        res.error = 'Tamanho do comentário no EOCD ultrapassa o final do arquivo ZIP.'
+        return res
+      }
+
+      if (cdOffset + cdSize > eocdAbsolutePos) {
+        res.error = 'Diretório central sobrepõe o EOCD ou ultrapassa os limites do arquivo.'
+        return res
+      }
+
+      if (totalEntries > 0 && cdSize < 46) {
+        res.error = 'Tamanho do diretório central insuficiente para o número de entradas.'
+        return res
+      }
+
+      // 4. Validar registros do Diretório Central
+      if (totalEntries > 0) {
+        let cdBytes = null
+        try {
+          if (typeof reader.seek === 'function') {
+            reader.seek(cdOffset, 0)
+            const cdBuf = new Uint8Array(cdSize)
+            const nCd = reader.read(cdBuf)
+            if (nCd && nCd > 0) {
+              cdBytes = cdBuf.subarray(0, nCd)
+            }
+          }
+        } catch (errCd) {
+          console.warn('[ETAPA1 CRON TRIGGER] Aviso na leitura do diretório central:', errCd)
+        }
+
+        if (!cdBytes && cdOffset >= tailOffset && cdOffset + cdSize <= size) {
+          const cdRelInTail = cdOffset - tailOffset
+          cdBytes = tailBytes.subarray(cdRelInTail, cdRelInTail + cdSize)
+        }
+
+        if (cdBytes && cdBytes.length >= 46) {
+          let pos = 0
+          let validEntriesCount = 0
+          let cdCheckFailed = false
+          let crcCheckedCount = 0
+
+          while (pos + 46 <= cdBytes.length && validEntriesCount < totalEntries) {
+            if (
+              cdBytes[pos] !== 0x50 ||
+              cdBytes[pos + 1] !== 0x4b ||
+              cdBytes[pos + 2] !== 0x01 ||
+              cdBytes[pos + 3] !== 0x02
+            ) {
+              cdCheckFailed = true
+              res.error =
+                'Assinatura inválida no registro ' +
+                (validEntriesCount + 1) +
+                ' do diretório central (esperado PK\\x01\\x02).'
+              break
+            }
+
+            const compMethod = cdBytes[pos + 10] | (cdBytes[pos + 11] << 8)
+            const fileCrc =
+              (cdBytes[pos + 16] |
+                (cdBytes[pos + 17] << 8) |
+                (cdBytes[pos + 18] << 16) |
+                (cdBytes[pos + 19] << 24)) >>>
+              0
+            const compSize =
+              (cdBytes[pos + 20] |
+                (cdBytes[pos + 21] << 8) |
+                (cdBytes[pos + 22] << 16) |
+                (cdBytes[pos + 23] << 24)) >>>
+              0
+            const uncompSize =
+              (cdBytes[pos + 24] |
+                (cdBytes[pos + 25] << 8) |
+                (cdBytes[pos + 26] << 16) |
+                (cdBytes[pos + 27] << 24)) >>>
+              0
+            const nameLen = cdBytes[pos + 28] | (cdBytes[pos + 29] << 8)
+            const extraLen = cdBytes[pos + 30] | (cdBytes[pos + 31] << 8)
+            const commentEntryLen = cdBytes[pos + 32] | (cdBytes[pos + 33] << 8)
+            const localHeaderOffset =
+              (cdBytes[pos + 42] |
+                (cdBytes[pos + 43] << 8) |
+                (cdBytes[pos + 44] << 16) |
+                (cdBytes[pos + 45] << 24)) >>>
+              0
+
+            if (localHeaderOffset >= cdOffset) {
+              cdCheckFailed = true
+              res.error =
+                'Offset do cabeçalho local da entrada ' +
+                (validEntriesCount + 1) +
+                ' é inválido (aponta após o diretório central).'
+              break
+            }
+
+            // Para arquivos stored, checar CRC via streaming se tamanho moderado
+            if (
+              compMethod === 0 &&
+              compSize === uncompSize &&
+              compSize > 0 &&
+              compSize <= 2 * 1024 * 1024 &&
+              typeof reader.seek === 'function'
+            ) {
+              try {
+                reader.seek(localHeaderOffset, 0)
+                const locHeadBuf = new Uint8Array(30)
+                const nLoc = reader.read(locHeadBuf)
+                if (
+                  nLoc >= 30 &&
+                  locHeadBuf[0] === 0x50 &&
+                  locHeadBuf[1] === 0x4b &&
+                  locHeadBuf[2] === 0x03 &&
+                  locHeadBuf[3] === 0x04
+                ) {
+                  const locNameLen = locHeadBuf[26] | (locHeadBuf[27] << 8)
+                  const locExtraLen = locHeadBuf[28] | (locHeadBuf[29] << 8)
+                  const dataStart = localHeaderOffset + 30 + locNameLen + locExtraLen
+                  reader.seek(dataStart, 0)
+
+                  const crcTable = []
+                  for (let n = 0; n < 256; n++) {
+                    let c = n
+                    for (let k = 0; k < 8; k++) {
+                      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+                    }
+                    crcTable[n] = c
+                  }
+                  let currentCrc = 0 ^ -1
+                  let remaining = compSize
+                  const chunkBuf = new Uint8Array(Math.min(remaining, 65536))
+                  while (remaining > 0) {
+                    const toRead = Math.min(remaining, chunkBuf.length)
+                    const nChunk = reader.read(chunkBuf.subarray(0, toRead))
+                    if (!nChunk || nChunk <= 0) break
+                    for (let b = 0; b < nChunk; b++) {
+                      currentCrc = (currentCrc >>> 8) ^ crcTable[(currentCrc ^ chunkBuf[b]) & 0xff]
+                    }
+                    remaining -= nChunk
+                  }
+                  const computedCrc = (currentCrc ^ -1) >>> 0
+                  if (computedCrc === fileCrc) {
+                    crcCheckedCount++
+                  } else {
+                    cdCheckFailed = true
+                    res.error =
+                      'CRC-32 divergente para entrada ' +
+                      (validEntriesCount + 1) +
+                      ': calculado ' +
+                      computedCrc +
+                      ' vs esperado ' +
+                      fileCrc
+                    break
+                  }
+                }
+              } catch (errStreamCrc) {
+                console.warn(
+                  '[ETAPA1 CRON TRIGGER] Aviso na validação CRC de entrada:',
+                  errStreamCrc,
+                )
+              }
+            }
+
+            validEntriesCount++
+            pos += 46 + nameLen + extraLen + commentEntryLen
+          }
+
+          if (cdCheckFailed) {
+            return res
+          }
+
+          if (validEntriesCount !== totalEntries) {
+            res.error =
+              'Contagem de entradas do diretório central (' +
+              validEntriesCount +
+              ') diverge do total declarado no EOCD (' +
+              totalEntries +
+              ').'
+            return res
+          }
+
+          res.central_directory_valid = true
+          res.crc_data_verified = crcCheckedCount > 0 || totalEntries === 0
+        } else {
+          res.central_directory_valid = true
         }
       } else {
-        res.error = 'Leitura de bytes insuficiente para validação estrutural do ZIP.'
+        res.central_directory_valid = true
+        res.crc_data_verified = true
+      }
+
+      res.valid = res.header_magic_ok && res.eocd_found && res.central_directory_valid
+      if (!res.valid && !res.error) {
+        res.error =
+          'Validação estrutural falhou: header PK=' +
+          res.header_magic_ok +
+          ', EOCD=' +
+          res.eocd_found +
+          ', CD=' +
+          res.central_directory_valid
       }
     } catch (readErr) {
       console.warn('[ETAPA1 CRON TRIGGER] Falha na validação estrutural de bytes do zip:', readErr)

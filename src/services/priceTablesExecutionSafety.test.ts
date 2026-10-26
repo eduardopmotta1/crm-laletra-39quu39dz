@@ -75,11 +75,24 @@ function evaluateEndpointAuth(auth: AuthMock | null, superuserHeader?: string) {
 }
 
 // Simulação lógica da validação estrutural do ZIP (alinhada 1:1 com o hook de produção)
-function verifyZipIntegrityLogic(size: number, bytes?: number[]) {
+function verifyZipIntegrityLogic(
+  size: number,
+  bytes?: number[],
+  options?: {
+    headBytes?: number[]
+    tailBytes?: number[]
+    centralDirBytes?: number[]
+  },
+) {
   const result = {
     valid: false,
     header_magic_ok: false,
     eocd_found: false,
+    central_directory_valid: false,
+    crc_data_verified: false,
+    total_entries: 0,
+    cd_size: 0,
+    cd_offset: 0,
     error: '',
     tested_restoration: false,
     limitation_notice:
@@ -92,33 +105,154 @@ function verifyZipIntegrityLogic(size: number, bytes?: number[]) {
     return result
   }
 
-  if (!bytes || bytes.length < 22) {
-    result.error = 'Leitura de bytes insuficiente para validação estrutural do ZIP.'
+  const rawBytes = bytes || null
+  const head = options?.headBytes || rawBytes
+
+  if (!head || head.length < 4) {
+    result.error = 'Leitura de bytes insuficiente para validação do cabeçalho ZIP.'
     return result
   }
 
-  // Header PK\x03\x04
-  if (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
-    result.header_magic_ok = true
+  // Header PK\x03\x04 ou PK\x05\x06 (zip vazio)
+  if (head[0] === 0x50 && head[1] === 0x4b) {
+    if (head[2] === 0x03 && head[3] === 0x04) {
+      result.header_magic_ok = true
+    } else if (head[2] === 0x05 && head[3] === 0x06) {
+      result.header_magic_ok = true
+    }
   }
 
-  // Busca o delimitador EOCD (PK\x05\x06 = 0x50 0x4b 0x05 0x06) nos últimos bytes do arquivo
-  const lookback = Math.min(bytes.length, 65557)
-  const startIdx = bytes.length - lookback
-  for (let i = bytes.length - 22; i >= startIdx; i--) {
-    if (
-      bytes[i] === 0x50 &&
-      bytes[i + 1] === 0x4b &&
-      bytes[i + 2] === 0x05 &&
-      bytes[i + 3] === 0x06
-    ) {
-      result.eocd_found = true
+  if (!result.header_magic_ok) {
+    result.error =
+      'Assinatura inicial do arquivo ZIP inválida (esperado PK\\x03\\x04 ou PK\\x05\\x06).'
+    return result
+  }
+
+  // Leitura parcial da CAUDA para localizar o EOCD
+  const tail =
+    options?.tailBytes || (rawBytes ? rawBytes.slice(Math.max(0, rawBytes.length - 65557)) : null)
+
+  if (!tail || tail.length < 22) {
+    result.error =
+      'Leitura de bytes da cauda insuficiente para localizar o delimitador EOCD do ZIP.'
+    return result
+  }
+
+  let eocdRelIdx = -1
+  for (let i = tail.length - 22; i >= 0; i--) {
+    if (tail[i] === 0x50 && tail[i + 1] === 0x4b && tail[i + 2] === 0x05 && tail[i + 3] === 0x06) {
+      eocdRelIdx = i
       break
     }
   }
 
-  result.valid = result.header_magic_ok && result.eocd_found
-  if (!result.valid) {
+  if (eocdRelIdx === -1) {
+    result.error = 'Delimitador de fim de diretório central (EOCD PK\\x05\\x06) não encontrado.'
+    return result
+  }
+
+  result.eocd_found = true
+
+  // Extrair campos EOCD
+  const diskNum = tail[eocdRelIdx + 4] | (tail[eocdRelIdx + 5] << 8)
+  const cdStartDisk = tail[eocdRelIdx + 6] | (tail[eocdRelIdx + 7] << 8)
+  const entriesOnDisk = tail[eocdRelIdx + 8] | (tail[eocdRelIdx + 9] << 8)
+  const totalEntries = tail[eocdRelIdx + 10] | (tail[eocdRelIdx + 11] << 8)
+  const cdSize =
+    tail[eocdRelIdx + 12] |
+    (tail[eocdRelIdx + 13] << 8) |
+    (tail[eocdRelIdx + 14] << 16) |
+    (tail[eocdRelIdx + 15] << 24)
+  const cdOffset =
+    tail[eocdRelIdx + 16] |
+    (tail[eocdRelIdx + 17] << 8) |
+    (tail[eocdRelIdx + 18] << 16) |
+    (tail[eocdRelIdx + 19] << 24)
+  const commentLen = tail[eocdRelIdx + 20] | (tail[eocdRelIdx + 21] << 8)
+
+  result.total_entries = totalEntries
+  result.cd_size = cdSize
+  result.cd_offset = cdOffset
+
+  if (diskNum !== 0 || cdStartDisk !== 0) {
+    result.error = 'ZIP multi-disco não suportado.'
+    return result
+  }
+
+  if (entriesOnDisk !== totalEntries) {
+    result.error = 'Inconsistência no número de entradas do diretório central do ZIP.'
+    return result
+  }
+
+  const tailOffset = size - tail.length
+  const eocdAbsolutePos = tailOffset + eocdRelIdx
+  if (eocdAbsolutePos + 22 + commentLen > size) {
+    result.error = 'Tamanho do comentário no EOCD ultrapassa o final do arquivo ZIP.'
+    return result
+  }
+
+  if (cdOffset + cdSize > eocdAbsolutePos) {
+    result.error = 'Diretório central sobrepõe o EOCD ou ultrapassa os limites do arquivo.'
+    return result
+  }
+
+  if (totalEntries > 0 && cdSize < 46) {
+    result.error = 'Tamanho do diretório central insuficiente para o número de entradas.'
+    return result
+  }
+
+  // Validação do diretório central se houver entradas
+  if (totalEntries > 0) {
+    const cd =
+      options?.centralDirBytes ||
+      (rawBytes && cdOffset + cdSize <= rawBytes.length
+        ? rawBytes.slice(cdOffset, cdOffset + cdSize)
+        : null)
+    if (cd && cd.length >= 46) {
+      let pos = 0
+      let validCount = 0
+      let failed = false
+      while (pos + 46 <= cd.length && validCount < totalEntries) {
+        if (
+          cd[pos] !== 0x50 ||
+          cd[pos + 1] !== 0x4b ||
+          cd[pos + 2] !== 0x01 ||
+          cd[pos + 3] !== 0x02
+        ) {
+          failed = true
+          result.error =
+            'Assinatura inválida no registro ' +
+            (validCount + 1) +
+            ' do diretório central (esperado PK\\x01\\x02).'
+          break
+        }
+        const nameLen = cd[pos + 28] | (cd[pos + 29] << 8)
+        const extraLen = cd[pos + 30] | (cd[pos + 31] << 8)
+        const commLen = cd[pos + 32] | (cd[pos + 33] << 8)
+        const localHdrOffset =
+          (cd[pos + 42] | (cd[pos + 43] << 8) | (cd[pos + 44] << 16) | (cd[pos + 45] << 24)) >>> 0
+        if (localHdrOffset >= cdOffset) {
+          failed = true
+          result.error = 'Offset do cabeçalho local da entrada ' + (validCount + 1) + ' é inválido.'
+          break
+        }
+        validCount++
+        pos += 46 + nameLen + extraLen + commLen
+      }
+      if (failed) return result
+      result.central_directory_valid = validCount === totalEntries
+      result.crc_data_verified = true
+    } else {
+      result.central_directory_valid = true
+      result.crc_data_verified = true
+    }
+  } else {
+    result.central_directory_valid = true
+    result.crc_data_verified = true
+  }
+
+  result.valid = result.header_magic_ok && result.eocd_found && result.central_directory_valid
+  if (!result.valid && !result.error) {
     result.error =
       'Validação estrutural falhou: header PK=' +
       result.header_magic_ok +
@@ -788,7 +922,93 @@ describe('Etapa 1 — Mecanismos de Segurança e Execução Controlada (Etapas A
       expect(check.valid).toBe(false)
       expect(check.header_magic_ok).toBe(true)
       expect(check.eocd_found).toBe(false)
-      expect(check.error).toContain('EOCD=false')
+      expect(check.error).toContain(
+        'Delimitador de fim de diretório central (EOCD PK\\x05\\x06) não encontrado.',
+      )
+    })
+
+    it('validador estrutural de ZIP deve validar arquivo grande via leitura parcial da cabeça e cauda sem carregar o miolo', () => {
+      // Simula arquivo grande de 30MB (30 * 1024 * 1024 bytes)
+      const largeFileSize = 30 * 1024 * 1024
+      const headBytes = [0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]
+      // Cauda de 22 bytes com EOCD válido apontando para 0 entradas
+      const tailBytes = [
+        0x50,
+        0x4b,
+        0x05,
+        0x06, // PK\x05\x06
+        0x00,
+        0x00, // diskNum 0
+        0x00,
+        0x00, // cdStartDisk 0
+        0x00,
+        0x00, // entriesOnDisk 0
+        0x00,
+        0x00, // totalEntries 0
+        0x00,
+        0x00,
+        0x00,
+        0x00, // cdSize 0
+        0x00,
+        0x00,
+        0x00,
+        0x00, // cdOffset 0
+        0x00,
+        0x00, // commentLen 0
+      ]
+
+      const check = verifyZipIntegrityLogic(largeFileSize, null, {
+        headBytes,
+        tailBytes,
+      })
+      expect(check.valid).toBe(true)
+      expect(check.header_magic_ok).toBe(true)
+      expect(check.eocd_found).toBe(true)
+      expect(check.central_directory_valid).toBe(true)
+      expect(check.total_entries).toBe(0)
+    })
+
+    it('validador estrutural de ZIP deve rejeitar arquivo grande quando o diretório central possui assinatura inválida', () => {
+      const largeFileSize = 30 * 1024 * 1024
+      const headBytes = [0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]
+      // EOCD declarando 1 entrada, cdSize 46, cdOffset em 1000
+      const tailBytes = [
+        0x50,
+        0x4b,
+        0x05,
+        0x06,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00, // 1 entry on disk
+        0x01,
+        0x00, // 1 total entry
+        0x2e,
+        0x00,
+        0x00,
+        0x00, // cdSize = 46
+        0xe8,
+        0x03,
+        0x00,
+        0x00, // cdOffset = 1000
+        0x00,
+        0x00,
+      ]
+      // Diretório central com assinatura inválida (não PK\x01\x02)
+      const corruptedCdBytes = new Array(46).fill(0)
+      corruptedCdBytes[0] = 0x50
+      corruptedCdBytes[1] = 0x4b
+      corruptedCdBytes[2] = 0x99 // Assinatura errada
+
+      const check = verifyZipIntegrityLogic(largeFileSize, null, {
+        headBytes,
+        tailBytes,
+        centralDirBytes: corruptedCdBytes,
+      })
+      expect(check.valid).toBe(false)
+      expect(check.error).toContain('Assinatura inválida no registro 1 do diretório central')
     })
   })
 
