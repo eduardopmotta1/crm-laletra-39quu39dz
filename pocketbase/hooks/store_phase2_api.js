@@ -629,7 +629,7 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
     }
   }
 
-  const calcItemPrice = function (item) {
+  const calcItemPrice = function (item, buyerTier) {
     const productId = item.product_id
     const quantity = Math.max(1, Number(item.quantity) || 1)
     const width = Number(item.width) || 0
@@ -651,6 +651,8 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
 
     // Regra de Integridade: se o produto mestre no CRM existir e estiver inativo, bloquear
     const masterQuoteId = product.getString('quote_product_id')
+    let masterTierPrice = null
+    let masterMinPrice = null
     if (masterQuoteId) {
       try {
         const masterRec = $app.findRecordById('quote_products', masterQuoteId)
@@ -658,6 +660,19 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
           throw new Error(
             'O produto "' + product.getString('name') + '" está temporariamente indisponível.',
           )
+        }
+        if (masterRec) {
+          const ptRaw = masterRec.get('price_tables')
+          if (ptRaw) {
+            const pt = typeof ptRaw === 'string' ? JSON.parse(ptRaw) : ptRaw
+            const activeTier = buyerTier || 'preco_1'
+            if (pt && pt[activeTier] && typeof pt[activeTier].fixed_price === 'number') {
+              masterTierPrice = pt[activeTier].fixed_price
+            }
+            if (pt && pt[activeTier] && typeof pt[activeTier].min_price === 'number') {
+              masterMinPrice = pt[activeTier].min_price
+            }
+          }
         }
       } catch (errMaster) {
         if (errMaster.message && errMaster.message.includes('indisponível')) {
@@ -671,7 +686,8 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
     let areaM2 = 0
 
     if (pricingType === 'fixed') {
-      const fixedPrice = product.getFloat('store_price') || 0
+      const defaultFixed = product.getFloat('store_price') || 0
+      const fixedPrice = masterTierPrice !== null ? masterTierPrice : defaultFixed
       baseTotal = fixedPrice * quantity
     } else if (pricingType === 'quantity_tiers') {
       const tiers = parseJsonSafely(product.get('price_tiers'))
@@ -797,12 +813,43 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
       return c.json(400, { error: 'O carrinho está vazio' })
     }
 
+    // BLOCO 4: Resolver Tabela de Preço do Comprador no Servidor para Validação do Carrinho
+    // store_customers.linked_client_id com vínculo VERIFICADO -> price_tier do cliente vinculado
+    // visitante ou não verificado -> sempre Preço 1 (preco_1)
+    let buyerTier = 'preco_1'
+    try {
+      const authHeader = c.request.header.get('Authorization') || ''
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+      let customerId = ''
+      if (token) {
+        try {
+          const claims = $security.parseJWT(token, 'laletra_store_phase2_secret_token_salt_2026')
+          if (claims && claims.sub) customerId = claims.sub
+        } catch (_) {}
+      }
+      if (customerId) {
+        const cust = $app.findRecordById('store_customers', customerId)
+        if (cust && cust.getString('crm_link_status') === 'verified_linked') {
+          const linkedCid = cust.getString('linked_client_id')
+          if (linkedCid) {
+            const clientRec = $app.findRecordById('clients', linkedCid)
+            if (clientRec) {
+              const tier = clientRec.getString('price_tier')
+              if (tier === 'preco_2' || tier === 'preco_3') {
+                buyerTier = tier
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     const validatedItems = []
     let subtotal = 0
     let maxLeadTime = 2
 
     for (const raw of rawItems) {
-      const calculated = calcItemPrice(raw)
+      const calculated = calcItemPrice(raw, buyerTier)
       validatedItems.push(calculated)
       subtotal += calculated.total_price
       if (calculated.lead_time_days > maxLeadTime) {

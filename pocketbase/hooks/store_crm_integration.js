@@ -1024,7 +1024,6 @@ onRecordAfterUpdateSuccess((e) => {
     const masterFixedPrice = master.get('fixed_price')
     const masterMinPrice = master.get('min_price')
     const masterSku = master.getString('sku')
-    const masterCategoryId = master.getString('category_id')
 
     let p1Price = null
     const priceTablesRaw = master.get('price_tables')
@@ -1037,28 +1036,23 @@ onRecordAfterUpdateSuccess((e) => {
       } catch (_) {}
     }
 
-    // Preço efetivo base da loja = Preço 1 da tabela ou fixed_price do mestre
-    const newStoreBasePrice = p1Price !== null ? p1Price : masterFixedPrice
+    // Preço efetivo da loja = Preço 1 da tabela ou fixed_price do mestre
+    const newStorePrice = p1Price !== null ? p1Price : masterFixedPrice
 
     for (let i = 0; i < storeProducts.length; i++) {
       const sp = storeProducts[i]
       let needsSave = false
 
-      if (newStoreBasePrice !== null && newStoreBasePrice !== undefined) {
-        const currentBasePrice = sp.get('base_price')
-        if (Number(currentBasePrice) !== Number(newStoreBasePrice)) {
-          sp.set('base_price', Number(newStoreBasePrice))
+      if (newStorePrice !== null && newStorePrice !== undefined) {
+        const currentStorePrice = sp.get('store_price')
+        if (Number(currentStorePrice) !== Number(newStorePrice)) {
+          sp.set('store_price', Number(newStorePrice))
           needsSave = true
         }
       }
 
       if (masterSku && sp.getString('sku') !== masterSku) {
         sp.set('sku', masterSku)
-        needsSave = true
-      }
-
-      if (masterCategoryId && sp.getString('category_id') !== masterCategoryId) {
-        sp.set('category_id', masterCategoryId)
         needsSave = true
       }
 

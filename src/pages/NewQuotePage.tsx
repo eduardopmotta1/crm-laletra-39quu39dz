@@ -240,8 +240,8 @@ export default function NewQuotePage() {
       setClientPriceTier(tier)
       if (tier !== 'preco_1') {
         toast({
-          title: `Tabela aplicada: ${PRICE_TIER_LABELS[tier]}`,
-          description: `Os produtos calculados usarão automaticamente os valores e fatores da ${PRICE_TIER_LABELS[tier]}.`,
+          title: `Tabela aplicada: ${PRICE_TIER_LABELS[tier].title}`,
+          description: `Os produtos calculados usarão automaticamente os valores e fatores da ${PRICE_TIER_LABELS[tier].title} (${PRICE_TIER_LABELS[tier].subtitle}).`,
         })
       }
     } else {
@@ -672,7 +672,7 @@ export default function NewQuotePage() {
                               : 'bg-emerald-50 text-emerald-700 border-emerald-300'
                         }`}
                       >
-                        Tabela de Preço: {PRICE_TIER_LABELS[clientPriceTier]}
+                        Tabela de Preço: {PRICE_TIER_LABELS[clientPriceTier].title}
                       </Badge>
                     )}
                   </div>

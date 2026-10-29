@@ -647,6 +647,7 @@ export const storeService = {
       client_request_id: string
       delivery_method: 'pickup' | 'delivery'
       payment_method: 'pix' | 'credit_card' | 'bank_slip' | 'billed_invoice'
+      price_change_acknowledged?: boolean
       customer: {
         name: string
         email: string

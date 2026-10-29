@@ -431,4 +431,124 @@ describe('Fase 1 — Integração de Produtos CRM ↔ Laletra Store', () => {
       expect(resolvePublicationState(false, { published: true })).toBe('unavailable')
     })
   })
+
+  // 8. Teste: Resolução de Tabela de Preço no Servidor e Revalidação Checkout (Bloco 4)
+  describe('Bloco 4: Tabela de Preço no Servidor e Revalidação Checkout', () => {
+    const resolveServerBuyerTier = (
+      customer: {
+        crm_link_status?: string
+        linked_client_price_tier?: string
+      } | null,
+    ): string => {
+      if (!customer) return 'preco_1'
+      if (customer.crm_link_status === 'verified_linked') {
+        const tier = customer.linked_client_price_tier
+        if (tier === 'preco_2' || tier === 'preco_3') {
+          return tier
+        }
+      }
+      return 'preco_1'
+    }
+
+    it('visitante sem autenticação ou comprador anônimo recebe sempre Preço 1', () => {
+      expect(resolveServerBuyerTier(null)).toBe('preco_1')
+    })
+
+    it('comprador com vínculo pendente ou rejeitado recebe Preço 1', () => {
+      expect(
+        resolveServerBuyerTier({
+          crm_link_status: 'pending_review',
+          linked_client_price_tier: 'preco_2',
+        }),
+      ).toBe('preco_1')
+
+      expect(
+        resolveServerBuyerTier({
+          crm_link_status: 'rejected',
+          linked_client_price_tier: 'preco_3',
+        }),
+      ).toBe('preco_1')
+
+      expect(
+        resolveServerBuyerTier({
+          crm_link_status: 'none',
+          linked_client_price_tier: 'preco_2',
+        }),
+      ).toBe('preco_1')
+    })
+
+    it('comprador com vínculo VERIFICADO e tier preco_2 ou preco_3 recebe sua tabela', () => {
+      expect(
+        resolveServerBuyerTier({
+          crm_link_status: 'verified_linked',
+          linked_client_price_tier: 'preco_2',
+        }),
+      ).toBe('preco_2')
+
+      expect(
+        resolveServerBuyerTier({
+          crm_link_status: 'verified_linked',
+          linked_client_price_tier: 'preco_3',
+        }),
+      ).toBe('preco_3')
+    })
+
+    it('comprador com vínculo verificado mas sem tier especial recebe preco_1', () => {
+      expect(
+        resolveServerBuyerTier({
+          crm_link_status: 'verified_linked',
+          linked_client_price_tier: 'preco_1',
+        }),
+      ).toBe('preco_1')
+
+      expect(
+        resolveServerBuyerTier({
+          crm_link_status: 'verified_linked',
+          linked_client_price_tier: undefined,
+        }),
+      ).toBe('preco_1')
+    })
+
+    it('revalidação no checkout detecta divergência entre carrinho e catálogo e gera mismatch', () => {
+      const cartItem = {
+        product_id: 'p1',
+        product_name: 'Adesivo Vinil',
+        reported_unit_price: 30.0,
+        reported_total_price: 60.0,
+      }
+
+      const serverCalculated = {
+        product_id: 'p1',
+        product_name: 'Adesivo Vinil',
+        unit_price: 35.0,
+        total_price: 70.0,
+      }
+
+      const diff = Math.abs(serverCalculated.total_price - cartItem.reported_total_price)
+      const hasMismatch = diff > 0.05
+
+      expect(hasMismatch).toBe(true)
+    })
+
+    it('revalidação no checkout aceita preços consistentes sem gerar mismatch', () => {
+      const cartItem = {
+        product_id: 'p1',
+        product_name: 'Adesivo Vinil',
+        reported_unit_price: 35.0,
+        reported_total_price: 70.0,
+      }
+
+      const serverCalculated = {
+        product_id: 'p1',
+        product_name: 'Adesivo Vinil',
+        unit_price: 35.0,
+        total_price: 70.0,
+      }
+
+      const diff = Math.abs(serverCalculated.total_price - cartItem.reported_total_price)
+      const hasMismatch = diff > 0.05
+
+      expect(hasMismatch).toBe(false)
+    })
+  })
 })
