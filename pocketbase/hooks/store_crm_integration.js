@@ -987,6 +987,92 @@ onRecordCreateRequest((e) => {
   return e.next()
 }, 'store_products')
 
+// =========================================================================
+// 8. BLOCO 3: PROPAGAÇÃO AUTOMÁTICA DE PREÇOS DO PRODUTO MESTRE (quote_products)
+// PARA PRODUTOS DA LOJA (store_products) VINCULADOS
+// - Idempotente, sem ciclo, sem duplicar
+// - Não exige confirmação manual para preços
+// - Preserva o controle manual publish/unpublish (não publica/despublica automaticamente)
+// =========================================================================
+onRecordAfterUpdateSuccess((e) => {
+  try {
+    const master = e.record
+    if (!master || master.tableName() !== 'quote_products') {
+      return e.next()
+    }
+
+    const quoteProductId = master.id
+    if (!quoteProductId) {
+      return e.next()
+    }
+
+    // Busca produtos vinculados na loja
+    const storeProducts = $app.findRecordsByFilter(
+      'store_products',
+      'quote_product_id = {:qid}',
+      '',
+      50,
+      0,
+      { qid: quoteProductId },
+    )
+
+    if (!storeProducts || storeProducts.length === 0) {
+      return e.next()
+    }
+
+    // Extrai preços e características do produto mestre
+    const masterFixedPrice = master.get('fixed_price')
+    const masterMinPrice = master.get('min_price')
+    const masterSku = master.getString('sku')
+    const masterCategoryId = master.getString('category_id')
+
+    let p1Price = null
+    const priceTablesRaw = master.get('price_tables')
+    if (priceTablesRaw) {
+      try {
+        const pt = typeof priceTablesRaw === 'string' ? JSON.parse(priceTablesRaw) : priceTablesRaw
+        if (pt && pt.preco_1 && typeof pt.preco_1.fixed_price === 'number') {
+          p1Price = pt.preco_1.fixed_price
+        }
+      } catch (_) {}
+    }
+
+    // Preço efetivo base da loja = Preço 1 da tabela ou fixed_price do mestre
+    const newStoreBasePrice = p1Price !== null ? p1Price : masterFixedPrice
+
+    for (let i = 0; i < storeProducts.length; i++) {
+      const sp = storeProducts[i]
+      let needsSave = false
+
+      if (newStoreBasePrice !== null && newStoreBasePrice !== undefined) {
+        const currentBasePrice = sp.get('base_price')
+        if (Number(currentBasePrice) !== Number(newStoreBasePrice)) {
+          sp.set('base_price', Number(newStoreBasePrice))
+          needsSave = true
+        }
+      }
+
+      if (masterSku && sp.getString('sku') !== masterSku) {
+        sp.set('sku', masterSku)
+        needsSave = true
+      }
+
+      if (masterCategoryId && sp.getString('category_id') !== masterCategoryId) {
+        sp.set('category_id', masterCategoryId)
+        needsSave = true
+      }
+
+      if (needsSave) {
+        $app.save(sp)
+      }
+    }
+  } catch (syncErr) {
+    console.error('[STORE CRM INTEGRATION] Erro ao sincronizar preços com store_products:', syncErr)
+  }
+
+  return e.next()
+}, 'quote_products')
+
 onRecordUpdateRequest((e) => {
   const validateStoreStaffAuth = function (auth) {
     if (!auth) {

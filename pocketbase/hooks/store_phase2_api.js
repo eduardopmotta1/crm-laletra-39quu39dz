@@ -741,9 +741,12 @@ routerAdd('POST', '/backend/v1/store/cart/validate', (c) => {
       }
     }
 
-    const finalTotal = Number(
+    let finalTotal = Number(
       (baseTotal + optionsModifierTotal * quantity + finishingsTotal + artCreationFee).toFixed(2),
     )
+    if (masterMinPrice !== null && finalTotal < masterMinPrice) {
+      finalTotal = Number(masterMinPrice.toFixed(2))
+    }
     const finalUnitPrice = Number((finalTotal / quantity).toFixed(2))
 
     return {
@@ -871,7 +874,7 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
     }
   }
 
-  const calcItemPrice = function (item) {
+  const calcItemPrice = function (item, buyerTier) {
     const productId = item.product_id
     const quantity = Math.max(1, Number(item.quantity) || 1)
     const width = Number(item.width) || 0
@@ -894,6 +897,8 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
 
     // Regra de Integridade: se o produto mestre no CRM existir e estiver inativo, bloquear
     const masterQuoteId = product.getString('quote_product_id')
+    let masterTierPrice = null
+    let masterMinPrice = null
     if (masterQuoteId) {
       try {
         const masterRec = $app.findRecordById('quote_products', masterQuoteId)
@@ -901,6 +906,19 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
           throw new Error(
             'O produto "' + product.getString('name') + '" está temporariamente indisponível.',
           )
+        }
+        if (masterRec) {
+          const ptRaw = masterRec.get('price_tables')
+          if (ptRaw) {
+            const pt = typeof ptRaw === 'string' ? JSON.parse(ptRaw) : ptRaw
+            const activeTier = buyerTier || 'preco_1'
+            if (pt && pt[activeTier] && typeof pt[activeTier].fixed_price === 'number') {
+              masterTierPrice = pt[activeTier].fixed_price
+            }
+            if (pt && pt[activeTier] && typeof pt[activeTier].min_price === 'number') {
+              masterMinPrice = pt[activeTier].min_price
+            }
+          }
         }
       } catch (errMaster) {
         if (errMaster.message && errMaster.message.includes('indisponível')) {
@@ -914,7 +932,8 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
     let areaM2 = 0
 
     if (pricingType === 'fixed') {
-      const fixedPrice = product.getFloat('store_price') || 0
+      const defaultFixed = product.getFloat('store_price') || 0
+      const fixedPrice = masterTierPrice !== null ? masterTierPrice : defaultFixed
       baseTotal = fixedPrice * quantity
     } else if (pricingType === 'quantity_tiers') {
       const tiers = parseJsonSafely(product.get('price_tiers'))
@@ -1063,17 +1082,86 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
       })
     }
 
+    // BLOCO 4: Resolver Tabela de Preço do Comprador no Servidor para o Checkout
+    // store_customers.linked_client_id com vínculo VERIFICADO -> price_tier do cliente vinculado
+    // visitante ou não verificado -> sempre Preço 1
+    let buyerTier = 'preco_1'
+    let customerId = ''
+    try {
+      const authHeader = c.request.header.get('Authorization') || ''
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+      let claims = null
+      if (token) {
+        claims = $security.parseJWT(token, hashSecret)
+      }
+      if (claims && claims.sub) {
+        customerId = claims.sub
+      } else if (customerInfo.email) {
+        const found = $app.findRecordsByFilter('store_customers', 'email = {:email}', '', 1, 0, {
+          email: String(customerInfo.email).toLowerCase().trim(),
+        })
+        if (found && found.length > 0) {
+          customerId = found[0].id
+        }
+      }
+
+      if (customerId) {
+        const cust = $app.findRecordById('store_customers', customerId)
+        if (cust && cust.getString('crm_link_status') === 'verified_linked') {
+          const linkedCid = cust.getString('linked_client_id')
+          if (linkedCid) {
+            const clientRec = $app.findRecordById('clients', linkedCid)
+            if (clientRec) {
+              const tier = clientRec.getString('price_tier')
+              if (tier === 'preco_2' || tier === 'preco_3') {
+                buyerTier = tier
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     const calculatedItems = []
+    const priceMismatches = []
     let subtotal = 0
     let maxLeadTime = 3
 
     for (const it of rawItems) {
-      const calc = calcItemPrice(it)
+      const calc = calcItemPrice(it, buyerTier)
       calculatedItems.push(calc)
       subtotal += calc.total_price
       if (calc.lead_time_days > maxLeadTime) {
         maxLeadTime = calc.lead_time_days
       }
+
+      // Verificação de divergência com o preço do carrinho informado pelo cliente
+      const clientReportedUnitPrice = Number(it.unit_price) || 0
+      const clientReportedTotalPrice = Number(it.total_price) || 0
+      if (clientReportedTotalPrice > 0) {
+        const diff = Math.abs(calc.total_price - clientReportedTotalPrice)
+        if (diff > 0.05) {
+          priceMismatches.push({
+            product_id: it.product_id,
+            product_name: calc.product_name,
+            old_unit_price: clientReportedUnitPrice,
+            old_total_price: clientReportedTotalPrice,
+            current_unit_price: calc.unit_price,
+            current_total_price: calc.total_price,
+          })
+        }
+      }
+    }
+
+    // Se houve alteração de preço desde a montagem do carrinho e o checkout não tem confirmação expressa
+    if (priceMismatches.length > 0 && !body.price_change_acknowledged) {
+      return c.json(409, {
+        error: 'price_changed',
+        message:
+          'Alguns preços foram atualizados desde que você adicionou os itens ao carrinho. Por favor, revise os novos valores antes de concluir o pedido.',
+        mismatches: priceMismatches,
+        new_subtotal: Number(subtotal.toFixed(2)),
+      })
     }
     subtotal = Number(subtotal.toFixed(2))
 
@@ -1091,26 +1179,6 @@ routerAdd('POST', '/backend/v1/store/checkout', (c) => {
     estimatedDate.setDate(
       estimatedDate.getDate() + maxLeadTime + (deliveryMethod === 'delivery' ? 2 : 0),
     )
-
-    let customerId = ''
-    try {
-      const authHeader = c.request.header.get('Authorization') || ''
-      const token = authHeader.replace(/^Bearer\s+/i, '').trim()
-      let claims = null
-      if (token) {
-        claims = $security.parseJWT(token, hashSecret)
-      }
-      if (claims && claims.sub) {
-        customerId = claims.sub
-      } else {
-        const found = $app.findRecordsByFilter('store_customers', 'email = {:email}', '', 1, 0, {
-          email: String(customerInfo.email).toLowerCase().trim(),
-        })
-        if (found && found.length > 0) {
-          customerId = found[0].id
-        }
-      }
-    } catch (_) {}
 
     let createdOrderId = ''
     $app.runInTransaction((txApp) => {

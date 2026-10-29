@@ -526,14 +526,68 @@ routerAdd('POST', '/backend/v1/store/calculate-price', (c) => {
       })
     }
 
+    // BLOCO 4: Resolver Tabela de Preço do Comprador no Servidor (Preço 1 / Preço 2 / Preço 3)
+    // store_customers.linked_client_id com vínculo VERIFICADO (crm_link_status === 'verified_linked')
+    // -> price_tier do cliente vinculado.
+    // Visitante ou vínculo não verificado -> sempre Preço 1 (preco_1). O navegador NÃO influencia.
+    let buyerTier = 'preco_1'
+    try {
+      const authHeader = c.request.header.get('Authorization') || ''
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+      let customerId = ''
+      if (token) {
+        try {
+          const claims = $security.parseJWT(token, 'laletra_store_phase2_secret_token_salt_2026')
+          if (claims && claims.sub) customerId = claims.sub
+        } catch (_) {}
+      }
+      if (customerId) {
+        const cust = $app.findRecordById('store_customers', customerId)
+        if (cust && cust.getString('crm_link_status') === 'verified_linked') {
+          const linkedCid = cust.getString('linked_client_id')
+          if (linkedCid) {
+            const clientRec = $app.findRecordById('clients', linkedCid)
+            if (clientRec) {
+              const tier = clientRec.getString('price_tier')
+              if (tier === 'preco_2' || tier === 'preco_3') {
+                buyerTier = tier
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Resolução de preços da tabela específica do produto mestre
+    let masterTierPrice = null
+    let masterMinPrice = null
+    if (calcMasterId) {
+      try {
+        const masterRec = $app.findRecordById('quote_products', calcMasterId)
+        if (masterRec) {
+          const ptRaw = masterRec.get('price_tables')
+          if (ptRaw) {
+            const pt = typeof ptRaw === 'string' ? JSON.parse(ptRaw) : ptRaw
+            if (pt && pt[buyerTier] && typeof pt[buyerTier].fixed_price === 'number') {
+              masterTierPrice = pt[buyerTier].fixed_price
+            }
+            if (pt && pt[buyerTier] && typeof pt[buyerTier].min_price === 'number') {
+              masterMinPrice = pt[buyerTier].min_price
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
     const pricingType = product.getString('pricing_type')
     let baseTotal = 0
     let unitPrice = 0
     let areaM2 = 0
 
-    // 1. Cálculo base de acordo com pricing_type
+    // 1. Cálculo base de acordo com pricing_type e tabela resolvida
     if (pricingType === 'fixed') {
-      const fixedPrice = product.getFloat('store_price') || 0
+      const defaultFixed = product.getFloat('store_price') || 0
+      const fixedPrice = masterTierPrice !== null ? masterTierPrice : defaultFixed
       unitPrice = fixedPrice
       baseTotal = fixedPrice * quantity
     } else if (pricingType === 'quantity_tiers') {
@@ -604,9 +658,12 @@ routerAdd('POST', '/backend/v1/store/calculate-price', (c) => {
       }
     }
 
-    const finalTotal = Number(
+    let finalTotal = Number(
       (baseTotal + optionsModifierTotal * quantity + finishingsTotal).toFixed(2),
     )
+    if (masterMinPrice !== null && finalTotal < masterMinPrice) {
+      finalTotal = Number(masterMinPrice.toFixed(2))
+    }
     const finalUnitPrice = Number((finalTotal / (quantity || 1)).toFixed(2))
 
     return c.json(200, {
@@ -614,6 +671,7 @@ routerAdd('POST', '/backend/v1/store/calculate-price', (c) => {
       quote_only: false,
       product_id: productId,
       pricing_type: pricingType,
+      price_tier_applied: buyerTier,
       quantity,
       area_m2: areaM2 > 0 ? areaM2 : null,
       base_total: Number(baseTotal.toFixed(2)),

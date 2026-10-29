@@ -44,6 +44,8 @@ import type {
 } from '@/types/quotes'
 import { CALC_RULE_LABELS, CALC_UNIT_LABELS, ADDITIONAL_UNIT_LABELS } from '@/types/quotes'
 import { calculateQuoteItem, calculateQuoteSummary } from '@/lib/quoteCalculator'
+import { resolveEffectivePriceTier, PRICE_TIER_LABELS } from '@/lib/priceTableResolver'
+import type { PriceTierKey } from '@/types/quotes'
 import type { Client } from '@/types/crm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -129,6 +131,7 @@ export default function NewQuotePage() {
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
   const [clientEmail, setClientEmail] = useState('')
+  const [clientPriceTier, setClientPriceTier] = useState<PriceTierKey>('preco_1')
   const [quoteNotes, setQuoteNotes] = useState('')
   const [discountAmount, setDiscountAmount] = useState<number | string>('0')
 
@@ -203,6 +206,8 @@ export default function NewQuotePage() {
             setClientName(found.name)
             setClientPhone(found.phone || '')
             setClientEmail(found.email || '')
+            const tier = resolveEffectivePriceTier(found as any)
+            setClientPriceTier(tier)
           }
         }
       }
@@ -230,6 +235,17 @@ export default function NewQuotePage() {
       setClientName(found.name)
       setClientPhone(found.phone || '')
       setClientEmail(found.email || '')
+      // Bloco 2: resolver automaticamente a tabela de preço do cliente (clients.price_tier; sem tabela → Preço 1)
+      const tier = resolveEffectivePriceTier(found as any)
+      setClientPriceTier(tier)
+      if (tier !== 'preco_1') {
+        toast({
+          title: `Tabela aplicada: ${PRICE_TIER_LABELS[tier]}`,
+          description: `Os produtos calculados usarão automaticamente os valores e fatores da ${PRICE_TIER_LABELS[tier]}.`,
+        })
+      }
+    } else {
+      setClientPriceTier('preco_1')
     }
   }
 
@@ -287,6 +303,7 @@ export default function NewQuotePage() {
       height: Number(itemHeight) || 0,
       quantity: Math.max(1, Number(itemQuantity) || 1),
       additionalsSelection,
+      priceTier: clientPriceTier,
     })
   }, [
     selectedProduct,
@@ -296,6 +313,7 @@ export default function NewQuotePage() {
     itemQuantity,
     builderAdds,
     additionals,
+    clientPriceTier,
   ])
 
   // Add calculated item to the quote list
@@ -639,9 +657,25 @@ export default function NewQuotePage() {
             <CardContent className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-3">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Vincular Cliente do CRM (Opcional)
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Vincular Cliente do CRM (Opcional)
+                    </label>
+                    {clientPriceTier && (
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-semibold ${
+                          clientPriceTier === 'preco_2'
+                            ? 'bg-blue-50 text-blue-700 border-blue-300'
+                            : clientPriceTier === 'preco_3'
+                              ? 'bg-purple-50 text-purple-700 border-purple-300'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                        }`}
+                      >
+                        Tabela de Preço: {PRICE_TIER_LABELS[clientPriceTier]}
+                      </Badge>
+                    )}
+                  </div>
                   <Select value={selectedClientId} onValueChange={handleClientSelect}>
                     <SelectTrigger className="mt-1">
                       <SelectValue placeholder="Selecione um cliente cadastrado no CRM..." />

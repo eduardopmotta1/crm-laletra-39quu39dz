@@ -5,6 +5,7 @@ import {
   Search,
   Upload,
   X,
+  Layers,
   Edit2,
   Copy,
   Scissors,
@@ -112,6 +113,8 @@ export default function ProductsPage() {
   const [form, setForm] = useState<{
     name: string
     category: string
+    sku: string
+    category_id: string
     description: string
     main_material_id: string
     calc_rule: ProductCalcRule
@@ -127,9 +130,23 @@ export default function ProductsPage() {
     internal_notes: string
     is_active: boolean
     additionals: string[]
+    p1_fixed_price: number | string
+    p1_min_price: number | string
+    p1_material_factor: number | string
+    p1_acrescimos_factor: number | string
+    p2_fixed_price: number | string
+    p2_min_price: number | string
+    p2_material_factor: number | string
+    p2_acrescimos_factor: number | string
+    p3_fixed_price: number | string
+    p3_min_price: number | string
+    p3_material_factor: number | string
+    p3_acrescimos_factor: number | string
   }>({
     name: '',
     category: '',
+    sku: '',
+    category_id: '',
     description: '',
     main_material_id: '',
     calc_rule: 'm2',
@@ -145,7 +162,23 @@ export default function ProductsPage() {
     internal_notes: '',
     is_active: true,
     additionals: [],
+    p1_fixed_price: '',
+    p1_min_price: '',
+    p1_material_factor: '1',
+    p1_acrescimos_factor: '1',
+    p2_fixed_price: '',
+    p2_min_price: '',
+    p2_material_factor: '1',
+    p2_acrescimos_factor: '1',
+    p3_fixed_price: '',
+    p3_min_price: '',
+    p3_material_factor: '1',
+    p3_acrescimos_factor: '1',
   })
+
+  // Estado dos percentuais de preenchimento automático opcional (a partir de Preço 1)
+  const [p2FillPct, setP2FillPct] = useState<number>(-10)
+  const [p3FillPct, setP3FillPct] = useState<number>(-15)
 
   // File Upload State
   const [mainImageFile, setMainImageFile] = useState<File | null>(null)
@@ -421,9 +454,12 @@ export default function ProductsPage() {
 
     if (prod) {
       setEditingProduct(prod)
+      const pTables = prod.price_tables || {}
       setForm({
         name: prod.name,
         category: prod.category,
+        sku: prod.sku || '',
+        category_id: prod.category_id || '',
         description: prod.description || '',
         main_material_id: prod.main_material_id || '',
         calc_rule: prod.calc_rule,
@@ -440,6 +476,18 @@ export default function ProductsPage() {
         internal_notes: prod.internal_notes || '',
         is_active: prod.is_active,
         additionals: prod.additionals || [],
+        p1_fixed_price: pTables.preco_1?.fixed_price ?? prod.fixed_price ?? '',
+        p1_min_price: pTables.preco_1?.min_price ?? prod.min_price ?? '',
+        p1_material_factor: pTables.preco_1?.material_factor ?? '1',
+        p1_acrescimos_factor: pTables.preco_1?.acrescimos_factor ?? '1',
+        p2_fixed_price: pTables.preco_2?.fixed_price ?? '',
+        p2_min_price: pTables.preco_2?.min_price ?? '',
+        p2_material_factor: pTables.preco_2?.material_factor ?? '1',
+        p2_acrescimos_factor: pTables.preco_2?.acrescimos_factor ?? '1',
+        p3_fixed_price: pTables.preco_3?.fixed_price ?? '',
+        p3_min_price: pTables.preco_3?.min_price ?? '',
+        p3_material_factor: pTables.preco_3?.material_factor ?? '1',
+        p3_acrescimos_factor: pTables.preco_3?.acrescimos_factor ?? '1',
       })
       setMainImagePreview(prod.main_image ? productsService.getImageUrl(prod) : null)
       // Carregar status da loja virtual
@@ -449,6 +497,8 @@ export default function ProductsPage() {
       setForm({
         name: '',
         category: productCategories[0] || 'Comunicação Visual',
+        sku: '',
+        category_id: '',
         description: '',
         main_material_id: materials[0]?.id || '',
         calc_rule: 'm2',
@@ -464,22 +514,37 @@ export default function ProductsPage() {
         internal_notes: '',
         is_active: true,
         additionals: [],
+        p1_fixed_price: '',
+        p1_min_price: '',
+        p1_material_factor: '1',
+        p1_acrescimos_factor: '1',
+        p2_fixed_price: '',
+        p2_min_price: '',
+        p2_material_factor: '1',
+        p2_acrescimos_factor: '1',
+        p3_fixed_price: '',
+        p3_min_price: '',
+        p3_material_factor: '1',
+        p3_acrescimos_factor: '1',
       })
       setMainImagePreview(null)
     }
     setModalOpen(true)
   }
 
-  // Open Modal for Duplicating a Product (Dedicated flow: editingProduct must be null)
+  // Open Modal for Duplicating a Product (Dedicated flow: editingProduct must be null; SKU DEVE FICAR VAZIO)
   const handleDuplicateProduct = (prod: QuoteProduct) => {
     setEditingProduct(null)
     setIsDuplicating(true)
     setMainImageFile(null)
     setMainImagePreview(null)
     setActiveStoreStatus(null)
+    const pTables = prod.price_tables || {}
     setForm({
       name: `${prod.name} - Cópia`,
       category: prod.category,
+      sku: '', // Regra obrigatória: duplicação copia configurações mas deixa SKU vazio
+      category_id: prod.category_id || '',
       description: prod.description || '',
       main_material_id: prod.main_material_id || '',
       calc_rule: prod.calc_rule,
@@ -496,6 +561,18 @@ export default function ProductsPage() {
       internal_notes: prod.internal_notes || '',
       is_active: prod.is_active,
       additionals: prod.additionals ? [...prod.additionals] : [],
+      p1_fixed_price: pTables.preco_1?.fixed_price ?? prod.fixed_price ?? '',
+      p1_min_price: pTables.preco_1?.min_price ?? prod.min_price ?? '',
+      p1_material_factor: pTables.preco_1?.material_factor ?? '1',
+      p1_acrescimos_factor: pTables.preco_1?.acrescimos_factor ?? '1',
+      p2_fixed_price: pTables.preco_2?.fixed_price ?? '',
+      p2_min_price: pTables.preco_2?.min_price ?? '',
+      p2_material_factor: pTables.preco_2?.material_factor ?? '1',
+      p2_acrescimos_factor: pTables.preco_2?.acrescimos_factor ?? '1',
+      p3_fixed_price: pTables.preco_3?.fixed_price ?? '',
+      p3_min_price: pTables.preco_3?.min_price ?? '',
+      p3_material_factor: pTables.preco_3?.material_factor ?? '1',
+      p3_acrescimos_factor: pTables.preco_3?.acrescimos_factor ?? '1',
     })
     setModalOpen(true)
   }
@@ -564,6 +641,58 @@ export default function ProductsPage() {
       if (form.fixed_cost) {
         formData.append('fixed_cost', String(form.fixed_cost))
       }
+
+      // SKU e Categoria da Loja (campos migração 0118)
+      formData.append('sku', form.sku ? form.sku.trim() : '')
+      formData.append('category_id', form.category_id || '')
+
+      // 3 Tabelas de Preço Comerciais Independentes (migração 0118)
+      const priceTablesPayload: Record<string, any> = {
+        preco_1: {
+          fixed_price:
+            form.p1_fixed_price !== '' && form.p1_fixed_price !== undefined
+              ? Number(form.p1_fixed_price)
+              : form.fixed_price !== '' && form.fixed_price !== undefined
+                ? Number(form.fixed_price)
+                : undefined,
+          min_price:
+            form.p1_min_price !== '' && form.p1_min_price !== undefined
+              ? Number(form.p1_min_price)
+              : form.min_price !== '' && form.min_price !== undefined
+                ? Number(form.min_price)
+                : undefined,
+          material_factor: form.p1_material_factor !== '' ? Number(form.p1_material_factor) : 1,
+          acrescimos_factor:
+            form.p1_acrescimos_factor !== '' ? Number(form.p1_acrescimos_factor) : 1,
+        },
+        preco_2: {
+          fixed_price:
+            form.p2_fixed_price !== '' && form.p2_fixed_price !== undefined
+              ? Number(form.p2_fixed_price)
+              : undefined,
+          min_price:
+            form.p2_min_price !== '' && form.p2_min_price !== undefined
+              ? Number(form.p2_min_price)
+              : undefined,
+          material_factor: form.p2_material_factor !== '' ? Number(form.p2_material_factor) : 1,
+          acrescimos_factor:
+            form.p2_acrescimos_factor !== '' ? Number(form.p2_acrescimos_factor) : 1,
+        },
+        preco_3: {
+          fixed_price:
+            form.p3_fixed_price !== '' && form.p3_fixed_price !== undefined
+              ? Number(form.p3_fixed_price)
+              : undefined,
+          min_price:
+            form.p3_min_price !== '' && form.p3_min_price !== undefined
+              ? Number(form.p3_min_price)
+              : undefined,
+          material_factor: form.p3_material_factor !== '' ? Number(form.p3_material_factor) : 1,
+          acrescimos_factor:
+            form.p3_acrescimos_factor !== '' ? Number(form.p3_acrescimos_factor) : 1,
+        },
+      }
+      formData.append('price_tables', JSON.stringify(priceTablesPayload))
 
       if (form.additionals.length === 0) {
         formData.append('additionals', '')
@@ -1555,7 +1684,19 @@ export default function ProductsPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Código SKU
+                    </label>
+                    <Input
+                      value={form.sku}
+                      onChange={(e) => setForm({ ...form, sku: e.target.value })}
+                      placeholder="Ex: BAN-440-01"
+                      className="mt-1 font-mono text-xs"
+                    />
+                  </div>
+
                   <div>
                     <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                       Categoria CRM *
@@ -1580,6 +1721,32 @@ export default function ProductsPage() {
                       className="mt-1"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Categoria na Loja Virtual (store_categories)
+                  </label>
+                  <Select
+                    value={form.category_id || 'none'}
+                    onValueChange={(val) =>
+                      setForm({ ...form, category_id: val === 'none' ? '' : val })
+                    }
+                  >
+                    <SelectTrigger className="mt-1 text-xs">
+                      <SelectValue placeholder="Selecione categoria da loja..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-56">
+                      <SelectItem value="none" className="text-xs text-slate-400">
+                        Nenhuma categoria da loja vinculada
+                      </SelectItem>
+                      {hierarchicalStoreCategories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id} className="text-xs">
+                          {`${'— '.repeat(cat.depth)}${cat.name}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div>
@@ -1723,13 +1890,387 @@ export default function ProductsPage() {
                       step="0.01"
                       min="0"
                       value={form.fixed_price}
-                      onChange={(e) => setForm({ ...form, fixed_price: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setForm({
+                          ...form,
+                          fixed_price: val,
+                          p1_fixed_price: form.p1_fixed_price === '' ? val : form.p1_fixed_price,
+                        })
+                      }}
                       placeholder="0.00"
                       className="mt-1 font-semibold text-emerald-700 dark:text-emerald-300"
                     />
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* ========================================================
+                EDITOR DAS 3 TABELAS DE PREÇO COMERCIAIS (MIGRAÇÃO 0118)
+                Preço 1 (Cliente Final) | Preço 2 (Terceirizado) | Preço 3 (Especial)
+                Preços 100% independentes por tabela + preenchimento automático opcional
+            ======================================================== */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                    <Layers className="h-4 w-4 text-emerald-600" />3 Tabelas Comerciais
+                    Independentes (Preço 1 / Preço 2 / Preço 3)
+                  </span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Cada tabela possui preço, valor mínimo e fatores de materiais/adicionais
+                    autônomos.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* TABELA 1: PREÇO 1 (CLIENTE FINAL - PADRÃO) */}
+                <div className="p-3 rounded-lg border border-emerald-300 bg-emerald-50/40 dark:bg-emerald-950/20 dark:border-emerald-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 block">
+                        Preço 1 (Cliente Final)
+                      </span>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                        Tabela Padrão de Varejo / Visitantes
+                      </span>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] bg-emerald-100 text-emerald-800 border-emerald-300"
+                    >
+                      Padrão
+                    </Badge>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Preço de Venda / Base (R$)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.p1_fixed_price !== '' ? form.p1_fixed_price : form.fixed_price}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setForm({
+                          ...form,
+                          p1_fixed_price: val,
+                          fixed_price: val, // Sincroniza retrocompatível com form.fixed_price
+                        })
+                      }}
+                      placeholder="Igual ao preço do produto"
+                      className="mt-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-white dark:bg-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Preço Mínimo (R$)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.p1_min_price !== '' ? form.p1_min_price : form.min_price}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setForm({
+                          ...form,
+                          p1_min_price: val,
+                          min_price: val, // Sincroniza retrocompatível com form.min_price
+                        })
+                      }}
+                      placeholder="Mínimo P1"
+                      className="mt-0.5 text-xs bg-white dark:bg-slate-900"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-emerald-200/60 dark:border-emerald-900/60 text-[10px]">
+                    <div>
+                      <span className="text-slate-600 dark:text-slate-400 block font-medium">
+                        Fator Mat.
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        value={form.p1_material_factor}
+                        onChange={(e) => setForm({ ...form, p1_material_factor: e.target.value })}
+                        className="mt-0.5 text-xs h-7 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-slate-600 dark:text-slate-400 block font-medium">
+                        Fator Acrésc.
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        value={form.p1_acrescimos_factor}
+                        onChange={(e) => setForm({ ...form, p1_acrescimos_factor: e.target.value })}
+                        className="mt-0.5 text-xs h-7 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* TABELA 2: PREÇO 2 (TERCEIRIZADO) */}
+                <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/40 dark:bg-blue-950/20 dark:border-blue-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-blue-800 dark:text-blue-300 block">
+                        Preço 2 (Terceirizado)
+                      </span>
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400">
+                        Gráficas parceiras / Revendedores
+                      </span>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] bg-blue-100 text-blue-800 border-blue-300"
+                    >
+                      Tabela 2
+                    </Badge>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                        Preço de Venda / Base (R$)
+                      </label>
+                    </div>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.p2_fixed_price}
+                      onChange={(e) => setForm({ ...form, p2_fixed_price: e.target.value })}
+                      placeholder="Deixe vazio para herdar P1"
+                      className="mt-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Preço Mínimo (R$)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.p2_min_price}
+                      onChange={(e) => setForm({ ...form, p2_min_price: e.target.value })}
+                      placeholder="Deixe vazio para herdar P1"
+                      className="mt-0.5 text-xs bg-white dark:bg-slate-900"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-blue-200/60 dark:border-blue-900/60 text-[10px]">
+                    <div>
+                      <span className="text-slate-600 dark:text-slate-400 block font-medium">
+                        Fator Mat.
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        value={form.p2_material_factor}
+                        onChange={(e) => setForm({ ...form, p2_material_factor: e.target.value })}
+                        className="mt-0.5 text-xs h-7 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-slate-600 dark:text-slate-400 block font-medium">
+                        Fator Acrésc.
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        value={form.p2_acrescimos_factor}
+                        onChange={(e) => setForm({ ...form, p2_acrescimos_factor: e.target.value })}
+                        className="mt-0.5 text-xs h-7 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preenchimento automático opcional a partir de P1 */}
+                  <div className="pt-2 border-t border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        type="number"
+                        step="1"
+                        value={p2FillPct}
+                        onChange={(e) => setP2FillPct(Number(e.target.value))}
+                        className="w-16 h-7 text-[11px] bg-white dark:bg-slate-900 text-center font-bold"
+                      />
+                      <span className="text-[10px] text-slate-500 font-bold">%</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const baseP1 = Number(form.p1_fixed_price || form.fixed_price || 0)
+                          const minP1 = Number(form.p1_min_price || form.min_price || 0)
+                          if (baseP1 > 0) {
+                            const newPrice = Number((baseP1 * (1 + p2FillPct / 100)).toFixed(2))
+                            const newMin =
+                              minP1 > 0 ? Number((minP1 * (1 + p2FillPct / 100)).toFixed(2)) : ''
+                            setForm((prev) => ({
+                              ...prev,
+                              p2_fixed_price: Math.max(0, newPrice),
+                              p2_min_price: newMin !== '' ? Math.max(0, newMin) : '',
+                            }))
+                            toast({
+                              title: 'Preço 2 preenchido',
+                              description: `Valores gerados com ${p2FillPct}% a partir de Preço 1. Ajuste livremente.`,
+                            })
+                          } else {
+                            toast({
+                              title: 'Preço 1 vazio',
+                              description: 'Defina o Preço 1 antes de calcular a sugestão.',
+                              variant: 'destructive',
+                            })
+                          }
+                        }}
+                        className="text-[10px] h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100 flex-1"
+                      >
+                        Sugerir de P1
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* TABELA 3: PREÇO 3 (ESPECIAL) */}
+                <div className="p-3 rounded-lg border border-purple-200 bg-purple-50/40 dark:bg-purple-950/20 dark:border-purple-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-purple-800 dark:text-purple-300 block">
+                        Preço 3 (Especial)
+                      </span>
+                      <span className="text-[10px] text-purple-600 dark:text-purple-400">
+                        Clientes Corporativos / Volume Alto
+                      </span>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] bg-purple-100 text-purple-800 border-purple-300"
+                    >
+                      Tabela 3
+                    </Badge>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Preço de Venda / Base (R$)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.p3_fixed_price}
+                      onChange={(e) => setForm({ ...form, p3_fixed_price: e.target.value })}
+                      placeholder="Deixe vazio para herdar P1"
+                      className="mt-0.5 text-xs font-semibold text-purple-700 dark:text-purple-300 bg-white dark:bg-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Preço Mínimo (R$)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.p3_min_price}
+                      onChange={(e) => setForm({ ...form, p3_min_price: e.target.value })}
+                      placeholder="Deixe vazio para herdar P1"
+                      className="mt-0.5 text-xs bg-white dark:bg-slate-900"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-purple-200/60 dark:border-purple-900/60 text-[10px]">
+                    <div>
+                      <span className="text-slate-600 dark:text-slate-400 block font-medium">
+                        Fator Mat.
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        value={form.p3_material_factor}
+                        onChange={(e) => setForm({ ...form, p3_material_factor: e.target.value })}
+                        className="mt-0.5 text-xs h-7 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-slate-600 dark:text-slate-400 block font-medium">
+                        Fator Acrésc.
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        value={form.p3_acrescimos_factor}
+                        onChange={(e) => setForm({ ...form, p3_acrescimos_factor: e.target.value })}
+                        className="mt-0.5 text-xs h-7 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preenchimento automático opcional a partir de P1 */}
+                  <div className="pt-2 border-t border-purple-200 dark:border-purple-800">
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        type="number"
+                        step="1"
+                        value={p3FillPct}
+                        onChange={(e) => setP3FillPct(Number(e.target.value))}
+                        className="w-16 h-7 text-[11px] bg-white dark:bg-slate-900 text-center font-bold"
+                      />
+                      <span className="text-[10px] text-slate-500 font-bold">%</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const baseP1 = Number(form.p1_fixed_price || form.fixed_price || 0)
+                          const minP1 = Number(form.p1_min_price || form.min_price || 0)
+                          if (baseP1 > 0) {
+                            const newPrice = Number((baseP1 * (1 + p3FillPct / 100)).toFixed(2))
+                            const newMin =
+                              minP1 > 0 ? Number((minP1 * (1 + p3FillPct / 100)).toFixed(2)) : ''
+                            setForm((prev) => ({
+                              ...prev,
+                              p3_fixed_price: Math.max(0, newPrice),
+                              p3_min_price: newMin !== '' ? Math.max(0, newMin) : '',
+                            }))
+                            toast({
+                              title: 'Preço 3 preenchido',
+                              description: `Valores gerados com ${p3FillPct}% a partir de Preço 1. Ajuste livremente.`,
+                            })
+                          } else {
+                            toast({
+                              title: 'Preço 1 vazio',
+                              description: 'Defina o Preço 1 antes de calcular a sugestão.',
+                              variant: 'destructive',
+                            })
+                          }
+                        }}
+                        className="text-[10px] h-7 px-2 border-purple-300 text-purple-700 hover:bg-purple-100 flex-1"
+                      >
+                        Sugerir de P1
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Default Dimensions Box */}

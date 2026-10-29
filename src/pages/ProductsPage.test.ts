@@ -81,6 +81,7 @@ export function buildProductFormData(productData: {
  * Função pura que espelha exatamente a lógica de duplicação implementada em handleDuplicateProduct
  */
 export function prepareDuplicateProductForm(prod: QuoteProduct) {
+  const pTables = prod.price_tables || {}
   return {
     editingProduct: null,
     isDuplicating: true,
@@ -89,6 +90,8 @@ export function prepareDuplicateProductForm(prod: QuoteProduct) {
     form: {
       name: `${prod.name} - Cópia`,
       category: prod.category,
+      sku: '', // Regra obrigatória: duplicação copia configurações mas deixa SKU vazio
+      category_id: prod.category_id || '',
       description: prod.description || '',
       main_material_id: prod.main_material_id || '',
       calc_rule: prod.calc_rule,
@@ -105,6 +108,7 @@ export function prepareDuplicateProductForm(prod: QuoteProduct) {
       internal_notes: prod.internal_notes || '',
       is_active: prod.is_active,
       additionals: prod.additionals ? [...prod.additionals] : [],
+      price_tables: pTables,
     },
   }
 }
@@ -701,5 +705,43 @@ describe('Cálculo de Preço de Venda Próprio por m² (quote_products.fixed_pri
     expect(resTipo4.applied_unit_price).toBe(150.0)
     expect(resTipo4.item_total_sale).toBe(150.0)
     expect(resTipo4.item_total_cost).toBe(50.0)
+  })
+
+  it('BLOCO 1: duplicação de produto copia configurações mas deixa SKU vazio', () => {
+    const originalProd: QuoteProduct = {
+      id: 'prod_master_1',
+      name: 'Banner Lona 440g',
+      sku: 'BAN-440-ORIGINAL',
+      category: 'Comunicação Visual',
+      category_id: 'cat_loja_123',
+      calc_rule: 'm2',
+      min_price: 35.0,
+      fixed_price: 80.0,
+      price_tables: {
+        preco_1: { fixed_price: 80.0, min_price: 35.0, material_factor: 1, acrescimos_factor: 1 },
+        preco_2: {
+          fixed_price: 72.0,
+          min_price: 31.5,
+          material_factor: 0.95,
+          acrescimos_factor: 1,
+        },
+        preco_3: {
+          fixed_price: 68.0,
+          min_price: 30.0,
+          material_factor: 0.9,
+          acrescimos_factor: 0.9,
+        },
+      },
+      is_active: true,
+      created: '2026-01-01',
+      updated: '2026-01-01',
+    }
+
+    const dup = prepareDuplicateProductForm(originalProd)
+    expect(dup.form.name).toBe('Banner Lona 440g - Cópia')
+    expect(dup.form.sku).toBe('') // SKU VAZIO NA DUPLICAÇÃO
+    expect(dup.form.category_id).toBe('cat_loja_123')
+    expect(dup.form.price_tables.preco_2?.fixed_price).toBe(72.0)
+    expect(dup.form.price_tables.preco_3?.fixed_price).toBe(68.0)
   })
 })

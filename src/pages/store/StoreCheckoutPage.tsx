@@ -61,6 +61,17 @@ export const StoreCheckoutPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'credit_card'>('pix')
   const [notes, setNotes] = useState('')
 
+  // Estado para alertar o comprador de alteração de preço no checkout (Bloco 4)
+  const [priceChangeWarning, setPriceChangeWarning] = useState<{
+    mismatches: Array<{
+      product_id: string
+      product_name: string
+      old_total_price: number
+      current_total_price: number
+    }>
+    new_subtotal: number
+  } | null>(null)
+
   // Estado de Validação do Servidor e Opções de Frete
   const [isValidating, setIsValidating] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -165,6 +176,8 @@ export const StoreCheckoutPage: React.FC = () => {
       const itemsPayload = cart.map((it) => ({
         product_id: it.product_id,
         quantity: it.quantity,
+        unit_price: it.unit_price,
+        total_price: it.total_price,
         width: it.width,
         height: it.height,
         selected_options: it.selected_options,
@@ -191,6 +204,7 @@ export const StoreCheckoutPage: React.FC = () => {
           client_request_id: clientRequestId,
           delivery_method: deliveryMethod,
           payment_method: paymentMethod,
+          price_change_acknowledged: Boolean(priceChangeWarning),
           customer: {
             name: customerName,
             email: customerEmail,
@@ -215,11 +229,30 @@ export const StoreCheckoutPage: React.FC = () => {
         throw new Error(res?.error || 'Não foi possível registrar o pedido.')
       }
     } catch (err: any) {
-      toast({
-        title: 'Falha no checkout',
-        description: err?.message || 'Ocorreu um erro ao processar seu pedido. Tente novamente.',
-        variant: 'destructive',
-      })
+      // Bloco 4: Se o servidor detectou alteração de preço, informar o comprador antes de concluir
+      if (
+        err?.status === 409 ||
+        err?.response?.data?.error === 'price_changed' ||
+        err?.data?.error === 'price_changed'
+      ) {
+        const errorData = err?.data || err?.response?.data || {}
+        setPriceChangeWarning({
+          mismatches: errorData.mismatches || [],
+          new_subtotal: errorData.new_subtotal || cartSubtotal,
+        })
+        toast({
+          title: 'Preços atualizados',
+          description:
+            'Alguns valores foram ajustados pelo catálogo. Revise o resumo e clique novamente para confirmar.',
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'Falha no checkout',
+          description: err?.message || 'Ocorreu um erro ao processar seu pedido. Tente novamente.',
+          variant: 'destructive',
+        })
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -237,6 +270,38 @@ export const StoreCheckoutPage: React.FC = () => {
       </div>
 
       <form onSubmit={handleFinalizeOrder}>
+        {/* Alerta de Atualização de Preço do Catálogo (Bloco 4) */}
+        {priceChangeWarning && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 shadow-sm space-y-2">
+            <div className="flex items-center gap-2 font-bold text-sm text-amber-800">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <span>Atenção: Os preços de alguns itens foram atualizados pelo catálogo</span>
+            </div>
+            <p className="text-xs text-amber-700">
+              O servidor revalidou os valores conforme as tabelas vigentes. O pedido não aplicará os
+              valores antigos.
+            </p>
+            <div className="space-y-1.5 pt-1 text-xs">
+              {priceChangeWarning.mismatches.map((m) => (
+                <div
+                  key={m.product_id}
+                  className="flex items-center justify-between bg-white/80 p-2 rounded border border-amber-200"
+                >
+                  <span className="font-semibold text-slate-800">{m.product_name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="line-through text-slate-400">
+                      R$ {m.old_total_price.toFixed(2)}
+                    </span>
+                    <span className="font-bold text-emerald-700">
+                      R$ {m.current_total_price.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Formulário Principal */}
           <div className="lg:col-span-2 space-y-6">
